@@ -1,0 +1,27 @@
+{
+  "name": "@asaidimu/hermes",
+  "version": "0.0.0",
+  "description": "Polyglot workflow engine: Go runtime + JS node catalog, handles, and wire types.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.2",
+    "typescript": "^5.6.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

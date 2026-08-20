@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+set -eu
+
+# Check if required arguments are provided
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <session> <folder>" >&2
+    exit 1
+fi
+
+session="$1"
+folder="$2"
+
+# Change to the specified folder
+cd "$folder" || { echo "Failed to change to directory: $folder" >&2; exit 1; }
+
+# Create a temporary shell configuration file with the alias
+temp_rc=$(mktemp)
+cat << EOF > "$temp_rc"
+alias go='nocorrect go'
+alias make='nocorrect make'
+EOF
+
+# Set the default-command for the tmux session to source the temporary rc file
+tmux set-option -t "$session" default-command "source $temp_rc; zsh"
+
+# Send command to open the editor in the first window
+tmux send-keys -t "$session:1" "$EDITOR" Enter
+
+# Create new windows for workspace and compiler
+tmux new-window -d -n workspace -t "$session:2"
+tmux new-window -d -n compiler -t "$session:8"
+
+# Send command to open ai agent in the second window
+tmux send-keys -t "$session:2" "opencode --continue" Enter
+
+# vim:set ft=sh:
+
+
