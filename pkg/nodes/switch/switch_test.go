@@ -54,3 +54,31 @@ func TestSwitchEvalErrorFallsToDefault(t *testing.T) {
 		t.Errorf("error fallback: got %q", got)
 	}
 }
+
+// Bare-key tests: value without state. prefix resolves via StatePathExpr.
+
+func TestSwitchBareKey(t *testing.T) {
+	cfg := map[string]any{
+		"value":         "role",
+		"cases":         `[{"match":"admin","id":"admin_case","label":"Admin"},{"match":"user","id":"user_case","label":"User"}]`,
+		"defaultHandle": "default",
+	}
+	if got := route(t, cfg, map[string]any{"role": "admin"}); got != "admin_case" {
+		t.Errorf("bare key match: got %q", got)
+	}
+	if got := route(t, cfg, map[string]any{"role": "guest"}); got != "default" {
+		t.Errorf("bare key default: got %q", got)
+	}
+}
+
+func TestSwitchBareKeyNested(t *testing.T) {
+	cfg := map[string]any{
+		"value":         "user.role",
+		"cases":         `[{"match":"editor","id":"editor_case","label":"Editor"}]`,
+		"defaultHandle": "default",
+	}
+	state := map[string]any{"user": map[string]any{"role": "editor"}}
+	if got := route(t, cfg, state); got != "editor_case" {
+		t.Errorf("nested bare key match: got %q", got)
+	}
+}

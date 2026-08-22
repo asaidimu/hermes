@@ -48,6 +48,7 @@ var Node = nodekit.NodeDefinition{
 			{Type: nodekit.HandleSource, ID: "do", Label: "do"},
 		}
 	},
+	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"done","label":"done","kind":"executable"},{"type":"source","id":"do","label":"do","kind":"executable"}]`,
 	Router: router,
 }
 

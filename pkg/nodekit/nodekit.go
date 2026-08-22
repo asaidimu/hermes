@@ -53,6 +53,11 @@ type NodeRunner func(ctx context.Context, nCtx NodeRunContext) (store.DocumentMu
 // NodeRouter evaluates routing logic for branching nodes (if, switch, etc.).
 type NodeRouter func(ctx context.Context, nCtx NodeRunContext) (string, error)
 
+// NodeRouterFunc is an alternative routing interface that returns a
+// RoutingInstruction directly, bypassing handle resolution. Use this for
+// nodes that need non-jump routing (e.g. pause).
+type NodeRouterFunc func(ctx context.Context, nCtx NodeRunContext) (pipeline.RoutingInstruction, error)
+
 // NodeResourceInit initializes a resource handle at run scope.
 type NodeResourceInit func(ctx context.Context, nCtx NodeRunContext) (any, error)
 
@@ -70,10 +75,17 @@ type NodeDefinition struct {
 	Type         string                                   `json:"type,omitempty"`
 	BodyHandle   string                                   `json:"bodyHandle,omitempty"`
 	Handles      func(config map[string]any) []HandleSpec `json:"-"`
+	HandlesJS    string                                   `json:"-"` // JS body of (config) => HandleSpec[] for /handles.js
 	Run          NodeRunner                               `json:"-"`
 	Router       NodeRouter                               `json:"-"`
-	ResourceInit NodeResourceInit                         `json:"-"`
-	ResourceEnd  NodeResourceCleanup                      `json:"-"`
+	RouterFunc   NodeRouterFunc                           `json:"-"`
+	// PipelinesRouterFunc is called after a bounded node's body completes.
+	// It receives the body results and returns a RoutingInstruction.
+	// This allows nodes like pause to check for buffered events and
+	// either resume immediately or pause the pipeline.
+	PipelinesRouterFunc func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) `json:"-"`
+	ResourceInit        NodeResourceInit                                                                                                           `json:"-"`
+	ResourceEnd         NodeResourceCleanup                                                                                                        `json:"-"`
 }
 
 // CompileConfigSchema compiles a node's ConfigSchema (an anansi schema) through

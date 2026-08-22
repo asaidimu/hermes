@@ -42,10 +42,19 @@ func BuildTrigger(nodeID string, def NodeDefinition, config map[string]any) (*pi
 		return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
 			fmt.Sprintf("Trigger node %s of kind %q has no buildTrigger implementation", nodeID, def.Kind))
 	}
+	event := "__manual__"
+	if e, ok := config["event"].(string); ok && e != "" {
+		event = e
+	}
+	var cron string
+	if c, ok := config["cron"].(string); ok && c != "" {
+		cron = c
+	}
 	return &pipeline.WorkflowTrigger{
 		ID:        nodeID,
-		Event:     "__manual__",
+		Event:     event,
 		Predicate: func(events.PipelineEvent) bool { return true },
+		Cron:      cron,
 	}, nil
 }
 
@@ -89,6 +98,33 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 	}
 }
 
+// buildRouterFunc wraps a NodeRouterFunc into a pipeline.StepStageRouter.
+// Unlike BuildRouter, it returns the RoutingInstruction directly without
+// handle resolution, enabling non-jump routing (e.g. pause).
+func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any) pipeline.StepStageRouter {
+	return func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+		if def.RouterFunc == nil {
+			return nil, nil
+		}
+		state := doc.Data()
+		var results map[string]any
+		if r, ok := state["results"].(map[string]any); ok {
+			results = r
+		}
+		cfg, err := prepareNodeConfig(def, config, state, nil, results)
+		if err != nil {
+			return nil, err
+		}
+		return def.RouterFunc(ctx, NodeRunContext{
+			NodeID:  nodeID,
+			Config:  cfg,
+			State:   state,
+			Results: results,
+			Store:   st,
+		})
+	}
+}
+
 // defaultStageRouter advances to the default next target. It mirrors the TS
 // default stage router (resolveHandle("") ?? null); the terminate-on-error
 // branch is handled by the engine, which fails the pipeline on step errors
@@ -115,7 +151,9 @@ func BuildStage(nodeID string, def NodeDefinition, config map[string]any, resour
 	if def.Run != nil {
 		stage.Steps = map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)}
 	}
-	if def.Router != nil {
+	if def.RouterFunc != nil {
+		stage.Router = buildRouterFunc(nodeID, def, config)
+	} else if def.Router != nil {
 		stage.Router = BuildRouter(nodeID, def, config, resolveHandle)
 	} else {
 		stage.Router = defaultStageRouter(config, resolveHandle)
@@ -176,6 +214,20 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 				return nil, err
 			}
 
+			// If PipelinesRouterFunc is defined, use it directly
+			if def.PipelinesRouterFunc != nil {
+				return def.PipelinesRouterFunc(ctx, NodeRunContext{
+					NodeID:    nodeID,
+					Config:    cfg,
+					State:     state,
+					Results:   resultsByID,
+					Errors:    errors,
+					Resources: res,
+					Store:     st,
+				}, results)
+			}
+
+			// Default PipelinesRouter logic
 			var handle string
 			if def.Router != nil {
 				handle, err = def.Router(ctx, NodeRunContext{

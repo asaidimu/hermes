@@ -311,7 +311,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 
 		// Pause routing stops the stage; no stage:success / router:evaluated.
 		if pauseInst, ok := instruction.(PauseInstruction); ok {
-			return r.handlePause(ctx, stage, pauseInst)
+			return r.handlePause(ctx, stage, pauseInst, currentIdx)
 		}
 
 		// stage:success carries the nextInstruction the client routes on.
@@ -350,7 +350,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			return r.failStage(ctx, pipePath, stage, stageStart, startTime, evalErr)
 		}
 		if shouldPause {
-			return r.handlePause(ctx, stage, instruction.(PauseInstruction))
+			return r.handlePause(ctx, stage, instruction.(PauseInstruction), currentIdx)
 		}
 		if decision == "terminate" {
 			break
@@ -527,14 +527,21 @@ func (r *RunContextImpl) evaluateInstruction(
 	}
 }
 
-func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst PauseInstruction) (PipelineRunResult, error) {
+func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst PauseInstruction, currentIdx int) (PipelineRunResult, error) {
 	r.mu.Lock()
 	r.paused = true
 	r.mu.Unlock()
 
-	nextStageID := stage.ID
-	if pauseInst.StageID != "" {
-		nextStageID = pauseInst.StageID
+	// Determine the resume stage: use the explicit StageID if provided,
+	// otherwise advance to the next stage after the current one.
+	resumeStageID := pauseInst.StageID
+	if resumeStageID == "" {
+		nextIdx := currentIdx + 1
+		if nextIdx < len(r.definition.Stages) {
+			resumeStageID = r.definition.Stages[nextIdx].ID
+		} else {
+			resumeStageID = stage.ID // last stage — will terminate on resume
+		}
 	}
 
 	ckpt := PipelineCheckpoint{
@@ -543,8 +550,13 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 		PausedAtStageID:    stage.ID,
 		PausedAtStageLabel: stage.Label,
 		ResumeAt: EntryAddress{
-			Stage: nextStageID,
+			Stage: resumeStageID,
 		},
+		WaitForEvent:  pauseInst.WaitForEvent,
+		WaitForEvents: pauseInst.WaitForEvents,
+		WaitMode:      pauseInst.WaitMode,
+		Timeout:       pauseInst.Timeout.Milliseconds(),
+		Cron:          pauseInst.Cron,
 	}
 
 	if pauseInst.Persist {
@@ -560,17 +572,23 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 		},
 		Payload: map[string]any{
 			"pausedAtStageId": stage.ID,
-			"resumeAtStageId": nextStageID,
+			"resumeAtStageId": resumeStageID,
 			"timeout":         pauseInst.Timeout.Milliseconds(),
+			"waitForEvent":    pauseInst.WaitForEvent,
+			"waitForEvents":   pauseInst.WaitForEvents,
+			"waitMode":        pauseInst.WaitMode,
 		},
 	})
 
 	return PipelineRunResult{
-		Status:     "paused",
-		RunID:      r.runID,
-		PipelineID: r.definition.ID,
-		FinalDoc:   r.store.Document(),
-		Checkpoint: &ckpt,
+		Status:        "paused",
+		RunID:         r.runID,
+		PipelineID:    r.definition.ID,
+		FinalDoc:      r.store.Document(),
+		Checkpoint:    &ckpt,
+		WaitForEvent:  pauseInst.WaitForEvent,
+		WaitForEvents: pauseInst.WaitForEvents,
+		WaitMode:      pauseInst.WaitMode,
 	}, nil
 }
 

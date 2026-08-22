@@ -23,4 +23,5 @@ var Node = nodekit.NodeDefinition{
 			{Type: nodekit.HandleSource, ID: "db", Kind: nodekit.HandleResource},
 		}
 	},
+	HandlesJS: `() => [{"type":"source","id":"db","kind":"resource"}]`,
 }

@@ -62,6 +62,27 @@ var Node = nodekit.NodeDefinition{
 		}
 		return specs
 	},
+	HandlesJS: `(config) => {
+  const specs = [{ type: "target", id: "", label: "in" }];
+  try {
+    const parsed = JSON.parse(config.cases || "[]");
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item) => {
+        if (item.id) {
+          specs.push({ type: "source", id: String(item.id), label: item.label === "" ? "\"\"" : String(item.label) });
+        }
+      });
+    } else {
+      for (const [match, label] of Object.entries(parsed)) {
+        specs.push({ type: "source", id: String(label), label: String(match) });
+      }
+    }
+  } catch {}
+  if (config.defaultHandle) {
+    specs.push({ type: "source", id: String(config.defaultHandle), label: "default" });
+  }
+  return specs;
+}`,
 	Router: router,
 }
 

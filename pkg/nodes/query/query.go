@@ -32,6 +32,7 @@ var Node = nodekit.NodeDefinition{
 			{Type: nodekit.HandleTarget, ID: "service", Kind: nodekit.HandleResource, Label: "Database Service"},
 		}
 	},
+	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"},{"type":"target","id":"service","kind":"resource","label":"Database Service"}]`,
 	Run: run,
 }
 

@@ -18,7 +18,7 @@ func TestRegisteredKinds(t *testing.T) {
 
 	want := []string{
 		"arithmetic", "code", "database", "delay", "for-each", "gemini", "http",
-		"if", "query", "switch", "transformer", "trigger", "try-catch", "while",
+		"if", "pause", "query", "switch", "transformer", "trigger", "try-catch", "while",
 	}
 	for _, kind := range want {
 		if _, ok := got[kind]; !ok {

@@ -29,10 +29,17 @@ type SubPipelineAddress struct {
 type PipelineCheckpoint struct {
 	RunID              string       `json:"runId"`
 	PipelineID         string       `json:"pipelineId"`
-	ResumeAt           EntryAddress `json:"resumeAt"`
 	PausedAtStageID    string       `json:"pausedAtStageId"`
 	PausedAtStageLabel string       `json:"pausedAtStageLabel"`
-	PausedOn           string       `json:"pausedOn"` // ISO-8601
+	PausedOn           string       `json:"pausedOn"` // ISO-8606
+	ResumeAt           EntryAddress `json:"resumeAt"`
+	WaitForEvent       string       `json:"waitForEvent,omitempty"`
+	WaitForEvents      []string     `json:"waitForEvents,omitempty"`
+	WaitMode           string       `json:"waitMode,omitempty"` // "any" or "all"
+	Timeout            int64        `json:"timeout,omitempty"`  // milliseconds, 0 = no timeout
+	ReceivedEvents     []string     `json:"receivedEvents,omitempty"`
+	Cron               string       `json:"cron,omitempty"`        // cron expression for auto-resume (e.g. "@every 5m")
+	ResumeReason       string       `json:"resumeReason,omitempty"` // "event" or "timeout"
 }
 
 // WriteCheckpoint saves a checkpoint into the Anansi document metadata.

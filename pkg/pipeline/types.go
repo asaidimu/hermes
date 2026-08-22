@@ -99,9 +99,13 @@ type (
 	JumpInstruction      struct{ StageID string }
 	JumpToInstruction    struct{ Address EntryAddress }
 	PauseInstruction     struct {
-		StageID string
-		Timeout time.Duration
-		Persist bool
+		StageID      string
+		Timeout      time.Duration
+		Persist      bool
+		WaitForEvent  string   // single event (backward compat)
+		WaitForEvents []string // multiple events to wait for
+		WaitMode      string   // "any" (default) or "all"
+		Cron          string   // cron expression for auto-resume (e.g. "@every 5m")
 	}
 )
 
@@ -117,6 +121,26 @@ func Jump(stageID string) RoutingInstruction      { return JumpInstruction{Stage
 func JumpTo(addr EntryAddress) RoutingInstruction { return JumpToInstruction{Address: addr} }
 func Pause(stageID string, timeout time.Duration) RoutingInstruction {
 	return PauseInstruction{StageID: stageID, Timeout: timeout, Persist: true}
+}
+
+// PauseForEvent returns a PauseInstruction that waits for a specific event type.
+func PauseForEvent(eventType string, timeout time.Duration) RoutingInstruction {
+	return PauseInstruction{StageID: "", Timeout: timeout, Persist: true, WaitForEvent: eventType}
+}
+
+// PauseForEvents returns a PauseInstruction that waits for multiple event types.
+// mode should be "any" (resume when any event arrives) or "all" (resume when all arrive).
+func PauseForEvents(events []string, mode string, timeout time.Duration) RoutingInstruction {
+	if mode == "" {
+		mode = "any"
+	}
+	return PauseInstruction{StageID: "", Timeout: timeout, Persist: true, WaitForEvents: events, WaitMode: mode}
+}
+
+// PauseForCron returns a PauseInstruction that auto-resumes after a cron delay.
+// The cron expression supports "@every 5m", "30 9 * * *", etc.
+func PauseForCron(eventType string, cron string) RoutingInstruction {
+	return PauseInstruction{StageID: "", Timeout: 0, Persist: true, WaitForEvent: eventType, Cron: cron}
 }
 
 // StepStageRouter evaluates routing instructions based on the document after stage steps complete.
@@ -147,12 +171,15 @@ type PipelineDefinition struct {
 
 // PipelineRunResult represents the terminal or paused state of a pipeline execution.
 type PipelineRunResult struct {
-	Status     string              `json:"status"` // "succeeded" | "paused" | "failed" | "aborted"
-	RunID      string              `json:"runId"`
-	PipelineID string              `json:"pipelineId"`
-	FinalDoc   *document.Document  `json:"-"`
-	Checkpoint *PipelineCheckpoint `json:"checkpoint,omitempty"`
-	Error      error               `json:"error,omitempty"`
+	Status        string              `json:"status"` // "succeeded" | "paused" | "failed" | "aborted"
+	RunID         string              `json:"runId"`
+	PipelineID    string              `json:"pipelineId"`
+	FinalDoc      *document.Document  `json:"-"`
+	Checkpoint    *PipelineCheckpoint `json:"checkpoint,omitempty"`
+	WaitForEvent  string              `json:"waitForEvent,omitempty"`  // single event (backward compat)
+	WaitForEvents []string            `json:"waitForEvents,omitempty"` // multiple events
+	WaitMode      string              `json:"waitMode,omitempty"`      // "any" or "all"
+	Error         error               `json:"error,omitempty"`
 }
 
 // RunContext manages the execution lifecycle of a pipeline.

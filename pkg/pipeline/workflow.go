@@ -11,6 +11,7 @@ type WorkflowTrigger struct {
 	ID        string
 	Event     string
 	Predicate func(event events.PipelineEvent) bool
+	Cron      string // cron expression for recurring triggers (e.g. "@every 5m")
 }
 
 // Service declares a run-scoped (or workflow-scoped) resource dependency that

@@ -36,6 +36,7 @@ var Node = nodekit.NodeDefinition{
 			{Type: nodekit.HandleSource, ID: ""},
 		}
 	},
+	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
 	Run: run,
 }
 

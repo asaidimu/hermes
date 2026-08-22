@@ -137,8 +137,9 @@ func TestFrontendRESTServerRuntimeAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "application/javascript; charset=utf-8", w.Header().Get("Content-Type"))
 	js := w.Body.String()
-	require.Contains(t, js, `"trigger": (config) =>`)
-	require.Contains(t, js, `"switch": (config) =>`)
+	require.Contains(t, js, `"trigger":`)
+	require.Contains(t, js, `"switch":`)
+	require.Contains(t, js, `"if":`)
 
 	// POST /compile returns a metadata view of the compiled workflow.
 	body, _ = json.Marshal(wireGraph())

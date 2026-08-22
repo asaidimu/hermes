@@ -19,12 +19,15 @@ var Node = nodekit.NodeDefinition{
 		"version": "1.0.0",
 		"name": "trigger",
 		"fields": {
-			"initialState": { "name": "initialState", "type": "record", "required": true }
+			"event": { "name": "event", "type": "string", "default": "__manual__" },
+			"initialState": { "name": "initialState", "type": "record", "required": true },
+			"cron": { "name": "cron", "type": "string", "description": "Cron expression for recurring triggers (e.g. '@every 5m', '30 9 * * *'). When set, the trigger fires automatically on schedule." }
 		}
 	}`),
 	Handles: func(config map[string]any) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{{Type: nodekit.HandleSource, ID: ""}}
 	},
+	HandlesJS: `() => [{"type":"source","id":"","kind":"executable"}]`,
 	Run: run,
 }
 

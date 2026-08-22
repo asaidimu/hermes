@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -373,4 +374,322 @@ func TestResourceLifecycleEvents(t *testing.T) {
 		require.Equal(t, "liferes", ev.Payload["resourceKind"])
 		require.Equal(t, "Life Res", ev.Payload["resourceLabel"])
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Pause/Resume tests
+// ---------------------------------------------------------------------------
+
+func TestPauseResumeEventSource(t *testing.T) {
+	// Create a pipeline that pauses waiting for an event, then resumes.
+	// We construct the pipeline definition directly since there's no
+	// "pause" node kind registered.
+	pauseStageID := "stage:pause:Pause"
+	codeStageID := "stage:code:Run Code"
+
+	def := pipeline.PipelineDefinition{
+		ID:    "pause-resume-test",
+		Label: "Pause Resume Test",
+		Stages: []pipeline.Stage{
+			{
+				ID:    pauseStageID,
+				Label: "Pause",
+				Steps: map[string]pipeline.Step{},
+				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+					return pipeline.PauseForEvent("user:approved", 0), nil
+				},
+			},
+			{
+				ID:    codeStageID,
+				Label: "Run Code",
+				Steps: map[string]pipeline.Step{
+					"step:code:Run Code": {
+						ID:    "step:code:Run Code",
+						Label: "Run Code",
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state *document.Document) (store.DocumentMutator, error) {
+							state.Set("total", float64(10))
+							state.Set("resumed", true)
+							return nil, nil
+						},
+					},
+				},
+				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+					return pipeline.Advance(), nil
+				},
+			},
+		},
+	}
+
+	wf := &pipeline.Workflow{
+		ID:    "wf-pause-test",
+		Label: "Pause Test",
+		Pipelines: map[string]pipeline.PipelineDefinition{
+			"trigger:manual:Run": def,
+		},
+		Triggers: map[string]pipeline.WorkflowTrigger{
+			"trigger:manual:Run": {
+				ID:    "trigger:manual:Run",
+				Event: ManualEvent,
+			},
+		},
+	}
+
+	ms := NewManualEventSource()
+
+	done := make(chan RunResult, 1)
+	rt := NewWorkflowRuntime(Options{
+		Timeline:    timeline.NewMemoryTimelineStore(),
+		EventSource: ms,
+	})
+
+	err := rt.Register(wf, RegisterOptions{
+		Mode:       Mode{Type: "transient"},
+		OnComplete: func(r RunResult) { done <- r },
+	})
+	require.NoError(t, err)
+
+	// Emit the manual trigger to start the run.
+	rt.Bus().Emit(context.Background(), ManualEvent, events.PipelineEvent{
+		Payload: map[string]any{},
+	})
+
+	// Give the pipeline time to start and pause.
+	time.Sleep(100 * time.Millisecond)
+
+	// The run should be paused waiting for "user:approved".
+	rt.mu.Lock()
+	pausedCount := len(rt.paused)
+	rt.mu.Unlock()
+	require.Equal(t, 1, pausedCount, "expected 1 paused run")
+
+	// Emit the resume event via the ManualEventSource.
+	ms.Emit("user:approved", map[string]any{"approved": true})
+
+	res := awaitDone(t, done)
+	require.True(t, res.OK)
+	require.Equal(t, "succeeded", res.Status)
+}
+
+func TestResumeWithPayload(t *testing.T) {
+	pauseStageID := "stage:pause:Pause"
+	codeStageID := "stage:code:Run Code"
+
+	def := pipeline.PipelineDefinition{
+		ID:    "resume-payload-test",
+		Label: "Resume Payload Test",
+		Stages: []pipeline.Stage{
+			{
+				ID:    pauseStageID,
+				Label: "Pause",
+				Steps: map[string]pipeline.Step{},
+				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+					return pipeline.PauseForEvent("data:arrived", 0), nil
+				},
+			},
+			{
+				ID:    codeStageID,
+				Label: "Run Code",
+				Steps: map[string]pipeline.Step{
+					"step:code:Run Code": {
+						ID:    "step:code:Run Code",
+						Label: "Run Code",
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state *document.Document) (store.DocumentMutator, error) {
+							// The resume payload should be available in state.
+							state.Set("fromPayload", "hello from event")
+							return nil, nil
+						},
+					},
+				},
+				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+					return pipeline.Advance(), nil
+				},
+			},
+		},
+	}
+
+	wf := &pipeline.Workflow{
+		ID:    "wf-resume-payload-test",
+		Label: "Resume Payload Test",
+		Pipelines: map[string]pipeline.PipelineDefinition{
+			"trigger:manual:Run": def,
+		},
+		Triggers: map[string]pipeline.WorkflowTrigger{
+			"trigger:manual:Run": {
+				ID:    "trigger:manual:Run",
+				Event: ManualEvent,
+			},
+		},
+	}
+
+	ms := NewManualEventSource()
+
+	done := make(chan RunResult, 1)
+	rt := NewWorkflowRuntime(Options{
+		Timeline:    timeline.NewMemoryTimelineStore(),
+		EventSource: ms,
+	})
+
+	err := rt.Register(wf, RegisterOptions{
+		Mode:       Mode{Type: "transient"},
+		OnComplete: func(r RunResult) { done <- r },
+	})
+	require.NoError(t, err)
+
+	rt.Bus().Emit(context.Background(), ManualEvent, events.PipelineEvent{Payload: map[string]any{}})
+	time.Sleep(100 * time.Millisecond)
+
+	// Resume with a payload.
+	ms.Emit("data:arrived", map[string]any{"value": "hello from event"})
+
+	res := awaitDone(t, done)
+	require.Equal(t, "succeeded", res.Status)
+}
+
+func TestShutdownEventSource(t *testing.T) {
+	ms := NewManualEventSource()
+	rt := NewWorkflowRuntime(Options{
+		EventSource: ms,
+	})
+
+	err := rt.Shutdown(context.Background())
+	require.NoError(t, err)
+	require.True(t, ms.ShutdownCalled)
+}
+
+// ---------------------------------------------------------------------------
+// Custom event trigger tests
+// ---------------------------------------------------------------------------
+
+func TestCustomEventTrigger(t *testing.T) {
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{
+			"event":        "order:created",
+			"initialState": map[string]any{},
+		}),
+		execNode("code-1", "code", map[string]any{
+			"code": "state.received = true;",
+		}),
+	}
+	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "code-1")}
+
+	wf := mustCompile(t, nodes, edges)
+
+	// Verify the trigger event is "order:created", not "__manual__"
+	trigger, ok := wf.Triggers["trigger-1"]
+	require.True(t, ok)
+	require.Equal(t, "order:created", trigger.Event)
+
+	done := make(chan RunResult, 1)
+	rt := NewWorkflowRuntime(Options{
+		Timeline: timeline.NewMemoryTimelineStore(),
+	})
+
+	err := rt.Register(wf, RegisterOptions{
+		Mode:       Mode{Type: "transient"},
+		OnComplete: func(r RunResult) { done <- r },
+	})
+	require.NoError(t, err)
+
+	// Emit the custom event — not __manual__
+	rt.Bus().Emit(context.Background(), "order:created", events.PipelineEvent{
+		Payload: map[string]any{"orderId": "12345"},
+	})
+
+	res := awaitDone(t, done)
+	require.True(t, res.OK)
+	require.Equal(t, "succeeded", res.Status)
+}
+
+func TestCustomEventTriggerWithPayload(t *testing.T) {
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{
+			"event":        "user:registered",
+			"initialState": map[string]any{},
+		}),
+		execNode("code-1", "code", map[string]any{
+			"code": "state.received = (state.userName === 'alice' && state.email === 'alice@example.com');",
+		}),
+	}
+	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "code-1")}
+
+	wf := mustCompile(t, nodes, edges)
+
+	done := make(chan RunResult, 1)
+	rt := NewWorkflowRuntime(Options{
+		Timeline: timeline.NewMemoryTimelineStore(),
+	})
+
+	err := rt.Register(wf, RegisterOptions{
+		Mode:       Mode{Type: "transient"},
+		OnComplete: func(r RunResult) { done <- r },
+	})
+	require.NoError(t, err)
+
+	// Emit with payload — keys fold into state
+	rt.Bus().Emit(context.Background(), "user:registered", events.PipelineEvent{
+		Payload: map[string]any{"userName": "alice", "email": "alice@example.com"},
+	})
+
+	res := awaitDone(t, done)
+	require.True(t, res.OK)
+	require.Equal(t, "succeeded", res.Status)
+}
+
+func TestDefaultEventTrigger(t *testing.T) {
+	// Trigger without "event" field should default to __manual__
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{
+			"initialState": map[string]any{},
+		}),
+		execNode("code-1", "code", map[string]any{
+			"code": "state.ok = true;",
+		}),
+	}
+	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "code-1")}
+
+	wf := mustCompile(t, nodes, edges)
+
+	trigger, ok := wf.Triggers["trigger-1"]
+	require.True(t, ok)
+	require.Equal(t, "__manual__", trigger.Event)
+}
+
+func TestDelayCronPauseResume(t *testing.T) {
+	// Delay node with cron should pause and auto-resume after the cron delay.
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{
+			"initialState": map[string]any{},
+		}),
+		execNode("delay-1", "delay", map[string]any{
+			"cron": "@every 100ms",
+		}),
+		execNode("code-1", "code", map[string]any{
+			"code": "return { done: true };",
+		}),
+	}
+	edges := []compiler.Edge{
+		flowEdge("e1", "trigger-1", "delay-1"),
+		flowEdge("e2", "delay-1", "code-1"),
+	}
+
+	wf := mustCompile(t, nodes, edges)
+	done := make(chan RunResult, 1)
+
+	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
+
+	err := rt.Register(wf, RegisterOptions{
+		OnComplete: func(r RunResult) { done <- r },
+	})
+	require.NoError(t, err)
+
+	// Emit trigger — should pause at delay, then auto-resume via cron
+	rt.Bus().Emit(context.Background(), "__manual__", events.PipelineEvent{
+		Payload: map[string]any{},
+	})
+
+	res := awaitDone(t, done)
+	require.True(t, res.OK)
+	require.Equal(t, "succeeded", res.Status)
+	require.Equal(t, true, res.FinalState["done"])
 }

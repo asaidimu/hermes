@@ -24,6 +24,9 @@ type ServerConfig struct {
 	// fresh runtime with a memory timeline store is created.
 	Runtime *runtime.WorkflowRuntime
 	Logger  core.Logger
+	// EventSource is the inversion-of-control interface for wiring external
+	// events to workflow triggers. When nil, a ManualEventSource is used.
+	EventSource runtime.EventSource
 }
 
 // PipelineServer implements the frontend REST API surface backed by a
@@ -41,8 +44,9 @@ func NewPipelineServer(cfg ServerConfig) *PipelineServer {
 	rt := cfg.Runtime
 	if rt == nil {
 		rt = runtime.NewWorkflowRuntime(runtime.Options{
-			Timeline: timeline.NewMemoryTimelineStore(),
-			Logger:   cfg.Logger,
+			Timeline:     timeline.NewMemoryTimelineStore(),
+			Logger:       cfg.Logger,
+			EventSource:  cfg.EventSource,
 		})
 	}
 	return &PipelineServer{rt: rt, log: cfg.Logger}
@@ -446,7 +450,7 @@ func (s *PipelineServer) handleEmitEvent(w http.ResponseWriter, r *http.Request)
 
 // handleHandlesJS serializes the node handle functions as a JS object literal,
 // matching the contract the client evaluates: `new Function("return (" + code + ")")`.
-// Handle specs are static for most kinds; switch parses config.cases dynamically.
+// Each node definition carries a HandlesJS string — the server just emits it.
 func (s *PipelineServer) handleHandlesJS(w http.ResponseWriter, r *http.Request) {
 	reg := nodekit.Registry()
 	kinds := make([]string, 0, len(reg))
@@ -458,17 +462,10 @@ func (s *PipelineServer) handleHandlesJS(w http.ResponseWriter, r *http.Request)
 	entries := make([]string, 0, len(kinds))
 	for _, kind := range kinds {
 		def := reg[kind]
-		if kind == "switch" {
-			entries = append(entries, switchHandlesJS)
+		if def.HandlesJS == "" {
 			continue
 		}
-		specs := def.Handles(nil)
-		b, err := json.Marshal(specs)
-		if err != nil {
-			s.writeError(w, http.StatusInternalServerError, core.ErrCodeExecutionFailed, err.Error())
-			return
-		}
-		entries = append(entries, fmt.Sprintf("%s: (config) => %s", strconv.Quote(kind), b))
+		entries = append(entries, fmt.Sprintf("%s: %s", strconv.Quote(kind), def.HandlesJS))
 	}
 
 	code := "{\n" + strings.Join(entries, ",\n") + "\n}"
@@ -476,29 +473,6 @@ func (s *PipelineServer) handleHandlesJS(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	_, _ = w.Write([]byte(code))
 }
-
-// switchHandlesJS mirrors pkg/nodes/switch/switch.ts handles().
-const switchHandlesJS = `"switch": (config) => {
-  const specs = [{ type: "target", id: "", label: "in" }];
-  try {
-    const parsed = JSON.parse(config.cases || "[]");
-    if (Array.isArray(parsed)) {
-      parsed.forEach((item) => {
-        if (item.id) {
-          specs.push({ type: "source", id: String(item.id), label: item.label === "" ? "\"\"" : String(item.label) });
-        }
-      });
-    } else {
-      for (const [match, label] of Object.entries(parsed)) {
-        specs.push({ type: "source", id: String(label), label: String(match) });
-      }
-    }
-  } catch {}
-  if (config.defaultHandle) {
-    specs.push({ type: "source", id: String(config.defaultHandle), label: "default" });
-  }
-  return specs;
-}`
 
 // compileWorkflowView renders a compiled Workflow as JSON-safe metadata.
 func compileWorkflowView(wf *pipeline.Workflow) map[string]any {
