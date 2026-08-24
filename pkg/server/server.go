@@ -44,9 +44,9 @@ func NewPipelineServer(cfg ServerConfig) *PipelineServer {
 	rt := cfg.Runtime
 	if rt == nil {
 		rt = runtime.NewWorkflowRuntime(runtime.Options{
-			Timeline:     timeline.NewMemoryTimelineStore(),
-			Logger:       cfg.Logger,
-			EventSource:  cfg.EventSource,
+			Timeline:    timeline.NewMemoryTimelineStore(),
+			Logger:      cfg.Logger,
+			EventSource: cfg.EventSource,
 		})
 	}
 	return &PipelineServer{rt: rt, log: cfg.Logger}
@@ -55,6 +55,10 @@ func NewPipelineServer(cfg ServerConfig) *PipelineServer {
 func (s *PipelineServer) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	// @note #review-20260822-051 issue status=open priority=P2 tags=#review,#error-handling : JSON encoder error discarded
+	//
+	// json.NewEncoder(w).Encode(data) error is discarded. If encoding fails after
+	// WriteHeader, the client gets a partial/corrupt response. At minimum, log the error.
 	_ = json.NewEncoder(w).Encode(data)
 }
 
@@ -88,11 +92,11 @@ func (s *PipelineServer) Handler() http.Handler {
 // wireNode / wireEdge mirror the TS WorkflowNode/WorkflowEdge shapes the client
 // posts. kind/config live inside node.data; role lives in edge.data.
 type wireNode struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type"`
-	Data     wireNodeData   `json:"data"`
-	ParentID string         `json:"parentId,omitempty"`
-	Position wirePosition   `json:"position"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Data     wireNodeData `json:"data"`
+	ParentID string       `json:"parentId,omitempty"`
+	Position wirePosition `json:"position"`
 }
 
 type wireNodeData struct {
@@ -202,6 +206,15 @@ func (s *PipelineServer) handlePostRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// @note #review-20260822-041 issue status=open priority=P1 tags=#review,#concurrency,#bug : Goroutine leak when HTTP client disconnects
+	//
+	// handlePostRun spawns a goroutine that calls s.rt.Run(). If the HTTP client
+	// disconnects (line 212 time.After), the goroutine continues running the workflow.
+	// There is no cancellation of the ctx passed to rt.Run. The select on prep channel
+	// has no default, and the goroutine may block sending to prep if the handler returns
+	// early. The goroutine does check select with default on the error path, but the
+	// success path (prep <- prepResult{runID: h.RunID}) blocks until consumed — if the
+	// handler timed out, the goroutine blocks forever.
 	select {
 	case p := <-prep:
 		if p.err != nil {
@@ -209,6 +222,10 @@ func (s *PipelineServer) handlePostRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]string{"runId": p.runID})
+	// @note #review-20260822-042 issue status=open priority=P1 tags=#review,#bug : Timer leak in handlePostRun
+	//
+	// time.After(10 * time.Second) leaks a timer if the prep channel receives first. Use
+	// time.NewTimer with defer timer.Stop().
 	case <-time.After(10 * time.Second):
 		s.writeError(w, http.StatusGatewayTimeout, core.ErrCodeTimeout, "timed out preparing workflow run")
 	}
@@ -319,6 +336,11 @@ func (s *PipelineServer) handleRunActionSubroutes(w http.ResponseWriter, r *http
 // withCORS enables cross-origin access for the hedwig dev client.
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// @note #review-20260822-050 issue status=open priority=P2 tags=#review,#security : Wildcard CORS origin
+		//
+		// Access-Control-Allow-Origin: * allows any origin to access the API. In production,
+		// restrict to specific trusted origins. This is a security risk if the API is
+		// exposed to the internet.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -485,11 +507,11 @@ func compileWorkflowView(wf *pipeline.Workflow) map[string]any {
 		stages := make([]any, 0, len(pd.Stages))
 		for _, st := range pd.Stages {
 			stages = append(stages, map[string]any{
-				"id":             st.ID,
-				"label":          st.Label,
-				"order":          st.Order,
-				"stepCount":      len(st.Steps),
-				"pipelineCount":  len(st.Pipelines),
+				"id":            st.ID,
+				"label":         st.Label,
+				"order":         st.Order,
+				"stepCount":     len(st.Steps),
+				"pipelineCount": len(st.Pipelines),
 			})
 		}
 		pipelines[id] = map[string]any{"id": pd.ID, "label": pd.Label, "stages": stages}

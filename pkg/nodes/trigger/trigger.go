@@ -28,7 +28,7 @@ var Node = nodekit.NodeDefinition{
 		return []nodekit.HandleSpec{{Type: nodekit.HandleSource, ID: ""}}
 	},
 	HandlesJS: `() => [{"type":"source","id":"","kind":"executable"}]`,
-	Run: run,
+	Run:       run,
 }
 
 // run coerces initialState values from strings to boolean/number, mirroring the

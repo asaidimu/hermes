@@ -32,7 +32,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
-	Run: run,
+	Run:       run,
 }
 
 func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
@@ -56,7 +56,7 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutato
 		}
 		// Fallback: look up key in document context if operand is a document field name
 		if fieldKey, ok := raw.(string); ok && fieldKey != "" {
-			docVal, err := nCtx.Document.Get(fieldKey);
+			docVal, err := nCtx.Document.Get(fieldKey)
 			if err == nil {
 				return nodekit.Number(docVal)
 			}
@@ -103,4 +103,3 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutato
 
 	return nodekit.PatchMutator(map[string]any{key: result}), nil
 }
-

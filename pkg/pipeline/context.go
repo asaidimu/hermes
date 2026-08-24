@@ -45,12 +45,6 @@ func NewRunContext(
 	if len(entry) > 0 && entry[0].Stage != "" {
 		entryAddr = &entry[0]
 	}
-	if bus == nil {
-		bus = events.NewMemoryScopedBus()
-	}
-	if logger == nil {
-		logger = core.NopLogger{}
-	}
 	return &RunContextImpl{
 		runID:        runID,
 		definition:   def,
@@ -62,9 +56,9 @@ func NewRunContext(
 	}
 }
 
-func (r *RunContextImpl) ID() string                     { return r.runID }
-func (r *RunContextImpl) PipelineID() string             { return r.definition.ID }
-func (r *RunContextImpl) Store() store.Store             { return r.store }
+func (r *RunContextImpl) ID() string                      { return r.runID }
+func (r *RunContextImpl) PipelineID() string              { return r.definition.ID }
+func (r *RunContextImpl) Store() store.Store              { return r.store }
 func (r *RunContextImpl) EventBus() events.ScopedEventBus { return r.eventBus }
 
 // SetResourceResolver attaches a run-scoped resource resolver to this context.
@@ -81,6 +75,12 @@ func (r *RunContextImpl) ResolveResource(key string) (any, bool) {
 }
 
 func (r *RunContextImpl) Write(mutator store.DocumentMutator) {
+	// @note #review-20260822-033 issue status=open priority=P1 tags=#review,#error-handling : Write discards store update error
+	//
+	// The error from r.store.Update is discarded with `_ =`. If the store update fails
+	// (e.g., validation error, key collision), the pipeline continues with stale state.
+	// This defeats Go's error propagation idiom. At minimum, log the error; ideally,
+	// propagate it or return it to the caller.
 	_ = r.store.Update(context.Background(), mutator)
 }
 
@@ -103,10 +103,24 @@ func (r *RunContextImpl) Abort(err error) {
 
 // Run executes the pipeline state machine.
 func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
+	if r.eventBus == nil {
+		r.eventBus = events.NewMemoryScopedBus()
+	}
+	if r.logger == nil {
+		r.logger = core.NopLogger{}
+	}
 	// Derive a cancellable context from the abort channel so in-flight steps
 	// (e.g. delay) observe aborts via ctx.Done() instead of only between stages.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// @note #review-20260822-055 issue status=open priority=P1 tags=#review,#performance,#memory-leak : Goroutine leak on normal path
+	//
+	// A goroutine is spawned per Run call to bridge abortChan -> cancel(). On the normal
+	// (non-aborted) path, this goroutine blocks on select until runCtx.Done() fires. The
+	// defer cancel() ensures the context is cancelled, so the goroutine will eventually
+	// drain — but there is a brief window where the goroutine outlives the Run return. If
+	// Run is called in a tight loop, these goroutines accumulate transiently. Consider
+	// using context.AfterFunc (Go 1.21+) instead of a dedicated goroutine.
 	go func() {
 		select {
 		case <-r.abortChan:
@@ -219,8 +233,8 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				PipelineID: r.definition.ID,
 				Path:       stagePath,
 				Payload: map[string]any{
-					"stageId":       stage.ID,
-					"stageLabel":    stage.Label,
+					"stageId":        stage.ID,
+					"stageLabel":     stage.Label,
 					"subPipelineIds": subPipelineIDs,
 				},
 			})
@@ -273,6 +287,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			for subIdx, sRes := range subResults {
 				if sRes.Status == "paused" && sRes.Checkpoint != nil {
 					// Bubble up nested checkpoint
+					snap, _ := r.store.ExportJSON()
 					nestedCkpt := PipelineCheckpoint{
 						RunID:              r.runID,
 						PipelineID:         r.definition.ID,
@@ -286,9 +301,11 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 								Step:  sRes.Checkpoint.ResumeAt.Step,
 							},
 						},
+						Snapshot: snap,
 					}
-					_ = WriteCheckpoint(r.store.Document(), nestedCkpt)
-					return PipelineRunResult{
+				_ = WriteCheckpoint(r.store.Document(), nestedCkpt)
+				_ = r.store.Flush(ctx)
+				return PipelineRunResult{
 						Status:     "paused",
 						RunID:      r.runID,
 						PipelineID: r.definition.ID,
@@ -350,6 +367,13 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			return r.failStage(ctx, pipePath, stage, stageStart, startTime, evalErr)
 		}
 		if shouldPause {
+			// @note #review-20260822-034 issue status=open priority=P1 tags=#review,#bug : Unsafe type assertion without comma-ok
+			//
+			// instruction.(PauseInstruction) is an unsafe type assertion. If instruction is
+			// not a PauseInstruction, this panics. Use a comma-ok assertion to prevent
+			// runtime panics:
+			// pi, ok := instruction.(PauseInstruction)
+			// if !ok { return r.failStage(...) }
 			return r.handlePause(ctx, stage, instruction.(PauseInstruction), currentIdx)
 		}
 		if decision == "terminate" {
@@ -560,7 +584,10 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 	}
 
 	if pauseInst.Persist {
+		snap, _ := r.store.ExportJSON()
+		ckpt.Snapshot = snap
 		_ = WriteCheckpoint(r.store.Document(), ckpt)
+		_ = r.store.Flush(ctx)
 	}
 
 	r.eventBus.Emit(ctx, "pipeline:pause", events.PipelineEvent{

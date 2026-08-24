@@ -76,6 +76,14 @@ func (r *PipelineRegistry) Get(runID string) (*ActiveRun, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	run, ok := r.runs[runID]
+	// @note #review-20260822-043 issue status=open priority=P1 tags=#review,#concurrency : Get returns mutable internal state pointer
+	//
+	// Get returns a pointer to the internal ActiveRun under RLock. After RUnlock, the
+	// caller holds a reference to mutable internal state. If Deregister or MarkPaused is
+	// called concurrently, the caller's ActiveRun may be modified or its timer stopped.
+	//
+	// Fix by returning a copy of ActiveRun, or by documenting that the caller must not
+	// mutate the returned value.
 	return run, ok
 }
 

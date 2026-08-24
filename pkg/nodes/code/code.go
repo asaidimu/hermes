@@ -34,7 +34,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
-	Run: run,
+	Run:       run,
 }
 
 func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {

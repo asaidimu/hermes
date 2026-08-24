@@ -352,10 +352,10 @@ func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, b
 
 	if routingChild == nil {
 		return pipeline.Stage{
-			ID:     stageID,
-			Order:  order,
-			Label:  stageLabel,
-			Steps:  steps,
+			ID:    stageID,
+			Order: order,
+			Label: stageLabel,
+			Steps: steps,
 			Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
 				target := nextDefaultTarget(stageID, flow)
 				if target == "" {

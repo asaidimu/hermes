@@ -10,12 +10,17 @@ import (
 
 // PathNode represents an ancestor in the hierarchical execution path.
 type PathNode struct {
-	Kind  string `json:"kind"`  // "pipeline" | "stage" | "step"
+	Kind  string `json:"kind"` // "pipeline" | "stage" | "step"
 	ID    string `json:"id"`
 	Label string `json:"label"`
 }
 
 type EventPath []PathNode
+
+// @note #review-20260822-014 issue status=open priority=P3 tags=#review,#documentation : EventPath type lacks doc comment
+//
+// EventPath is a named slice type with no doc comment explaining its purpose,
+// ordering semantics, or how it relates to hierarchical execution paths.
 
 func (p EventPath) Clone() EventPath {
 	if p == nil {
@@ -50,7 +55,6 @@ type ScopedEventBus interface {
 	Emit(ctx context.Context, eventType string, evt PipelineEvent)
 	Subscribe(eventType string, handler EventHandler) (unsubscribe func())
 	Scope(prefix EventPath) ScopedEventBus
-	Underlying() gevents.SimpleEventBus[PipelineEvent]
 }
 
 // MemoryScopedBus is a concurrent-safe implementation of ScopedEventBus.
@@ -92,6 +96,14 @@ func (b *MemoryScopedBus) Underlying() gevents.SimpleEventBus[PipelineEvent] {
 
 // Emit broadcasts the event to local subscribers, forwards to go-events if present, and bubbles up to parent.
 func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt PipelineEvent) {
+	// @note #review-20260822-016 issue status=open priority=P2 tags=#review,#concurrency : Emit reads parent and underlying without lock protection
+	//
+	// Emit reads b.parent and b.underlying without holding any lock. While these fields
+	// are only set during Scope() construction and are structurally immutable after that,
+	// there is no enforcement or documentation of this immutability contract. A future
+	// refactor adding post-construction mutation would silently introduce a data race.
+	//
+	// Add a doc comment stating immutability, or protect with a lock.
 	if evt.Type == "" {
 		evt.Type = eventType
 	}
@@ -101,7 +113,6 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 	if len(evt.Path) == 0 && len(b.path) > 0 {
 		evt.Path = b.path.Clone()
 	}
-
 
 	// 1. Dispatch locally to exact match and wildcard "*"
 	var toCall []EventHandler
@@ -115,6 +126,14 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 	b.mu.RUnlock()
 
 	for _, h := range toCall {
+		// @note #review-20260822-006 issue status=open priority=P1 tags=#review,#error-handling : Emit silently discards all handler errors
+		//
+		// Every handler error is discarded via `_ = h(ctx, evt)`. If a subscriber returns
+		// an error indicating a failed write, dropped event, or context cancellation, the
+		// caller has no way to know. This defeats Go's error propagation idiom.
+		//
+		// At minimum, log the error; ideally, collect errors from all handlers and return
+		// them or pass them through a provided error channel.
 		_ = h(ctx, evt)
 	}
 
@@ -133,7 +152,13 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (unsubscribe func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
+	// @note #review-20260822-017 issue status=open priority=P2 tags=#review,#concurrency : Subscribe holds write lock for append-only operation
+	//
+	// Subscribe acquires b.mu.Lock() (exclusive write lock) but only appends to a slice.
+	// For a read-heavy system where subscriptions are infrequent but Emit is called
+	// constantly, a copy-on-write pattern with RLock for Emit and atomic slice
+	// replacement for Subscribe would reduce contention. Not a correctness issue, but a
+	// performance consideration at scale.
 	b.handlers[eventType] = append(b.handlers[eventType], handler)
 
 	return func() {
@@ -141,7 +166,15 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 		defer b.mu.Unlock()
 		list := b.handlers[eventType]
 		for i, h := range list {
-			// Compare func pointers
+			// @note #review-20260822-004 issue status=open priority=P1 tags=#review,#bug : Incorrect func pointer comparison in unsubscribe closure
+			//
+			// The comparison `&h == &handler` compares the address of the loop variable `h`
+			// with the address of the captured `handler` parameter. Since `h` is reassigned
+			// each iteration, this will never match. The unsubscribe closure will silently
+			// fail to remove the handler, causing a permanent handler leak.
+			//
+			// Fix by using reflect.ValueOf(h).Pointer() == reflect.ValueOf(handler).Pointer()
+			// or storing a unique integer ID per subscription returned alongside the handler.
 			if &h == &handler {
 				b.handlers[eventType] = append(list[:i], list[i+1:]...)
 				break

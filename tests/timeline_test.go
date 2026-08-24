@@ -80,4 +80,3 @@ func TestTimelineRecordingAndPlayback(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "done", val)
 }
-

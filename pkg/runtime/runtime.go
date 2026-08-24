@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -38,7 +39,7 @@ type Options struct {
 	StoreFactory func(runID string) store.Store
 	// Timeline, when set, records every run into the store (TimelineRecorder).
 	Timeline timeline.TimelineStore
-	Logger core.Logger
+	Logger   core.Logger
 	// Env holds global environment layers available to runs.
 	Env map[string]any
 	// Services are runtime-global services. Kept for API parity with the TS
@@ -105,17 +106,17 @@ func (h *RunHandle) Abort(err error) { h.Context.Abort(err) }
 
 // RunResult is the terminal outcome of a run.
 type RunResult struct {
-	OK         bool
-	RunID      string
-	WorkflowID string
-	TriggerID  string
-	PipelineID string
-	Status     string // "succeeded" | "failed" | "aborted" | "paused"
-	Error      error
-	FinalState map[string]any
-	WaitForEvent  string              `json:"waitForEvent,omitempty"`  // single event (backward compat)
-	WaitForEvents []string            `json:"waitForEvents,omitempty"` // multiple events
-	WaitMode      string              `json:"waitMode,omitempty"`      // "any" or "all"
+	OK            bool
+	RunID         string
+	WorkflowID    string
+	TriggerID     string
+	PipelineID    string
+	Status        string // "succeeded" | "failed" | "aborted" | "paused"
+	Error         error
+	FinalState    map[string]any
+	WaitForEvent  string                       `json:"waitForEvent,omitempty"`  // single event (backward compat)
+	WaitForEvents []string                     `json:"waitForEvents,omitempty"` // multiple events
+	WaitMode      string                       `json:"waitMode,omitempty"`      // "any" or "all"
 	Checkpoint    *pipeline.PipelineCheckpoint `json:"checkpoint,omitempty"`
 }
 
@@ -150,15 +151,15 @@ type WorkflowRuntime struct {
 
 // pausedRun tracks a pipeline that is paused waiting for specific event(s).
 type pausedRun struct {
-	runID        string
-	workflowID   string
-	triggerID    string
-	pipelineID   string
+	runID         string
+	workflowID    string
+	triggerID     string
+	pipelineID    string
 	waitForEvent  string   // single event (backward compat)
 	waitForEvents []string // multiple events
 	waitMode      string   // "any" or "all"
-	store        store.Store
-	checkpoint   *pipeline.PipelineCheckpoint
+	store         store.Store
+	checkpoint    *pipeline.PipelineCheckpoint
 }
 
 type busRef struct {
@@ -350,6 +351,11 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 		// Schedule cron-based recurring triggers.
 		if trigger.Cron != "" {
 			scheduleID := wf.ID + ":" + triggerID
+			// @note #review-20260822-040 issue status=open priority=P1 tags=#review,#error-handling : Discarded Schedule error
+			//
+			// The error from rt.scheduler.Schedule is silently discarded. If scheduling fails
+			// (e.g., invalid cron expression), the trigger will never fire and the failure
+			// will be invisible to the caller.
 			rt.scheduler.Schedule(scheduleID, trigger.Cron, func(ctx context.Context) {
 				rt.bus.Emit(context.Background(), trigger.Event, events.PipelineEvent{
 					Payload: map[string]any{},
@@ -491,7 +497,15 @@ func (rt *WorkflowRuntime) releaseBusSubscriptionLocked(eventType string) {
 // the background (mirrors WorkflowRuntime.dispatch + spawnRun). It also resumes
 // any paused runs that are waiting for this event type.
 func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) {
-	// Check for paused runs waiting for this event.
+	// @note #review-20260822-039 issue status=open priority=P1 tags=#review,#concurrency : TOCTOU race in dispatch between lock acquisitions
+	//
+	// dispatch calls rt.mu.Unlock() at line 531 then rt.mu.Lock() again at line 540.
+	// Between these two critical sections, rt.paused and rt.index could be mutated by
+	// other goroutines (e.g., Deregister). The snapshot of toResume and entries is taken
+	// under separate locks, creating a TOCTOU window.
+	//
+	// Fix by taking both snapshots under a single lock acquisition, or by using a
+	// snapshot that is immutable after release.
 	rt.mu.Lock()
 	var toResume []*pausedRun
 	for _, pr := range rt.paused {
@@ -730,6 +744,11 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// data is accessible without overwriting previous payloads.
 	if payload != nil {
 		for key, val := range payload {
+			// @note #review-20260822-048 issue status=open priority=P2 tags=#review,#error-handling : Store update errors discarded when folding resume payload
+			//
+			// _ = st.Update(...) discards the error when folding the resume event payload
+			// into state. If the store rejects the update, the resumed pipeline will run
+			// with incomplete state.
 			_ = st.Update(context.Background(), store.SetValue(key, val))
 		}
 	}
@@ -813,6 +832,96 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	return result
 }
 
+// resumeFromPersistence attempts to load a paused run from the persistent store.
+// It reads the checkpoint from document metadata and reconstructs the pausedRun.
+func (rt *WorkflowRuntime) resumeFromPersistence(runID string, payload map[string]any) RunResult {
+	// Try loading store from persistence (PersistentStore backed by anansi).
+	st := rt.newStore(runID)
+	if st == nil {
+		return RunResult{
+			OK:     false,
+			Status: "failed",
+			Error:  core.NewSystemError(core.ErrCodeNotFound, "no store available for run "+runID),
+		}
+	}
+
+	// Read checkpoint from document metadata.
+	var ckpt *pipeline.PipelineCheckpoint
+	_ = st.Read(func(doc *document.Document) error {
+		// Try to find checkpoint across all pipelines in all workflows.
+		rt.mu.Lock()
+		for _, rec := range rt.workflows {
+			for pipeID := range rec.workflow.Pipelines {
+				if c, err := pipeline.ReadCheckpoint(doc, pipeID); c != nil {
+					ckpt = c
+					rt.mu.Unlock()
+					return err
+				}
+			}
+		}
+		rt.mu.Unlock()
+		return nil
+	})
+
+	if ckpt == nil {
+		return RunResult{
+			OK:     false,
+			Status: "failed",
+			Error:  core.NewSystemError(core.ErrCodeNotFound, "no checkpoint found for run "+runID),
+		}
+	}
+
+	// Find the workflow that contains this pipeline.
+	var workflowID string
+	rt.mu.Lock()
+	for wfID, rec := range rt.workflows {
+		if _, ok := rec.workflow.Pipelines[ckpt.PipelineID]; ok {
+			workflowID = wfID
+			break
+		}
+	}
+	rt.mu.Unlock()
+
+	if workflowID == "" {
+		return RunResult{
+			OK:     false,
+			Status: "failed",
+			Error:  core.NewSystemError(core.ErrCodeNotFound, "workflow not found for pipeline "+ckpt.PipelineID),
+		}
+	}
+
+	record := rt.workflows[workflowID]
+	if record == nil {
+		return RunResult{
+			OK:     false,
+			Status: "failed",
+			Error:  core.NewSystemError(core.ErrCodeNotFound, "workflow "+workflowID+" no longer registered"),
+		}
+	}
+
+	// Determine wait-for-event from checkpoint.
+	waitForEvent := ckpt.WaitForEvent
+	waitForEvents := ckpt.WaitForEvents
+	waitMode := ckpt.WaitMode
+
+	rt.mu.Lock()
+	rt.paused[runID] = &pausedRun{
+		runID:         runID,
+		workflowID:    workflowID,
+		triggerID:     "", // unknown from persistence
+		pipelineID:    ckpt.PipelineID,
+		waitForEvent:  waitForEvent,
+		waitForEvents: waitForEvents,
+		waitMode:      waitMode,
+		store:         st,
+		checkpoint:    ckpt,
+	}
+	rt.mu.Unlock()
+
+	// Now delegate to the normal Resume path.
+	return rt.Resume(runID, payload)
+}
+
 // Shutdown gracefully shuts down the runtime and its event source.
 func (rt *WorkflowRuntime) Shutdown(ctx context.Context) error {
 	if rt.eventSource != nil {
@@ -851,8 +960,8 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 
 	done := make(chan RunResult, 1)
 	if err := rt.Register(wf, RegisterOptions{
-		Mode:       Mode{Type: "transient"},
-		OnPrepare:  opt.OnPrepare,
+		Mode:      Mode{Type: "transient"},
+		OnPrepare: opt.OnPrepare,
 		OnComplete: func(res RunResult) {
 			done <- res
 			if opt.OnComplete != nil {
@@ -870,12 +979,19 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
+	// @note #review-20260822-038 issue status=open priority=P1 tags=#review,#bug : Timer leak in select
+	//
+	// time.After(timeout) creates a timer that is not stopped if the select completes via
+	// done or ctx.Done(). This leaks a timer until it fires. Use time.NewTimer with
+	// explicit Stop().
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case res := <-done:
 		return res, nil
 	case <-ctx.Done():
 		return RunResult{}, ctx.Err()
-	case <-time.After(timeout):
+	case <-timer.C:
 		return RunResult{}, core.NewSystemError(core.ErrCodeTimeout, "workflow run timed out")
 	}
 }
@@ -912,6 +1028,11 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID, ru
 	// Seed the trigger event metadata and fold its payload directly into state.
 	// The payload keys become top-level state fields so configs can address
 	// them with the standardized dotted path (e.g. `status`, `userId`).
+	// @note #review-20260822-047 issue status=open priority=P2 tags=#review,#error-handling : Store update errors discarded when seeding trigger metadata
+	//
+	// _ = st.Update(...) discards the error when seeding trigger event metadata. If the
+	// store rejects the update (e.g., validation error, key collision), state will be
+	// missing critical trigger data.
 	_ = st.Update(context.Background(), store.SetValue("__trigger_event__", map[string]any{
 		"type":      evt.Type,
 		"payload":   evt.Payload,

@@ -12,7 +12,6 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-
 type TimelineEventSource string
 
 const (
@@ -24,15 +23,15 @@ const (
 
 // TimelineEvent matches the exact JSON schema expected by the frontend timeline scrubber.
 type TimelineEvent struct {
-	RunID     string               `json:"runId"`
-	Seq       int64                `json:"seq"`
-	Timestamp int64                `json:"timestamp"` // Epoch Milliseconds
-	Source    TimelineEventSource  `json:"source"`
-	Type      string               `json:"type"`
-	Path      events.EventPath     `json:"path"`
-	Payload   map[string]any       `json:"payload"`
-	Delta     map[string]any       `json:"delta,omitempty"`
-	Snapshot  map[string]any       `json:"snapshot,omitempty"`
+	RunID     string              `json:"runId"`
+	Seq       int64               `json:"seq"`
+	Timestamp int64               `json:"timestamp"` // Epoch Milliseconds
+	Source    TimelineEventSource `json:"source"`
+	Type      string              `json:"type"`
+	Path      events.EventPath    `json:"path"`
+	Payload   map[string]any      `json:"payload"`
+	Delta     map[string]any      `json:"delta,omitempty"`
+	Snapshot  map[string]any      `json:"snapshot,omitempty"`
 }
 
 type RunTimelineStatus string

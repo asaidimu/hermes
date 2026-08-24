@@ -1,0 +1,1187 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-22T17:41:42.539138296Z",
+  "root": ".",
+  "notes": {
+    "review-20260822-001": {
+      "id": "review-20260822-001",
+      "category": "observation",
+      "status": "open",
+      "title": "Limited comparison operators",
+      "body": "Only == and != operators are implemented. Other operators (\u003e, \u003e=, \u003c, \u003c=)\nsilently return false. This may be intentional for simplicity, but should\nbe documented or extended if needed.",
+      "location": {
+        "file": "pkg/runtime/watchservice.go",
+        "startLine": 221,
+        "startCol": 3,
+        "endLine": 226,
+        "endCol": 3
+      },
+      "hash": "ad155f3918706099"
+    },
+    "review-20260822-002": {
+      "id": "review-20260822-002",
+      "category": "observation",
+      "status": "open",
+      "title": "Silent nil return when WatchService unavailable",
+      "body": "When the WatchService is not available, this function returns nil without an error.\nThis could make debugging difficult in production. Consider returning an error\nor logging a warning when the WatchService is unavailable.\n",
+      "location": {
+        "file": "pkg/nodes/pause/pause.go",
+        "startLine": 91,
+        "startCol": 3,
+        "endLine": 95,
+        "endCol": 3
+      },
+      "hash": "cfc07f7a1fab251d"
+    },
+    "review-20260822-003": {
+      "id": "review-20260822-003",
+      "category": "observation",
+      "status": "open",
+      "title": "Silent nil return when WatchService unavailable",
+      "body": "When the WatchService is not available, this function returns nil without an error.\nThis could make debugging difficult in production. Consider returning an error\nor logging a warning when the WatchService is unavailable.\n",
+      "location": {
+        "file": "pkg/nodes/pause/pause.go",
+        "startLine": 42,
+        "startCol": 3,
+        "endLine": 46,
+        "endCol": 3
+      },
+      "hash": "02b9cb1723bd0cf7"
+    },
+    "review-20260822-004": {
+      "id": "review-20260822-004",
+      "category": "issue",
+      "status": "open",
+      "title": "Incorrect func pointer comparison in unsubscribe closure",
+      "body": "The comparison `\u0026h == \u0026handler` compares the address of the loop variable `h`\nwith the address of the captured `handler` parameter. Since `h` is reassigned\neach iteration, this will never match. The unsubscribe closure will silently\nfail to remove the handler, causing a permanent handler leak.\n\nFix by using reflect.ValueOf(h).Pointer() == reflect.ValueOf(handler).Pointer()\nor storing a unique integer ID per subscription returned alongside the handler.\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 177,
+        "startCol": 3,
+        "endLine": 185,
+        "endCol": 3
+      },
+      "hash": "1a3faa89d407e806"
+    },
+    "review-20260822-005": {
+      "id": "review-20260822-005",
+      "category": "issue",
+      "status": "open",
+      "title": "Document() returns mutable pointer after releasing lock",
+      "body": "This method acquires RLock, obtains a raw *document.Document pointer, releases\nthe lock via defer RUnlock, and returns the pointer. Callers can then mutate the\ndocument freely without any lock held, creating a data race with concurrent\nRead/Update/Transact calls. The mutex is effectively pointless for this method.\n\nFix by returning a defensive copy, returning an interface, or documenting that\nthe caller must not mutate the returned value.\n",
+      "location": {
+        "file": "pkg/store/store.go",
+        "startLine": 66,
+        "startCol": 3,
+        "endLine": 74,
+        "endCol": 3
+      },
+      "hash": "c85ca5f81227ffc5"
+    },
+    "review-20260822-006": {
+      "id": "review-20260822-006",
+      "category": "issue",
+      "status": "open",
+      "title": "Emit silently discards all handler errors",
+      "body": "Every handler error is discarded via `_ = h(ctx, evt)`. If a subscriber returns\nan error indicating a failed write, dropped event, or context cancellation, the\ncaller has no way to know. This defeats Go's error propagation idiom.\n\nAt minimum, log the error; ideally, collect errors from all handlers and return\nthem or pass them through a provided error channel.\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 137,
+        "startCol": 3,
+        "endLine": 144,
+        "endCol": 3
+      },
+      "hash": "cbf8abde2b025360"
+    },
+    "review-20260822-007": {
+      "id": "review-20260822-007",
+      "category": "issue",
+      "status": "open",
+      "title": "Unreachable branch in CauseMessage",
+      "body": "The condition `se.Cause == nil` at line 62 is unreachable because any error\nthat reaches it must have `se.Cause != nil` (otherwise the first condition\nalready returned). This is dead code that suggests the author intended\ndifferent logic — possibly checking for `se.Message == \"\"` with `Cause == nil`\nto handle empty messages.\n",
+      "location": {
+        "file": "pkg/core/errors.go",
+        "startLine": 72,
+        "startCol": 3,
+        "endLine": 78,
+        "endCol": 3
+      },
+      "hash": "92e928d1556bcbf0"
+    },
+    "review-20260822-008": {
+      "id": "review-20260822-008",
+      "category": "issue",
+      "status": "open",
+      "title": "Clone acquires RLock then calls ExportJSON which also acquires RLock",
+      "body": "Clone() holds RLock and calls s.ExportJSON(), which itself acquires RLock.\nWhile Go allows multiple concurrent readers, a pending writer between the two\nlock acquisitions will cause deadlock. The RLock is not reentrant in the presence\nof a writer — if ExportJSON is ever changed to use Lock, or if a writer is queued,\nthis deadlocks.\n\nFix by having Clone call an internal unexported exportJSONLocked method that\nassumes the lock is already held.\n",
+      "location": {
+        "file": "pkg/store/store.go",
+        "startLine": 151,
+        "startCol": 3,
+        "endLine": 160,
+        "endCol": 3
+      },
+      "hash": "cf0365a3a4f8ae9d"
+    },
+    "review-20260822-009": {
+      "id": "review-20260822-009",
+      "category": "issue",
+      "status": "open",
+      "title": "Package doc misdescribes contents",
+      "body": "Package doc says \"shared types for the watch service interface\" but contains no\nactual interface implementations — only type definitions and a stub WatchService\ninterface. The doc should describe what the package provides, not what it doesn't.\n",
+      "location": {
+        "file": "pkg/watch/watch.go",
+        "startLine": 3,
+        "startCol": 3,
+        "endLine": 7,
+        "endCol": 3
+      },
+      "hash": "719d866d817f8f49"
+    },
+    "review-20260822-010": {
+      "id": "review-20260822-010",
+      "category": "issue",
+      "status": "open",
+      "title": "Payload and Patch lack doc comments",
+      "body": "WatchEvent.Payload and WatchEvent.Patch are map[string]any with no documentation\nof their expected contents, keys, or value types. Callers cannot know what data\nthese maps contain without reading implementation code.\n",
+      "location": {
+        "file": "pkg/watch/watch.go",
+        "startLine": 12,
+        "startCol": 3,
+        "endLine": 16,
+        "endCol": 3
+      },
+      "hash": "bd77ecd1bd9c5c1b"
+    },
+    "review-20260822-011": {
+      "id": "review-20260822-011",
+      "category": "issue",
+      "status": "open",
+      "title": "Untyped string for operator, field, and mode",
+      "body": "WatchCondition.Op, WatchCondition.Field, and WatchDescriptor.Mode are bare string\ntypes with no compile-time validation. Invalid operator names like \"eqq\" or modes\nlike \"ALL\" will silently pass through. Define `type ConditionOp string` with\nconstants (OpEqual, OpNotEqual, etc.) and `type WatchMode string` to catch invalid\nvalues at compile time.\n",
+      "location": {
+        "file": "pkg/watch/watch.go",
+        "startLine": 23,
+        "startCol": 3,
+        "endLine": 29,
+        "endCol": 3
+      },
+      "hash": "37d662dba19344cc"
+    },
+    "review-20260822-012": {
+      "id": "review-20260822-012",
+      "category": "issue",
+      "status": "open",
+      "title": "Timeout is int64 without documented units",
+      "body": "WatchDescriptor.Timeout is int64 with no documentation of whether the value is in\nmilliseconds, seconds, or nanoseconds. Different callers will interpret this\ndifferently. Change to time.Duration for type-safe, unambiguous units, or add a\nclear doc comment specifying the unit.\n",
+      "location": {
+        "file": "pkg/watch/watch.go",
+        "startLine": 39,
+        "startCol": 3,
+        "endLine": 44,
+        "endCol": 3
+      },
+      "hash": "72703263b9085b8f"
+    },
+    "review-20260822-013": {
+      "id": "review-20260822-013",
+      "category": "issue",
+      "status": "open",
+      "title": "WatchService has no error returns",
+      "body": "WatchService.Register returns nothing, so a registration failure (duplicate run ID,\ninvalid descriptor, resource exhaustion) is silently dropped. PeekBufferedEvent\nreturns *WatchEvent where nil means \"no event,\" but this is ambiguous with a system\nerror. Register should return error, and PeekBufferedEvent should return\n(WatchEvent, bool) or (WatchEvent, error).\n",
+      "location": {
+        "file": "pkg/watch/watch.go",
+        "startLine": 52,
+        "startCol": 3,
+        "endLine": 58,
+        "endCol": 3
+      },
+      "hash": "a3a87d02bb165eaf"
+    },
+    "review-20260822-014": {
+      "id": "review-20260822-014",
+      "category": "issue",
+      "status": "open",
+      "title": "EventPath type lacks doc comment",
+      "body": "EventPath is a named slice type with no doc comment explaining its purpose,\nordering semantics, or how it relates to hierarchical execution paths.\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 19,
+        "startCol": 3,
+        "endLine": 22,
+        "endCol": 3
+      },
+      "hash": "1b677f09e24604c6"
+    },
+    "review-20260822-015": {
+      "id": "review-20260822-015",
+      "category": "issue",
+      "status": "open",
+      "title": "Underlying() leaks concrete implementation through interface",
+      "body": "ScopedEventBus.Underlying() exposes gevents.SimpleEventBus[PipelineEvent] — a\nconcrete external type — through the interface. This violates the Interface\nSegregation Principle, couples consumers to the go-events library, and makes\nmocking impossible without importing the real dependency.\n\nRemove from the interface or return a narrower interface.\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 57,
+        "startCol": 3,
+        "endLine": 64,
+        "endCol": 3
+      },
+      "hash": "205bcdb498359dd1"
+    },
+    "review-20260822-016": {
+      "id": "review-20260822-016",
+      "category": "issue",
+      "status": "open",
+      "title": "Emit reads parent and underlying without lock protection",
+      "body": "Emit reads b.parent and b.underlying without holding any lock. While these fields\nare only set during Scope() construction and are structurally immutable after that,\nthere is no enforcement or documentation of this immutability contract. A future\nrefactor adding post-construction mutation would silently introduce a data race.\n\nAdd a doc comment stating immutability, or protect with a lock.\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 107,
+        "startCol": 3,
+        "endLine": 114,
+        "endCol": 3
+      },
+      "hash": "f58f2b01c94f3820"
+    },
+    "review-20260822-017": {
+      "id": "review-20260822-017",
+      "category": "issue",
+      "status": "open",
+      "title": "Subscribe holds write lock for append-only operation",
+      "body": "Subscribe acquires b.mu.Lock() (exclusive write lock) but only appends to a slice.\nFor a read-heavy system where subscriptions are infrequent but Emit is called\nconstantly, a copy-on-write pattern with RLock for Emit and atomic slice\nreplacement for Subscribe would reduce contention. Not a correctness issue, but a\nperformance consideration at scale.\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 163,
+        "startCol": 3,
+        "endLine": 169,
+        "endCol": 3
+      },
+      "hash": "e2cb2e6312ec7406"
+    },
+    "review-20260822-018": {
+      "id": "review-20260822-018",
+      "category": "issue",
+      "status": "open",
+      "title": "Document() returns concrete pointer, unmockable",
+      "body": "Store.Document() returns *document.Document, a concrete struct from the anansi\nlibrary. This makes it impossible to mock Store in tests without importing the\nreal document package. Consider returning an interface or removing Document() from\nthe Store interface entirely (callers can use Read() for safe access).\n",
+      "location": {
+        "file": "pkg/store/store.go",
+        "startLine": 18,
+        "startCol": 3,
+        "endLine": 23,
+        "endCol": 3
+      },
+      "hash": "7f99c5ad463a1a52"
+    },
+    "review-20260822-019": {
+      "id": "review-20260822-019",
+      "category": "issue",
+      "status": "open",
+      "title": "Transact is identical to Update",
+      "body": "Transact and Update have the same lock pattern, same signature shape, and same\nsemantics. Transact provides no rollback, retry, or isolation guarantees beyond\nUpdate. This violates the Interface Segregation Principle and confuses callers about\nwhich to use. Either add real transactional semantics (retry on conflict, nested\ntransactions, rollback) or remove Transact from the interface.\n",
+      "location": {
+        "file": "pkg/store/store.go",
+        "startLine": 27,
+        "startCol": 3,
+        "endLine": 33,
+        "endCol": 3
+      },
+      "hash": "4ebfe35a0a29859d"
+    },
+    "review-20260822-020": {
+      "id": "review-20260822-020",
+      "category": "issue",
+      "status": "open",
+      "title": "ExportJSON performs wasteful Marshal/Unmarshal round-trip",
+      "body": "ExportJSON marshals the document to []byte via json.Marshal, then immediately\nunmarshals back into map[string]any. This is a redundant encode/decode cycle.\n\nEither json.Unmarshal directly into map[string]any from the document's internal\nrepresentation, or add a ToMap() method to the document type.\n",
+      "location": {
+        "file": "pkg/store/store.go",
+        "startLine": 125,
+        "startCol": 3,
+        "endLine": 131,
+        "endCol": 3
+      },
+      "hash": "b394d7d663ef0187"
+    },
+    "review-20260822-021": {
+      "id": "review-20260822-021",
+      "category": "issue",
+      "status": "open",
+      "title": "Blank import side-effect is unexplained",
+      "body": "`var _ = data.DocumentIDField` is a blank variable assignment that asserts nothing\nabout types. Unlike `var _ Interface = (*Type)(nil)`, it has no compile-time\nverification purpose. If it exists to force an import for side effects, it should use\n`_ \"package/path\"` import syntax instead.\n",
+      "location": {
+        "file": "pkg/store/store.go",
+        "startLine": 186,
+        "startCol": 3,
+        "endLine": 191,
+        "endCol": 3
+      },
+      "hash": "6619fd8f8199f240"
+    },
+    "review-20260822-022": {
+      "id": "review-20260822-022",
+      "category": "issue",
+      "status": "open",
+      "title": "Variadic string for single message is awkward",
+      "body": "NewSystemError accepts variadic `message ...string` but callers must remember to\npass at most one message. Passing multiple strings produces an unpredictable joined\nmessage or ignores extras. A single named `message string` parameter would be clearer\nand catch misuse at compile time.\n",
+      "location": {
+        "file": "pkg/core/errors.go",
+        "startLine": 36,
+        "startCol": 3,
+        "endLine": 41,
+        "endCol": 3
+      },
+      "hash": "8312c6249d4f8474"
+    },
+    "review-20260822-023": {
+      "id": "review-20260822-023",
+      "category": "issue",
+      "status": "open",
+      "title": "Cycle-detection logic undocumented",
+      "body": "CauseMessage includes a `seen` map for cycle detection but has no comment explaining\nwhy cycles are possible in the error chain. Future maintainers may wonder why a\nsimple loop is insufficient.\n",
+      "location": {
+        "file": "pkg/core/errors.go",
+        "startLine": 56,
+        "startCol": 3,
+        "endLine": 60,
+        "endCol": 3
+      },
+      "hash": "b53ae1ab4ea8c996"
+    },
+    "review-20260822-024": {
+      "id": "review-20260822-024",
+      "category": "issue",
+      "status": "open",
+      "title": "UNAUTHORIZED conflated with PERMISSION_DENIED (401 vs 403)",
+      "body": "UNAUTHORIZED maps to httpStatus 403 and action \"authorize\". In HTTP semantics, 401\nmeans \"not authenticated\" (no credentials) and 403 means \"not authorized\"\n(insufficient permissions). These are distinct failure modes with different client\nrecovery strategies. Map UNAUTHORIZED to 401 and action \"authenticate\", or split\ninto separate cases.\n",
+      "location": {
+        "file": "pkg/core/systemerror_json.go",
+        "startLine": 23,
+        "startCol": 3,
+        "endLine": 29,
+        "endCol": 3
+      },
+      "hash": "9399e6ae3ca77268"
+    },
+    "review-20260822-025": {
+      "id": "review-20260822-025",
+      "category": "issue",
+      "status": "open",
+      "title": "HTTP status 499 is non-standard",
+      "body": "499 is an nginx invention for \"client closed connection.\" It is not part of the HTTP\nspecification and will confuse clients, monitoring tools, and API documentation\ngenerators. Use 499 only if you control the client, otherwise map ABORTED/CANCELLED\nto 408 (Request Timeout) or 409 (Conflict), or document the custom status code\nprominently.\n",
+      "location": {
+        "file": "pkg/core/systemerror_json.go",
+        "startLine": 34,
+        "startCol": 3,
+        "endLine": 40,
+        "endCol": 3
+      },
+      "hash": "38d070e8e60093a7"
+    },
+    "review-20260822-026": {
+      "id": "review-20260822-026",
+      "category": "issue",
+      "status": "open",
+      "title": "INTERNAL_ERROR code not defined in errors.go constants",
+      "body": "The systemErrorMeta switch uses \"INTERNAL_ERROR\" as a case, but errors.go defines\nErrCodeExecutionFailed = \"EXECUTION_FAILED\", not \"INTERNAL_ERROR\". If a SystemError\nis created with ErrCodeExecutionFailed, it falls to the default branch and maps to\nsystem/500/internal anyway — but this is accidental, not intentional. The code\nconstants and the meta mapping are inconsistent.\n",
+      "location": {
+        "file": "pkg/core/systemerror_json.go",
+        "startLine": 10,
+        "startCol": 3,
+        "endLine": 16,
+        "endCol": 3
+      },
+      "hash": "450f922a5ae8022d"
+    },
+    "review-20260822-027": {
+      "id": "review-20260822-027",
+      "category": "issue",
+      "status": "open",
+      "title": "Timestamp uses serialization time, not error creation time",
+      "body": "time.Now().UTC().Format(time.RFC3339) captures the time when SystemErrorJSON is\ncalled, not when the error was originally created. For debugging, the error's\ncreation time is far more useful. If SystemError has a Timestamp field, use it;\notherwise the serialization time may differ from the actual error time by seconds\nor minutes, making log correlation unreliable.\n",
+      "location": {
+        "file": "pkg/core/systemerror_json.go",
+        "startLine": 124,
+        "startCol": 3,
+        "endLine": 130,
+        "endCol": 3
+      },
+      "hash": "531975cd141d04ff"
+    },
+    "review-20260822-028": {
+      "id": "review-20260822-028",
+      "category": "issue",
+      "status": "open",
+      "title": "Stack field is always empty string",
+      "body": "The serialized JSON always includes `\"stack\": \"\"` as an empty string. This is dead\ndata that wastes wire bytes and confuses consumers who expect a stack trace. Either\npopulate it with a real stack (using runtime.Callers) or omit the key entirely when\nempty.\n",
+      "location": {
+        "file": "pkg/core/systemerror_json.go",
+        "startLine": 132,
+        "startCol": 3,
+        "endLine": 137,
+        "endCol": 3
+      },
+      "hash": "5e05a808db56a275"
+    },
+    "review-20260822-029": {
+      "id": "review-20260822-029",
+      "category": "issue",
+      "status": "open",
+      "title": "Issues slice is untyped []any",
+      "body": "The issues variable is []any containing map[string]any elements with keys \"code\",\n\"message\", \"path\", \"index\", \"severity\". There is no compile-time guarantee these\nkeys are correct or consistently spelled. A dedicated IssueJSON struct would provide\ntype safety and IDE autocomplete.\n",
+      "location": {
+        "file": "pkg/core/systemerror_json.go",
+        "startLine": 68,
+        "startCol": 3,
+        "endLine": 73,
+        "endCol": 3
+      },
+      "hash": "ea8542ff38ff2d70"
+    },
+    "review-20260822-030": {
+      "id": "review-20260822-030",
+      "category": "issue",
+      "status": "open",
+      "title": "NopLogger lacks doc comment",
+      "body": "NopLogger is a public type used as the default logger when none is configured. Its\npurpose (silent discard of all log output) should be documented for callers who\nencounter it in debug traces.\n",
+      "location": {
+        "file": "pkg/core/logger.go",
+        "startLine": 15,
+        "startCol": 3,
+        "endLine": 19,
+        "endCol": 3
+      },
+      "hash": "1a8e53d461de401b"
+    },
+    "review-20260822-031": {
+      "id": "review-20260822-031",
+      "category": "issue",
+      "status": "open",
+      "title": "Context key is undocumented",
+      "body": "WithLogger/GetLogger use a package-private contextKey{} struct to store the logger.\nThere is no documentation warning callers not to create their own context keys, which\nwould bypass the package's storage and retrieval mechanism.\n",
+      "location": {
+        "file": "pkg/core/logger.go",
+        "startLine": 28,
+        "startCol": 3,
+        "endLine": 32,
+        "endCol": 3
+      },
+      "hash": "72ad325a2efd359a"
+    },
+    "review-20260822-033": {
+      "id": "review-20260822-033",
+      "category": "issue",
+      "status": "open",
+      "title": "Write discards store update error",
+      "body": "The error from r.store.Update is discarded with `_ =`. If the store update fails\n(e.g., validation error, key collision), the pipeline continues with stale state.\nThis defeats Go's error propagation idiom. At minimum, log the error; ideally,\npropagate it or return it to the caller.\n",
+      "location": {
+        "file": "pkg/pipeline/context.go",
+        "startLine": 83,
+        "startCol": 3,
+        "endLine": 88,
+        "endCol": 3
+      },
+      "hash": "7db17b43e023b71a"
+    },
+    "review-20260822-034": {
+      "id": "review-20260822-034",
+      "category": "issue",
+      "status": "open",
+      "title": "Unsafe type assertion without comma-ok",
+      "body": "instruction.(PauseInstruction) is an unsafe type assertion. If instruction is\nnot a PauseInstruction, this panics. Use a comma-ok assertion to prevent\nruntime panics:\npi, ok := instruction.(PauseInstruction)\nif !ok { return r.failStage(...) }\n",
+      "location": {
+        "file": "pkg/pipeline/context.go",
+        "startLine": 366,
+        "startCol": 3,
+        "endLine": 372,
+        "endCol": 3
+      },
+      "hash": "bb66bd4411b62cb6"
+    },
+    "review-20260822-035": {
+      "id": "review-20260822-035",
+      "category": "issue",
+      "status": "open",
+      "title": "Discarded comma-ok on type assertion",
+      "body": "cfg, _ := interpolated.(map[string]any) discards the comma-ok error. If Interpolate\nreturns a non-map (e.g., a string), cfg is nil and passed to def.Run, which will\nnil-dereference on cfg[\"anyKey\"]. The `if cfg == nil` guard only protects against\nliteral nil, not wrong-type returns.\n",
+      "location": {
+        "file": "pkg/nodekit/build.go",
+        "startLine": 30,
+        "startCol": 3,
+        "endLine": 35,
+        "endCol": 3
+      },
+      "hash": "58f82196ad8fd591"
+    },
+    "review-20260822-036": {
+      "id": "review-20260822-036",
+      "category": "issue",
+      "status": "open",
+      "title": "New HTTP client per request",
+      "body": "client := \u0026http.Client{} creates a new HTTP client per request with no connection\npooling and a nil Transport (no TLS tuning, no timeouts on dial/TLS/etc.). Should\nuse a package-level or injected client.\n",
+      "location": {
+        "file": "pkg/nodes/http/http.go",
+        "startLine": 157,
+        "startCol": 3,
+        "endLine": 161,
+        "endCol": 3
+      },
+      "hash": "4d939e8c57ae99c1"
+    },
+    "review-20260822-037": {
+      "id": "review-20260822-037",
+      "category": "issue",
+      "status": "open",
+      "title": "Unbounded response body read",
+      "body": "io.ReadAll(resp.Body) reads unbounded response into memory. A malicious endpoint\nreturning a multi-GB body will OOM the process. Use io.LimitReader(resp.Body,\nmaxBytes).\n",
+      "location": {
+        "file": "pkg/nodes/http/http.go",
+        "startLine": 176,
+        "startCol": 3,
+        "endLine": 180,
+        "endCol": 3
+      },
+      "hash": "5daa1841f3b5c853"
+    },
+    "review-20260822-038": {
+      "id": "review-20260822-038",
+      "category": "issue",
+      "status": "open",
+      "title": "Timer leak in select",
+      "body": "time.After(timeout) creates a timer that is not stopped if the select completes via\ndone or ctx.Done(). This leaks a timer until it fires. Use time.NewTimer with\nexplicit Stop().\n",
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 890,
+        "startCol": 3,
+        "endLine": 894,
+        "endCol": 3
+      },
+      "hash": "df3cf320b2d827d0"
+    },
+    "review-20260822-039": {
+      "id": "review-20260822-039",
+      "category": "issue",
+      "status": "open",
+      "title": "TOCTOU race in dispatch between lock acquisitions",
+      "body": "dispatch calls rt.mu.Unlock() at line 531 then rt.mu.Lock() again at line 540.\nBetween these two critical sections, rt.paused and rt.index could be mutated by\nother goroutines (e.g., Deregister). The snapshot of toResume and entries is taken\nunder separate locks, creating a TOCTOU window.\n\nFix by taking both snapshots under a single lock acquisition, or by using a\nsnapshot that is immutable after release.\n",
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 498,
+        "startCol": 3,
+        "endLine": 506,
+        "endCol": 3
+      },
+      "hash": "3f6ec32a2a10a270"
+    },
+    "review-20260822-040": {
+      "id": "review-20260822-040",
+      "category": "issue",
+      "status": "open",
+      "title": "Discarded Schedule error",
+      "body": "The error from rt.scheduler.Schedule is silently discarded. If scheduling fails\n(e.g., invalid cron expression), the trigger will never fire and the failure\nwill be invisible to the caller.\n",
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 352,
+        "startCol": 3,
+        "endLine": 356,
+        "endCol": 3
+      },
+      "hash": "b90eb638ef2c2f7c"
+    },
+    "review-20260822-041": {
+      "id": "review-20260822-041",
+      "category": "issue",
+      "status": "open",
+      "title": "Goroutine leak when HTTP client disconnects",
+      "body": "handlePostRun spawns a goroutine that calls s.rt.Run(). If the HTTP client\ndisconnects (line 212 time.After), the goroutine continues running the workflow.\nThere is no cancellation of the ctx passed to rt.Run. The select on prep channel\nhas no default, and the goroutine may block sending to prep if the handler returns\nearly. The goroutine does check select with default on the error path, but the\nsuccess path (prep \u003c- prepResult{runID: h.RunID}) blocks until consumed — if the\nhandler timed out, the goroutine blocks forever.\n",
+      "location": {
+        "file": "pkg/server/server.go",
+        "startLine": 208,
+        "startCol": 3,
+        "endLine": 216,
+        "endCol": 3
+      },
+      "hash": "3a3653998de98462"
+    },
+    "review-20260822-042": {
+      "id": "review-20260822-042",
+      "category": "issue",
+      "status": "open",
+      "title": "Timer leak in handlePostRun",
+      "body": "time.After(10 * time.Second) leaks a timer if the prep channel receives first. Use\ntime.NewTimer with defer timer.Stop().\n",
+      "location": {
+        "file": "pkg/server/server.go",
+        "startLine": 224,
+        "startCol": 3,
+        "endLine": 227,
+        "endCol": 3
+      },
+      "hash": "932d974a1e132b91"
+    },
+    "review-20260822-043": {
+      "id": "review-20260822-043",
+      "category": "issue",
+      "status": "open",
+      "title": "Get returns mutable internal state pointer",
+      "body": "Get returns a pointer to the internal ActiveRun under RLock. After RUnlock, the\ncaller holds a reference to mutable internal state. If Deregister or MarkPaused is\ncalled concurrently, the caller's ActiveRun may be modified or its timer stopped.\n\nFix by returning a copy of ActiveRun, or by documenting that the caller must not\nmutate the returned value.\n",
+      "location": {
+        "file": "pkg/registry/registry.go",
+        "startLine": 78,
+        "startCol": 3,
+        "endLine": 85,
+        "endCol": 3
+      },
+      "hash": "2c0b2bcae6fd7221"
+    },
+    "review-20260822-044": {
+      "id": "review-20260822-044",
+      "category": "issue",
+      "status": "open",
+      "title": "Unknown operator returns true",
+      "body": "The switch statement has no default case. Unknown operators (e.g., \"\u003e\", \"\u003c=\")\nsilently fall through and return true (the loop continues). This means invalid\nconditions are treated as satisfied, which could cause incorrect event matching.\nAdd a default case that returns false for unrecognized operators.\n",
+      "location": {
+        "file": "pkg/runtime/watchservice.go",
+        "startLine": 226,
+        "startCol": 3,
+        "endLine": 231,
+        "endCol": 3
+      },
+      "hash": "3c0c1f2f1a68db86"
+    },
+    "review-20260822-045": {
+      "id": "review-20260822-045",
+      "category": "issue",
+      "status": "open",
+      "title": "Double registration of pause node",
+      "body": "nodes.go registers pause.Node on line 31, and pause.go also registers itself in its\nown init() on line 125. Since Register overwrites by kind, this is a harmless race\nbut signals confusion about ownership. Remove the init() in pause.go.\n",
+      "location": {
+        "file": "pkg/nodes/pause/pause.go",
+        "startLine": 129,
+        "startCol": 3,
+        "endLine": 133,
+        "endCol": 3
+      },
+      "hash": "a35d7caef877e2e5"
+    },
+    "review-20260822-046": {
+      "id": "review-20260822-046",
+      "category": "issue",
+      "status": "open",
+      "title": "Store update errors silently discarded",
+      "body": "_ = nCtx.Store.Update(ctx, store.SetValue(k, v)) discards the store update\nerror. If the patch fails, the router still jumps to onResume with stale\nstate. At minimum, log the error; ideally, propagate it.\n",
+      "location": {
+        "file": "pkg/nodes/pause/pause.go",
+        "startLine": 107,
+        "startCol": 3,
+        "endLine": 111,
+        "endCol": 3
+      },
+      "hash": "9905795e68ef5cdd"
+    },
+    "review-20260822-048": {
+      "id": "review-20260822-048",
+      "category": "issue",
+      "status": "open",
+      "title": "Store update errors discarded when folding resume payload",
+      "body": "_ = st.Update(...) discards the error when folding the resume event payload\ninto state. If the store rejects the update, the resumed pipeline will run\nwith incomplete state.\n",
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 745,
+        "startCol": 3,
+        "endLine": 749,
+        "endCol": 3
+      },
+      "hash": "e4cc710e6fa547e9"
+    },
+    "review-20260822-049": {
+      "id": "review-20260822-049",
+      "category": "issue",
+      "status": "open",
+      "title": "Code injection vulnerability in EvalValue",
+      "body": "EvalValue wraps user input in parentheses: `\"(\" + expr + \")\"`. If `expr` is\n`\"); malicious_code(); (\"`, it breaks out of the expression. No input validation\nis performed. This is vulnerable to code injection if `expr` contains untrusted\ninput.\n",
+      "location": {
+        "file": "pkg/expr/expr.go",
+        "startLine": 86,
+        "startCol": 3,
+        "endLine": 91,
+        "endCol": 3
+      },
+      "hash": "e8937c6420f3dba3"
+    },
+    "review-20260822-050": {
+      "id": "review-20260822-050",
+      "category": "issue",
+      "status": "open",
+      "title": "Wildcard CORS origin",
+      "body": "Access-Control-Allow-Origin: * allows any origin to access the API. In production,\nrestrict to specific trusted origins. This is a security risk if the API is\nexposed to the internet.\n",
+      "location": {
+        "file": "pkg/server/server.go",
+        "startLine": 338,
+        "startCol": 3,
+        "endLine": 342,
+        "endCol": 3
+      },
+      "hash": "d9aad543b42baa07"
+    },
+    "review-20260822-051": {
+      "id": "review-20260822-051",
+      "category": "issue",
+      "status": "open",
+      "title": "JSON encoder error discarded",
+      "body": "json.NewEncoder(w).Encode(data) error is discarded. If encoding fails after\nWriteHeader, the client gets a partial/corrupt response. At minimum, log the error.\n",
+      "location": {
+        "file": "pkg/server/server.go",
+        "startLine": 57,
+        "startCol": 3,
+        "endLine": 60,
+        "endCol": 3
+      },
+      "hash": "6bd569dbb36a6418"
+    },
+    "review-20260822-052": {
+      "id": "review-20260822-052",
+      "category": "issue",
+      "status": "open",
+      "title": "Context never propagated to callback",
+      "body": "context.WithCancel(context.Background()) creates a context that is never propagated\nto the callback. The cancel is called in Cancel() and Shutdown(), but the callback\nat line 56 receives context.Background(), not the cancellable context. The context\nis unused — either pass it to the callback or remove it.\n",
+      "location": {
+        "file": "pkg/scheduler/inmemory.go",
+        "startLine": 34,
+        "startCol": 3,
+        "endLine": 39,
+        "endCol": 3
+      },
+      "hash": "36bd26b1d086ba8e"
+    },
+    "review-20260822-053": {
+      "id": "review-20260822-053",
+      "category": "issue",
+      "status": "open",
+      "title": "CronDelay silently masks invalid cron expressions",
+      "body": "CronDelay returns time.Hour as a fallback when @every parse fails. This\nsilently masks invalid cron expressions. Consider logging the error or\nreturning a sentinel.\n",
+      "location": {
+        "file": "pkg/scheduler/cron.go",
+        "startLine": 21,
+        "startCol": 3,
+        "endLine": 25,
+        "endCol": 3
+      },
+      "hash": "c41861646482d276"
+    },
+    "review-20260822-054": {
+      "id": "review-20260822-054",
+      "category": "issue",
+      "status": "open",
+      "title": "Marshal/Unmarshal round-trip in WriteCheckpoint",
+      "body": "WriteCheckpoint marshals ckpt to JSON, then immediately unmarshals it back into\nmap[string]any. This is a pointless double-serialization to satisfy\nSetMetadataValue. If SetMetadataValue truly needs a raw map, marshal the struct\ndirectly to the target map using a single pass, or change the API.\n",
+      "location": {
+        "file": "pkg/pipeline/checkpoint.go",
+        "startLine": 83,
+        "startCol": 3,
+        "endLine": 88,
+        "endCol": 3
+      },
+      "hash": "e84f3533a0c7de91"
+    },
+    "review-20260822-055": {
+      "id": "review-20260822-055",
+      "category": "issue",
+      "status": "open",
+      "title": "Goroutine leak on normal path",
+      "body": "A goroutine is spawned per Run call to bridge abortChan -\u003e cancel(). On the normal\n(non-aborted) path, this goroutine blocks on select until runCtx.Done() fires. The\ndefer cancel() ensures the context is cancelled, so the goroutine will eventually\ndrain — but there is a brief window where the goroutine outlives the Run return. If\nRun is called in a tight loop, these goroutines accumulate transiently. Consider\nusing context.AfterFunc (Go 1.21+) instead of a dedicated goroutine.\n",
+      "location": {
+        "file": "pkg/pipeline/context.go",
+        "startLine": 115,
+        "startCol": 3,
+        "endLine": 122,
+        "endCol": 3
+      },
+      "hash": "1219d6a54a366eb1"
+    }
+  },
+  "files": {
+    "dist/index.cjs": {
+      "hash": "df9a19617057e4f8"
+    },
+    "dist/index.mjs": {
+      "hash": "5d3e836ee4977085"
+    },
+    "examples/server/main.go": {
+      "hash": "8a4a19e2f9f27ab8"
+    },
+    "pipelines.go": {
+      "hash": "f8e19ee569198f33"
+    },
+    "pkg/compiler/compiler.go": {
+      "hash": "73df8d2d6eb1e9a1"
+    },
+    "pkg/compiler/compiler_test.go": {
+      "hash": "dbb306e28389ff9a"
+    },
+    "pkg/core/errors.go": {
+      "hash": "2218b82c11dcea94",
+      "noteIds": [
+        "review-20260822-007",
+        "review-20260822-022",
+        "review-20260822-023"
+      ]
+    },
+    "pkg/core/logger.go": {
+      "hash": "60a7f71f90b36919",
+      "noteIds": [
+        "review-20260822-030",
+        "review-20260822-031"
+      ]
+    },
+    "pkg/core/systemerror_json.go": {
+      "hash": "7b9f80f772879c73",
+      "noteIds": [
+        "review-20260822-024",
+        "review-20260822-025",
+        "review-20260822-026",
+        "review-20260822-027",
+        "review-20260822-028",
+        "review-20260822-029"
+      ]
+    },
+    "pkg/events/events.go": {
+      "hash": "176f37a92665a81e",
+      "noteIds": [
+        "review-20260822-004",
+        "review-20260822-006",
+        "review-20260822-014",
+        "review-20260822-015",
+        "review-20260822-016",
+        "review-20260822-017"
+      ]
+    },
+    "pkg/expr/expr.go": {
+      "hash": "33b248a351a8dfdf",
+      "noteIds": [
+        "review-20260822-049"
+      ]
+    },
+    "pkg/expr/expr_test.go": {
+      "hash": "0ad43e893fb28397"
+    },
+    "pkg/nodekit/build.go": {
+      "hash": "32a1df1b3c99cd06",
+      "noteIds": [
+        "review-20260822-035"
+      ]
+    },
+    "pkg/nodekit/config.go": {
+      "hash": "1c165bc7fc99e248"
+    },
+    "pkg/nodekit/errors.go": {
+      "hash": "2ee108d950e667d7"
+    },
+    "pkg/nodekit/handles_parity_test.go": {
+      "hash": "8667f159f72bc235"
+    },
+    "pkg/nodekit/nodekit.go": {
+      "hash": "4ec7ad66e6ec9715"
+    },
+    "pkg/nodes/arithmetic/arithmetic.go": {
+      "hash": "b2e7cc5fbdeabdb9"
+    },
+    "pkg/nodes/arithmetic/arithmetic.ts": {
+      "hash": "78effe3f7e250b2a"
+    },
+    "pkg/nodes/arithmetic/arithmetic_test.go": {
+      "hash": "bf44703c8a8f101f"
+    },
+    "pkg/nodes/code/code.go": {
+      "hash": "bd9107550f176890"
+    },
+    "pkg/nodes/code/code.ts": {
+      "hash": "a5759359734e7050"
+    },
+    "pkg/nodes/code/code_test.go": {
+      "hash": "01d5c6efc2246ed1"
+    },
+    "pkg/nodes/database/database.go": {
+      "hash": "6f950de0a12fae57"
+    },
+    "pkg/nodes/database/database.ts": {
+      "hash": "6d9d677b5c99db04"
+    },
+    "pkg/nodes/delay/delay.go": {
+      "hash": "89ba2f31e5de5e92"
+    },
+    "pkg/nodes/delay/delay.ts": {
+      "hash": "8f32a2bbe59b63ce"
+    },
+    "pkg/nodes/delay/delay_test.go": {
+      "hash": "b33dd43b32af695c"
+    },
+    "pkg/nodes/for-each/foreach.go": {
+      "hash": "f92c646e62e84f45"
+    },
+    "pkg/nodes/for-each/foreach.ts": {
+      "hash": "5b7a2076663ea433"
+    },
+    "pkg/nodes/for-each/foreach_test.go": {
+      "hash": "326e0e5cbd64b241"
+    },
+    "pkg/nodes/gemini/gemini.go": {
+      "hash": "09d56a8f242dd78c"
+    },
+    "pkg/nodes/gemini/gemini.ts": {
+      "hash": "7114a4960f76b05c"
+    },
+    "pkg/nodes/http/http.go": {
+      "hash": "ef65e9093c92c37a",
+      "noteIds": [
+        "review-20260822-036",
+        "review-20260822-037"
+      ]
+    },
+    "pkg/nodes/http/http.ts": {
+      "hash": "1b763838ac3316f4"
+    },
+    "pkg/nodes/http/http_test.go": {
+      "hash": "5fccac261135099d"
+    },
+    "pkg/nodes/if/if.go": {
+      "hash": "9ff72e8d34a64704"
+    },
+    "pkg/nodes/if/if.ts": {
+      "hash": "51e1d1854f3c3c19"
+    },
+    "pkg/nodes/if/if_test.go": {
+      "hash": "e20a1229820ad73d"
+    },
+    "pkg/nodes/nodes.go": {
+      "hash": "5dc286a4dd5f6b49"
+    },
+    "pkg/nodes/nodes_test.go": {
+      "hash": "5b9ef94842737661"
+    },
+    "pkg/nodes/pause/pause.go": {
+      "hash": "d5ddf1046e494b71",
+      "noteIds": [
+        "review-20260822-002",
+        "review-20260822-003",
+        "review-20260822-045",
+        "review-20260822-046"
+      ]
+    },
+    "pkg/nodes/pause/pause_test.go": {
+      "hash": "c085e27fa6dec3ba"
+    },
+    "pkg/nodes/query/query.go": {
+      "hash": "6826e41c84477a50"
+    },
+    "pkg/nodes/query/query.ts": {
+      "hash": "adf4b838434f7f57"
+    },
+    "pkg/nodes/query/query_test.go": {
+      "hash": "9af2efa57dc3bf71"
+    },
+    "pkg/nodes/switch/switch.go": {
+      "hash": "5421943e0c04b741"
+    },
+    "pkg/nodes/switch/switch.ts": {
+      "hash": "0a35e790c1e6bbda"
+    },
+    "pkg/nodes/switch/switch_test.go": {
+      "hash": "4d8942074ef93db3"
+    },
+    "pkg/nodes/transformer/transformer.go": {
+      "hash": "41d793720846244a"
+    },
+    "pkg/nodes/transformer/transformer.ts": {
+      "hash": "e765bc0bf2e3bda3"
+    },
+    "pkg/nodes/transformer/transformer_test.go": {
+      "hash": "50afcf420b28b954"
+    },
+    "pkg/nodes/transformer/transforms.go": {
+      "hash": "3bc0e3c9ee9a5525"
+    },
+    "pkg/nodes/trigger/trigger.go": {
+      "hash": "1e6ebd30c51ea852"
+    },
+    "pkg/nodes/trigger/trigger.ts": {
+      "hash": "e9d6ec429209d818"
+    },
+    "pkg/nodes/trigger/trigger_test.go": {
+      "hash": "678e0bab4585bdf0"
+    },
+    "pkg/nodes/try-catch/trycatch.go": {
+      "hash": "070ec4ba51ab3eff"
+    },
+    "pkg/nodes/try-catch/trycatch.ts": {
+      "hash": "98f877e20bd346cd"
+    },
+    "pkg/nodes/try-catch/trycatch_test.go": {
+      "hash": "09e9bc7d9a0994c5"
+    },
+    "pkg/nodes/while/while.go": {
+      "hash": "c2d736c21389b3fc"
+    },
+    "pkg/nodes/while/while.ts": {
+      "hash": "90e0dbff80c1ce9f"
+    },
+    "pkg/nodes/while/while_test.go": {
+      "hash": "7b455be4f2233f22"
+    },
+    "pkg/pipeline/checkpoint.go": {
+      "hash": "43bae228672866c7",
+      "noteIds": [
+        "review-20260822-054"
+      ]
+    },
+    "pkg/pipeline/context.go": {
+      "hash": "52c489644d6db8a5",
+      "noteIds": [
+        "review-20260822-033",
+        "review-20260822-034",
+        "review-20260822-055"
+      ]
+    },
+    "pkg/pipeline/factory.go": {
+      "hash": "7888e48e25d9352d"
+    },
+    "pkg/pipeline/router.go": {
+      "hash": "a8c3839f2d4a8511"
+    },
+    "pkg/pipeline/stage.go": {
+      "hash": "6ddefba1a0775e87"
+    },
+    "pkg/pipeline/subpipeline.go": {
+      "hash": "40634fc35f166dd6"
+    },
+    "pkg/pipeline/types.go": {
+      "hash": "a1017e47a379cd52"
+    },
+    "pkg/pipeline/workflow.go": {
+      "hash": "9fb75f247f3e9a20"
+    },
+    "pkg/registry/registry.go": {
+      "hash": "3838506a72a465fd",
+      "noteIds": [
+        "review-20260822-043"
+      ]
+    },
+    "pkg/runtime/eventsource.go": {
+      "hash": "0cc0cea146fe3190"
+    },
+    "pkg/runtime/runtime.go": {
+      "hash": "f681ea5b437171c7",
+      "noteIds": [
+        "review-20260822-038",
+        "review-20260822-039",
+        "review-20260822-040",
+        "review-20260822-048"
+      ]
+    },
+    "pkg/runtime/runtime_test.go": {
+      "hash": "17e979e084f5254e"
+    },
+    "pkg/runtime/watchservice.go": {
+      "hash": "4848e8c3e7fccdfd",
+      "noteIds": [
+        "review-20260822-001",
+        "review-20260822-044"
+      ]
+    },
+    "pkg/scheduler/cron.go": {
+      "hash": "0243320ce168683d",
+      "noteIds": [
+        "review-20260822-053"
+      ]
+    },
+    "pkg/scheduler/inmemory.go": {
+      "hash": "2905e6088429460c",
+      "noteIds": [
+        "review-20260822-052"
+      ]
+    },
+    "pkg/scheduler/scheduler.go": {
+      "hash": "e28728a090c9ae5f"
+    },
+    "pkg/scheduler/scheduler_test.go": {
+      "hash": "fce543368e233605"
+    },
+    "pkg/server/server.go": {
+      "hash": "ab820887e7a5dc7b",
+      "noteIds": [
+        "review-20260822-041",
+        "review-20260822-042",
+        "review-20260822-050",
+        "review-20260822-051"
+      ]
+    },
+    "pkg/store/store.go": {
+      "hash": "99299be5be0f538c",
+      "noteIds": [
+        "review-20260822-005",
+        "review-20260822-008",
+        "review-20260822-018",
+        "review-20260822-019",
+        "review-20260822-020",
+        "review-20260822-021"
+      ]
+    },
+    "pkg/timeline/timeline.go": {
+      "hash": "29e0d96ab2e52e91"
+    },
+    "pkg/watch/watch.go": {
+      "hash": "a0c4ad884ef2ca8b",
+      "noteIds": [
+        "review-20260822-009",
+        "review-20260822-010",
+        "review-20260822-011",
+        "review-20260822-012",
+        "review-20260822-013"
+      ]
+    },
+    "scripts/build.ts": {
+      "hash": "c119701c6f57a5a8"
+    },
+    "src/generated.ts": {
+      "hash": "8c8587b659ef814c"
+    },
+    "src/index.ts": {
+      "hash": "6010e2be3ef7e28a"
+    },
+    "src/serialize.ts": {
+      "hash": "6962362422112ef9"
+    },
+    "src/types.ts": {
+      "hash": "ca80b44de323a138"
+    },
+    "tests/debug_run_test.go": {
+      "hash": "dfa240c4e7f2b434"
+    },
+    "tests/eventwire_test.go": {
+      "hash": "cd5f4162537dc62b"
+    },
+    "tests/frontend_api_test.go": {
+      "hash": "02b54970698d4a4a"
+    },
+    "tests/if_node_repro_test.go": {
+      "hash": "032a75d566292754"
+    },
+    "tests/ifdbg2_test.go": {
+      "hash": "6df1a8548742f22a"
+    },
+    "tests/ifdbg_test.go": {
+      "hash": "dffc402eae67508a"
+    },
+    "tests/pause_resume_test.go": {
+      "hash": "ee5d3b57b7f7a94a"
+    },
+    "tests/pipeline_test.go": {
+      "hash": "564414ad2aa0904a"
+    },
+    "tests/subpipeline_test.go": {
+      "hash": "525421e9a1576cd8"
+    },
+    "tests/timeline_test.go": {
+      "hash": "020162499ea4c2f8"
+    }
+  }
+}

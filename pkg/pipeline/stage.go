@@ -186,7 +186,6 @@ func ExecuteStageSteps(
 	return nil
 }
 
-
 func executeStepAttempt(ctx context.Context, pCtx PipelineContext, step Step, doc *document.Document) (store.DocumentMutator, error) {
 	if step.Action == nil {
 		return nil, nil

@@ -32,6 +32,12 @@ func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx c
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// @note #review-20260822-052 issue status=open priority=P2 tags=#review,#bug : Context never propagated to callback
+	//
+	// context.WithCancel(context.Background()) creates a context that is never propagated
+	// to the callback. The cancel is called in Cancel() and Shutdown(), but the callback
+	// at line 56 receives context.Background(), not the cancellable context. The context
+	// is unused — either pass it to the callback or remove it.
 	_, cancel := context.WithCancel(context.Background())
 
 	js := &jobState{cancel: cancel, callback: callback}

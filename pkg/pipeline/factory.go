@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-
 // FactoryOptions configures the pipeline factory.
 type FactoryOptions struct {
 	Logger   core.Logger

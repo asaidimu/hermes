@@ -33,8 +33,8 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"done","label":"done","kind":"executable"},{"type":"source","id":"catch","label":"catch","kind":"executable"},{"type":"source","id":"try","label":"try","kind":"executable"}]`,
-	Run:    run,
-	Router: router,
+	Run:       run,
+	Router:    router,
 }
 
 // run mirrors the TS try-catch run: aggregates any errors seen by the step into

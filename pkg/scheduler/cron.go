@@ -19,6 +19,11 @@ func CronDelay(expr string) time.Duration {
 	if strings.HasPrefix(expr, "@every ") {
 		d, err := time.ParseDuration(expr[7:])
 		if err != nil {
+			// @note #review-20260822-053 issue status=open priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
+			//
+			// CronDelay returns time.Hour as a fallback when @every parse fails. This
+			// silently masks invalid cron expressions. Consider logging the error or
+			// returning a sentinel.
 			return time.Hour
 		}
 		return d

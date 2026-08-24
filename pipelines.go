@@ -69,4 +69,3 @@ var (
 func NewFactoryFromModel[T any](def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory {
 	return pipeline.NewFactoryFromModel[T](def, opts...)
 }
-

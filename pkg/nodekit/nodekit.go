@@ -84,8 +84,8 @@ type NodeDefinition struct {
 	// This allows nodes like pause to check for buffered events and
 	// either resume immediately or pause the pipeline.
 	PipelinesRouterFunc func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) `json:"-"`
-	ResourceInit        NodeResourceInit                                                                                                           `json:"-"`
-	ResourceEnd         NodeResourceCleanup                                                                                                        `json:"-"`
+	ResourceInit        NodeResourceInit                                                                                                          `json:"-"`
+	ResourceEnd         NodeResourceCleanup                                                                                                       `json:"-"`
 }
 
 // CompileConfigSchema compiles a node's ConfigSchema (an anansi schema) through

@@ -80,7 +80,6 @@ func TestConcurrentSubPipelines(t *testing.T) {
 	require.Equal(t, "succeeded", res.Status)
 }
 
-
 func TestHighConcurrencySubPipelines(t *testing.T) {
 	ctx := context.Background()
 	const numChildren = 100
@@ -134,4 +133,3 @@ func TestHighConcurrencySubPipelines(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", res.Status)
 }
-

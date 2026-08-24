@@ -84,6 +84,12 @@ func EvalBody(ctx context.Context, body string, state map[string]any) (bool, err
 // returns the exported value. Used by the switch node's `value` expression,
 // mirroring `new Function("state", "return (" + expr + ");")`.
 func EvalValue(ctx context.Context, expr string, state map[string]any) (any, error) {
+	// @note #review-20260822-049 issue status=open priority=P1 tags=#review,#security : Code injection vulnerability in EvalValue
+	//
+	// EvalValue wraps user input in parentheses: `"(" + expr + ")"`. If `expr` is
+	// `"); malicious_code(); ("`, it breaks out of the expression. No input validation
+	// is performed. This is vulnerable to code injection if `expr` contains untrusted
+	// input.
 	rt, stop := newRuntime(ctx)
 	defer stop()
 	_ = rt.Set("state", state)

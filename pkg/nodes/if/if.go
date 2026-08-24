@@ -51,7 +51,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"if","label":"true","kind":"executable"},{"type":"source","id":"else","label":"false","kind":"executable"}]`,
-	Router: router,
+	Router:    router,
 }
 
 var operatorMap = map[string]string{
@@ -91,7 +91,6 @@ func conditionEvalString(field, operator, value string) string {
 		return fmt.Sprintf("return (%s) %s (%s);", resolvedField, jsOp, resolvedValue)
 	}
 }
-
 
 func evalCondition(ctx context.Context, cond map[string]any, state map[string]any) (bool, error) {
 	field, _ := cond["field"].(string)

@@ -28,6 +28,12 @@ func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources,
 	if err != nil {
 		return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "config interpolation failed").WithCause(err)
 	}
+	// @note #review-20260822-035 issue status=open priority=P1 tags=#review,#bug : Discarded comma-ok on type assertion
+	//
+	// cfg, _ := interpolated.(map[string]any) discards the comma-ok error. If Interpolate
+	// returns a non-map (e.g., a string), cfg is nil and passed to def.Run, which will
+	// nil-dereference on cfg["anyKey"]. The `if cfg == nil` guard only protects against
+	// literal nil, not wrong-type returns.
 	cfg, _ := interpolated.(map[string]any)
 	if cfg == nil {
 		cfg = map[string]any{}
@@ -191,10 +197,10 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 	}
 
 	return pipeline.Stage{
-		ID:         nodeID,
-		Order:      order,
-		Label:      def.Label,
-		Pipelines:  []pipeline.PipelineDefinition{subPipeline},
+		ID:        nodeID,
+		Order:     order,
+		Label:     def.Label,
+		Pipelines: []pipeline.PipelineDefinition{subPipeline},
 		PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
 			errors := map[string]any{}
 			resultsByID := map[string]any{}

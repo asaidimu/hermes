@@ -6,9 +6,9 @@ import (
 
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/nodekit"
+	_ "github.com/asaidimu/hermes/pkg/nodes" // registers all real node kinds
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
-	_ "github.com/asaidimu/hermes/pkg/nodes" // registers all real node kinds
 )
 
 // ---------------------------------------------------------------------------

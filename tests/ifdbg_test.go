@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	_ "github.com/asaidimu/hermes/pkg/nodes"
 	"github.com/asaidimu/hermes/pkg/nodekit"
+	_ "github.com/asaidimu/hermes/pkg/nodes"
 	ifnode "github.com/asaidimu/hermes/pkg/nodes/if"
 )
 

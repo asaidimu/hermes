@@ -124,9 +124,9 @@ func TestEventWireSubPipelines(t *testing.T) {
 		Label: "Wire Parent",
 		Stages: []pipeline.Stage{
 			{
-				ID:             "wire-sub-stage",
-				Label:          "Wire Sub Stage",
-				Pipelines:      []pipeline.PipelineDefinition{child1, child2},
+				ID:        "wire-sub-stage",
+				Label:     "Wire Sub Stage",
+				Pipelines: []pipeline.PipelineDefinition{child1, child2},
 				PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
 					require.Len(t, results, 2)
 					return pipeline.Advance(), nil

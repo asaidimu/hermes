@@ -29,8 +29,8 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"done","label":"done","kind":"executable"},{"type":"source","id":"do","label":"do","kind":"executable"}]`,
-	Run:    run,
-	Router: router,
+	Run:       run,
+	Router:    router,
 }
 
 // run mirrors the TS for-each node: maintains an iterator state machine at

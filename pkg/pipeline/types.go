@@ -59,9 +59,6 @@ func WithResourceResolver(resolver func(key string) (any, bool)) func(*pipelineC
 }
 
 func NewPipelineContext(runID, pipelineID, stageID, stepID string, path events.EventPath, logger core.Logger, opts ...func(*pipelineContextImpl)) PipelineContext {
-	if logger == nil {
-		logger = core.NopLogger{}
-	}
 	c := &pipelineContextImpl{
 		runID:      runID,
 		pipelineID: pipelineID,
@@ -99,9 +96,9 @@ type (
 	JumpInstruction      struct{ StageID string }
 	JumpToInstruction    struct{ Address EntryAddress }
 	PauseInstruction     struct {
-		StageID      string
-		Timeout      time.Duration
-		Persist      bool
+		StageID       string
+		Timeout       time.Duration
+		Persist       bool
 		WaitForEvent  string   // single event (backward compat)
 		WaitForEvents []string // multiple events to wait for
 		WaitMode      string   // "any" (default) or "all"
@@ -163,10 +160,10 @@ type Stage struct {
 
 // PipelineDefinition declares the static DAG/pipeline structure.
 type PipelineDefinition struct {
-	ID          string
-	Label       string
-	Schema      *definition.CompiledSchema
-	Stages      []Stage
+	ID     string
+	Label  string
+	Schema *definition.CompiledSchema
+	Stages []Stage
 }
 
 // PipelineRunResult represents the terminal or paused state of a pipeline execution.

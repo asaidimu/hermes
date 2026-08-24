@@ -40,6 +40,11 @@ var Node = nodekit.NodeDefinition{
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {
+			// @note #review-20260822-003 observation status=open priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
+			//
+			// When the WatchService is not available, this function returns nil without an error.
+			// This could make debugging difficult in production. Consider returning an error
+			// or logging a warning when the WatchService is unavailable.
 			return nil, nil
 		}
 		watchService, ok := wsRaw.(watch.WatchService)
@@ -84,6 +89,11 @@ var Node = nodekit.NodeDefinition{
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {
+			// @note #review-20260822-002 observation status=open priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
+			//
+			// When the WatchService is not available, this function returns nil without an error.
+			// This could make debugging difficult in production. Consider returning an error
+			// or logging a warning when the WatchService is unavailable.
 			return nil, nil
 		}
 		watchService, ok := wsRaw.(watch.WatchService)
@@ -95,6 +105,11 @@ var Node = nodekit.NodeDefinition{
 		if bufferedEvent := watchService.PeekBufferedEvent(nCtx.NodeID); bufferedEvent != nil {
 			// Buffered event found - merge payload into state and route to onResume
 			for k, v := range bufferedEvent.Patch {
+				// @note #review-20260822-046 issue status=open priority=P1 tags=#review,#error-handling : Store update errors silently discarded
+				//
+				// _ = nCtx.Store.Update(ctx, store.SetValue(k, v)) discards the store update
+				// error. If the patch fails, the router still jumps to onResume with stale
+				// state. At minimum, log the error; ideally, propagate it.
 				_ = nCtx.Store.Update(ctx, store.SetValue(k, v))
 			}
 			return pipeline.Jump("onResume"), nil
@@ -112,5 +127,10 @@ var Node = nodekit.NodeDefinition{
 }
 
 func init() {
+	// @note #review-20260822-045 issue status=open priority=P1 tags=#review,#bug : Double registration of pause node
+	//
+	// nodes.go registers pause.Node on line 31, and pause.go also registers itself in its
+	// own init() on line 125. Since Register overwrites by kind, this is a harmless race
+	// but signals confusion about ownership. Remove the init() in pause.go.
 	nodekit.Register(Node)
 }

@@ -27,19 +27,20 @@ type SubPipelineAddress struct {
 
 // PipelineCheckpoint stores the serialized resume state.
 type PipelineCheckpoint struct {
-	RunID              string       `json:"runId"`
-	PipelineID         string       `json:"pipelineId"`
-	PausedAtStageID    string       `json:"pausedAtStageId"`
-	PausedAtStageLabel string       `json:"pausedAtStageLabel"`
-	PausedOn           string       `json:"pausedOn"` // ISO-8606
-	ResumeAt           EntryAddress `json:"resumeAt"`
-	WaitForEvent       string       `json:"waitForEvent,omitempty"`
-	WaitForEvents      []string     `json:"waitForEvents,omitempty"`
-	WaitMode           string       `json:"waitMode,omitempty"` // "any" or "all"
-	Timeout            int64        `json:"timeout,omitempty"`  // milliseconds, 0 = no timeout
-	ReceivedEvents     []string     `json:"receivedEvents,omitempty"`
-	Cron               string       `json:"cron,omitempty"`        // cron expression for auto-resume (e.g. "@every 5m")
-	ResumeReason       string       `json:"resumeReason,omitempty"` // "event" or "timeout"
+	RunID              string            `json:"runId"`
+	PipelineID         string            `json:"pipelineId"`
+	PausedAtStageID    string            `json:"pausedAtStageId"`
+	PausedAtStageLabel string            `json:"pausedAtStageLabel"`
+	PausedOn           string            `json:"pausedOn"` // ISO-8606
+	ResumeAt           EntryAddress      `json:"resumeAt"`
+	WaitForEvent       string            `json:"waitForEvent,omitempty"`
+	WaitForEvents      []string          `json:"waitForEvents,omitempty"`
+	WaitMode           string            `json:"waitMode,omitempty"` // "any" or "all"
+	Timeout            int64             `json:"timeout,omitempty"`  // milliseconds, 0 = no timeout
+	ReceivedEvents     []string          `json:"receivedEvents,omitempty"`
+	Cron               string            `json:"cron,omitempty"`         // cron expression for auto-resume (e.g. "@every 5m")
+	ResumeReason       string            `json:"resumeReason,omitempty"` // "event" or "timeout"
+	Snapshot           map[string]any    `json:"snapshot,omitempty"`     // document state at pause time
 }
 
 // WriteCheckpoint saves a checkpoint into the Anansi document metadata.
@@ -81,6 +82,12 @@ func WriteCheckpoint(doc *document.Document, ckpt PipelineCheckpoint) error {
 		return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
 	}
 
+	// @note #review-20260822-054 issue status=open priority=P1 tags=#review,#performance,#cpu-waste : Marshal/Unmarshal round-trip in WriteCheckpoint
+	//
+	// WriteCheckpoint marshals ckpt to JSON, then immediately unmarshals it back into
+	// map[string]any. This is a pointless double-serialization to satisfy
+	// SetMetadataValue. If SetMetadataValue truly needs a raw map, marshal the struct
+	// directly to the target map using a single pass, or change the API.
 	var ckptMap map[string]any
 	if err := json.Unmarshal(ckptBytes, &ckptMap); err != nil {
 		return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)

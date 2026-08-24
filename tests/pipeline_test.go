@@ -79,7 +79,6 @@ func TestSequentialPipelineExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(15), val)
 
-
 	require.Contains(t, emittedEvents, "pipeline:start")
 	require.Contains(t, emittedEvents, "stage:start")
 	require.Contains(t, emittedEvents, "step:start")
@@ -87,7 +86,6 @@ func TestSequentialPipelineExecution(t *testing.T) {
 	require.Contains(t, emittedEvents, "stage:success")
 	require.Contains(t, emittedEvents, "pipeline:success")
 }
-
 
 func TestPipelineJumpRouting(t *testing.T) {
 	ctx := context.Background()

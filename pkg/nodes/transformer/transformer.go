@@ -28,7 +28,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
-	Run: run,
+	Run:       run,
 }
 
 // run mirrors the TS transformer node: applies each rule to a working copy of

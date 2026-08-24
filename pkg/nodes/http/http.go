@@ -42,7 +42,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
-	Run: run,
+	Run:       run,
 }
 
 var privateIPRegex = regexp.MustCompile(
@@ -155,6 +155,11 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutato
 		req.Body = nil
 	}
 
+	// @note #review-20260822-036 issue status=open priority=P1 tags=#review,#bug : New HTTP client per request
+	//
+	// client := &http.Client{} creates a new HTTP client per request with no connection
+	// pooling and a nil Transport (no TLS tuning, no timeouts on dial/TLS/etc.). Should
+	// use a package-level or injected client.
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -169,6 +174,11 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutato
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
+	// @note #review-20260822-037 issue status=open priority=P1 tags=#review,#bug : Unbounded response body read
+	//
+	// io.ReadAll(resp.Body) reads unbounded response into memory. A malicious endpoint
+	// returning a multi-GB body will OOM the process. Use io.LimitReader(resp.Body,
+	// maxBytes).
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP node: request failed - %v", err)

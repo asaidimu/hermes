@@ -49,7 +49,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"done","label":"done","kind":"executable"},{"type":"source","id":"do","label":"do","kind":"executable"}]`,
-	Router: router,
+	Router:    router,
 }
 
 // router mirrors the TS while node: evaluates the simple predicate or the
@@ -80,39 +80,39 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 }
 
 var operatorMap = map[string]string{
-    "equals":         "===",
-    "not_equals":     "!==",
-    "greater_than":   ">",
-    "less_than":      "<",
-    "greater_equals": ">=",
-    "less_equals":    "<=",
-    "contains":       "includes",
-    "starts_with":    "startsWith",
-    "ends_with":      "endsWith",
+	"equals":         "===",
+	"not_equals":     "!==",
+	"greater_than":   ">",
+	"less_than":      "<",
+	"greater_equals": ">=",
+	"less_equals":    "<=",
+	"contains":       "includes",
+	"starts_with":    "startsWith",
+	"ends_with":      "endsWith",
 }
 
 func evalString(key, predicate, value string) string {
-    jsOp := predicate
-    if mapped, ok := operatorMap[predicate]; ok {
-        jsOp = mapped
-    }
-    resolvedKey := key
-    if resolvedKey == "" {
-        resolvedKey = "state.index"
-    }
-    resolvedKey = expr.StatePathExpr(resolvedKey)
-    resolvedValue := value
-    if resolvedValue == "" {
-        resolvedValue = "undefined"
-    }
-    switch jsOp {
-    case "includes":
-        return fmt.Sprintf("return String(%s).includes(%s);", resolvedKey, resolvedValue)
-    case "startsWith":
-        return fmt.Sprintf("return String(%s).startsWith(%s);", resolvedKey, resolvedValue)
-    case "endsWith":
-        return fmt.Sprintf("return String(%s).endsWith(%s);", resolvedKey, resolvedValue)
-    default:
-        return fmt.Sprintf("return (%s) %s (%s);", resolvedKey, jsOp, resolvedValue)
-    }
+	jsOp := predicate
+	if mapped, ok := operatorMap[predicate]; ok {
+		jsOp = mapped
+	}
+	resolvedKey := key
+	if resolvedKey == "" {
+		resolvedKey = "state.index"
+	}
+	resolvedKey = expr.StatePathExpr(resolvedKey)
+	resolvedValue := value
+	if resolvedValue == "" {
+		resolvedValue = "undefined"
+	}
+	switch jsOp {
+	case "includes":
+		return fmt.Sprintf("return String(%s).includes(%s);", resolvedKey, resolvedValue)
+	case "startsWith":
+		return fmt.Sprintf("return String(%s).startsWith(%s);", resolvedKey, resolvedValue)
+	case "endsWith":
+		return fmt.Sprintf("return String(%s).endsWith(%s);", resolvedKey, resolvedValue)
+	default:
+		return fmt.Sprintf("return (%s) %s (%s);", resolvedKey, jsOp, resolvedValue)
+	}
 }
