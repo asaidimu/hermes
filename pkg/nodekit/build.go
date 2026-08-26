@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
@@ -70,11 +69,10 @@ func BuildTrigger(nodeID string, def NodeDefinition, config map[string]any) (*pi
 // through resolveHandle into a target stage id; unresolvable/empty handles
 // produce no instruction (the engine advances).
 func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resolveHandle func(string) string) pipeline.StepStageRouter {
-	return func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+	return func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 		if def.Router == nil {
 			return nil, nil
 		}
-		state := doc.Data()
 		var results map[string]any
 		if r, ok := state["results"].(map[string]any); ok {
 			results = r
@@ -106,13 +104,14 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 
 // buildRouterFunc wraps a NodeRouterFunc into a pipeline.StepStageRouter.
 // Unlike BuildRouter, it returns the RoutingInstruction directly without
-// handle resolution, enabling non-jump routing (e.g. pause).
-func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any) pipeline.StepStageRouter {
-	return func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+// handle resolution, enabling non-jump routing (e.g. pause). When the node's
+// router returns nil (no special instruction), the default edge is followed
+// like a plain node; a terminal leaf (no outgoing edge) terminates.
+func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, resolveHandle func(string) string) pipeline.StepStageRouter {
+	return func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 		if def.RouterFunc == nil {
 			return nil, nil
 		}
-		state := doc.Data()
 		var results map[string]any
 		if r, ok := state["results"].(map[string]any); ok {
 			results = r
@@ -121,13 +120,24 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any) p
 		if err != nil {
 			return nil, err
 		}
-		return def.RouterFunc(ctx, NodeRunContext{
+		inst, err := def.RouterFunc(ctx, NodeRunContext{
 			NodeID:  nodeID,
 			Config:  cfg,
 			State:   state,
 			Results: results,
 			Store:   st,
 		})
+		if err != nil {
+			return nil, err
+		}
+		if inst != nil {
+			return inst, nil
+		}
+		target := resolveHandle("")
+		if target == "" {
+			return pipeline.Terminate(), nil
+		}
+		return pipeline.Jump(target), nil
 	}
 }
 
@@ -136,7 +146,7 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any) p
 // branch is handled by the engine, which fails the pipeline on step errors
 // before routing is reached.
 func defaultStageRouter(config map[string]any, resolveHandle func(string) string) pipeline.StepStageRouter {
-	return func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+	return func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 		target := resolveHandle("")
 		if target == "" {
 			// No outgoing edge: this stage is a terminal leaf (e.g. the end of
@@ -158,7 +168,7 @@ func BuildStage(nodeID string, def NodeDefinition, config map[string]any, resour
 		stage.Steps = map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)}
 	}
 	if def.RouterFunc != nil {
-		stage.Router = buildRouterFunc(nodeID, def, config)
+		stage.Router = buildRouterFunc(nodeID, def, config, resolveHandle)
 	} else if def.Router != nil {
 		stage.Router = BuildRouter(nodeID, def, config, resolveHandle)
 	} else {
@@ -180,7 +190,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 			Order: 0,
 			Label: def.Label + " (setup)",
 			Steps: map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)},
-			Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 				if len(bodyStages) == 0 {
 					return nil, nil
 				}
@@ -201,7 +211,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 		Order:     order,
 		Label:     def.Label,
 		Pipelines: []pipeline.PipelineDefinition{subPipeline},
-		PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
+		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
 			errors := map[string]any{}
 			resultsByID := map[string]any{}
 			for _, r := range results {
@@ -213,7 +223,6 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 					errors[r.PipelineID] = r.Error
 				}
 			}
-			state := doc.Data()
 			res := resources()
 			cfg, err := prepareNodeConfig(def, config, state, res, resultsByID)
 			if err != nil {

@@ -36,7 +36,7 @@ var Node = nodekit.NodeDefinition{
 // run mirrors the TS for-each node: maintains an iterator state machine at
 // `__$<nodeId>__items__`, shifting one entry per execution into the itemKey and
 // clearing the internal state when exhausted.
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	cfg := nCtx.Config
 	itemsKey, _ := cfg["itemsKey"].(string)
 	itemKey, _ := cfg["itemKey"].(string)

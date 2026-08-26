@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/registry"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -25,14 +24,12 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"step-a": {
 						ID: "step-a",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("stage_a_done", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("stage_a_done", true), nil
 						},
 					},
 				},
-				Router: func(ctx context.Context, doc *document.Document, _ store.Store) (pipeline.RoutingInstruction, error) {
+				Router: func(ctx context.Context, state map[string]any, _ store.Store) (pipeline.RoutingInstruction, error) {
 					// Pause at stage-a and resume at stage-b
 					return pipeline.Pause("stage-b", 5*time.Second), nil
 				},
@@ -43,10 +40,8 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"step-b": {
 						ID: "step-b",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("stage_b_done", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("stage_b_done", true), nil
 						},
 					},
 				},
@@ -73,11 +68,13 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
 	require.NotNil(t, res1.Checkpoint)
 	require.Equal(t, "stage-b", res1.Checkpoint.ResumeAt.Stage)
 
-	valA, err := st.Document().Get("stage_a_done")
+	var valA any
+	err = st.Read(func(state map[string]any) error { valA = state["stage_a_done"]; return nil })
 	require.NoError(t, err)
 	require.Equal(t, true, valA)
 
-	valB, _ := st.Document().Get("stage_b_done")
+	var valB any
+	_ = st.Read(func(state map[string]any) error { valB = state["stage_b_done"]; return nil })
 	require.Nil(t, valB)
 
 	// 2. Mark paused in registry
@@ -91,7 +88,8 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", res2.Status)
 
-	valBAfter, err := st.Document().Get("stage_b_done")
+	var valBAfter any
+	err = st.Read(func(state map[string]any) error { valBAfter = state["stage_b_done"]; return nil })
 	require.NoError(t, err)
 	require.Equal(t, true, valBAfter)
 }

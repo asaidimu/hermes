@@ -70,18 +70,14 @@ func CauseMessage(err error) string {
 			if se.Message != "" && se.Cause == nil {
 				return se.Message
 			}
-			// @note #review-20260822-007 issue status=open priority=P1 tags=#review,#bug : Unreachable branch in CauseMessage
+			// @note #review-20260822-007 issue status=resolved priority=P1 tags=#review,#bug : Unreachable branch in CauseMessage
 			//
-			// The condition `se.Cause == nil` at line 62 is unreachable because any error
-			// that reaches it must have `se.Cause != nil` (otherwise the first condition
-			// already returned). This is dead code that suggests the author intended
-			// different logic — possibly checking for `se.Message == ""` with `Cause == nil`
-			// to handle empty messages.
-			if se.Cause == nil {
-				return se.Message
+			// Fixed by removing the dead `if se.Cause == nil` branch which was only
+			// reachable when se.Message was empty, returning a useless empty string.
+			if se.Cause != nil {
+				err = se.Cause
+				continue
 			}
-			err = se.Cause
-			continue
 		}
 		type unwrapper interface{ Unwrap() error }
 		if u, ok := err.(unwrapper); ok {

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -74,7 +73,7 @@ func (r *RunContextImpl) ResolveResource(key string) (any, bool) {
 	return nil, false
 }
 
-func (r *RunContextImpl) Write(mutator store.DocumentMutator) {
+func (r *RunContextImpl) Write(mutator store.Mutator) {
 	// @note #review-20260822-033 issue status=open priority=P1 tags=#review,#error-handling : Write discards store update error
 	//
 	// The error from r.store.Update is discarded with `_ =`. If the store update fails
@@ -174,7 +173,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				Status:     "failed",
 				RunID:      r.runID,
 				PipelineID: r.definition.ID,
-				FinalDoc:   r.store.Document(),
+				FinalState: stateSnapshot(r.store),
 				Error:      runCtx.Err(),
 			}, runCtx.Err()
 		}
@@ -221,7 +220,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			if router == nil {
 				router = DefaultStepRouter
 			}
-			instruction, stageErr = router(runCtx, r.store.Document(), r.store)
+			instruction, stageErr = router(runCtx, stateSnapshot(r.store), r.store)
 		} else {
 			// 3. Pipelines-mode stage: fork children, join, route.
 			subPipelineIDs := make([]string, 0, len(stage.Pipelines))
@@ -283,6 +282,44 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				return r.failStage(ctx, pipePath, stage, stageStart, startTime, subErr)
 			}
 
+			// Merge child results into parent under resultKey if configured.
+			if stage.Config != nil {
+				if resultKey, ok := stage.Config["resultKey"].(string); ok && resultKey != "" {
+					for i, sRes := range subResults {
+						if i >= len(stage.Pipelines) {
+							continue
+						}
+						pipelineID := stage.Pipelines[i].ID
+						var mergeVal any
+						if sRes.Status == "succeeded" && sRes.FinalState != nil {
+							// Merge child's final state
+							mergeVal = sRes.FinalState
+						} else {
+							// Child failed — merge error details
+							errDetail := map[string]any{"pipelineId": pipelineID, "status": sRes.Status}
+							if sRes.Error != nil {
+								errDetail["error"] = core.SystemErrorJSON(sRes.Error)
+							}
+							mergeVal = errDetail
+						}
+
+						if mergeVal != nil {
+							key := resultKey
+							if len(stage.Pipelines) > 1 {
+								key = resultKey + ":" + pipelineID
+							}
+							// @note #review-20260825-001 issue status=open priority=P1 tags=#review,#error-handling : Discarded store update error in result merge
+							//
+							// The error from r.store.Update is discarded with `_ =`. If the store
+							// update fails (e.g., document corruption, write conflict), the parent
+							// silently loses the child's result with no indication. At minimum,
+							// log the error; ideally, return it or fail the stage.
+							_ = r.store.Update(ctx, store.SetValue(key, mergeVal))
+						}
+					}
+				}
+			}
+
 			// Check if any subpipeline paused
 			for subIdx, sRes := range subResults {
 				if sRes.Status == "paused" && sRes.Checkpoint != nil {
@@ -303,13 +340,15 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 						},
 						Snapshot: snap,
 					}
-				_ = WriteCheckpoint(r.store.Document(), nestedCkpt)
-				_ = r.store.Flush(ctx)
-				return PipelineRunResult{
+					_ = r.store.Update(ctx, func(state map[string]any) error {
+						return WriteCheckpoint(state, nestedCkpt)
+					})
+					_ = r.store.Flush(ctx)
+					return PipelineRunResult{
 						Status:     "paused",
 						RunID:      r.runID,
 						PipelineID: r.definition.ID,
-						FinalDoc:   r.store.Document(),
+						FinalState: stateSnapshot(r.store),
 						Checkpoint: &nestedCkpt,
 					}, nil
 				}
@@ -319,7 +358,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			if pipeRouter == nil {
 				pipeRouter = DefaultPipelineStageRouter
 			}
-			instruction, stageErr = pipeRouter(runCtx, r.store.Document(), subResults, r.store)
+			instruction, stageErr = pipeRouter(runCtx, stateSnapshot(r.store), subResults, r.store)
 		}
 
 		if stageErr != nil {
@@ -367,14 +406,16 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			return r.failStage(ctx, pipePath, stage, stageStart, startTime, evalErr)
 		}
 		if shouldPause {
-			// @note #review-20260822-034 issue status=open priority=P1 tags=#review,#bug : Unsafe type assertion without comma-ok
+			// @note #review-20260822-034 issue status=resolved priority=P1 tags=#review,#bug : Unsafe type assertion without comma-ok
 			//
-			// instruction.(PauseInstruction) is an unsafe type assertion. If instruction is
-			// not a PauseInstruction, this panics. Use a comma-ok assertion to prevent
-			// runtime panics:
-			// pi, ok := instruction.(PauseInstruction)
-			// if !ok { return r.failStage(...) }
-			return r.handlePause(ctx, stage, instruction.(PauseInstruction), currentIdx)
+			// Fixed by using comma-ok type assertion to prevent runtime panics
+			// when instruction is not a PauseInstruction.
+			pi, ok := instruction.(PauseInstruction)
+			if !ok {
+				return r.failStage(ctx, pipePath, stage, stageStart, startTime,
+					fmt.Errorf("expected PauseInstruction, got %T", instruction))
+			}
+			return r.handlePause(ctx, stage, pi, currentIdx)
 		}
 		if decision == "terminate" {
 			break
@@ -406,7 +447,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		Status:     "succeeded",
 		RunID:      r.runID,
 		PipelineID: r.definition.ID,
-		FinalDoc:   r.store.Document(),
+		FinalState: stateSnapshot(r.store),
 	}, nil
 
 }
@@ -414,6 +455,17 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 // failStage emits stage:failure + pipeline:failure and returns the failed run result.
 func (r *RunContextImpl) failStage(ctx context.Context, pipePath events.EventPath, stage Stage, stageStart, runStart time.Time, stageErr error) (PipelineRunResult, error) {
 	duration := time.Since(stageStart).Milliseconds()
+
+	// Check if the run was aborted — if so, return the aborted result instead
+	// of treating the stage failure as a generic failure.
+	r.mu.RLock()
+	aborted := r.aborted
+	abortErr := r.abortErr
+	r.mu.RUnlock()
+	if aborted {
+		return r.abortedResult(ctx, pipePath, runStart, abortErr)
+	}
+
 	r.eventBus.Emit(ctx, "stage:failure", events.PipelineEvent{
 		RunID:      r.runID,
 		PipelineID: r.definition.ID,
@@ -444,7 +496,7 @@ func (r *RunContextImpl) failStage(ctx context.Context, pipePath events.EventPat
 		Status:     "failed",
 		RunID:      r.runID,
 		PipelineID: r.definition.ID,
-		FinalDoc:   r.store.Document(),
+		FinalState: stateSnapshot(r.store),
 		Error:      stageErr,
 	}, stageErr
 }
@@ -466,7 +518,7 @@ func (r *RunContextImpl) abortedResult(ctx context.Context, pipePath events.Even
 		Status:     "aborted",
 		RunID:      r.runID,
 		PipelineID: r.definition.ID,
-		FinalDoc:   r.store.Document(),
+		FinalState: stateSnapshot(r.store),
 		Error:      abortErr,
 	}, abortErr
 }
@@ -586,7 +638,9 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 	if pauseInst.Persist {
 		snap, _ := r.store.ExportJSON()
 		ckpt.Snapshot = snap
-		_ = WriteCheckpoint(r.store.Document(), ckpt)
+		_ = r.store.Update(ctx, func(state map[string]any) error {
+			return WriteCheckpoint(state, ckpt)
+		})
 		_ = r.store.Flush(ctx)
 	}
 
@@ -611,7 +665,7 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 		Status:        "paused",
 		RunID:         r.runID,
 		PipelineID:    r.definition.ID,
-		FinalDoc:      r.store.Document(),
+		FinalState:    stateSnapshot(r.store),
 		Checkpoint:    &ckpt,
 		WaitForEvent:  pauseInst.WaitForEvent,
 		WaitForEvents: pauseInst.WaitForEvents,
@@ -620,4 +674,20 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 }
 
 var _ RunContext = (*RunContextImpl)(nil)
-var _ = document.NewRecordView
+
+// stateSnapshot returns a deep copy of the run state for read-only consumers
+// (routers). Safe to retain beyond the store lock.
+func stateSnapshot(st store.Store) map[string]any {
+	var snap map[string]any
+	_ = st.Read(func(state map[string]any) error {
+		snap = make(map[string]any, len(state))
+		for k, v := range state {
+			snap[k] = v
+		}
+		return nil
+	})
+	if snap == nil {
+		snap = make(map[string]any)
+	}
+	return snap
+}

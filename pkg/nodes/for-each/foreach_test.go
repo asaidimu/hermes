@@ -5,18 +5,11 @@ import (
 	"testing"
 
 	"github.com/asaidimu/hermes/pkg/nodekit"
-	"github.com/asaidimu/hermes/pkg/store"
 )
 
 // runStep applies the for-each run mutator and returns the resulting state.
 func runStep(t *testing.T, cfg map[string]any, state map[string]any) map[string]any {
 	t.Helper()
-	doc := store.NewMemoryStore(nil).Document()
-	for k, v := range state {
-		if err := doc.Set(k, v); err != nil {
-			t.Fatal(err)
-		}
-	}
 	mut, err := run(context.Background(), nodekit.NodeRunContext{
 		NodeID: "loop1",
 		Config: cfg,
@@ -25,10 +18,16 @@ func runStep(t *testing.T, cfg map[string]any, state map[string]any) map[string]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := mut(doc); err != nil {
+	if err := mut(state); err != nil {
 		t.Fatal(err)
 	}
-	return doc.Data()
+	// Return a snapshot so successive states are distinct maps (the mutator
+	// mutates the passed state in place).
+	out := make(map[string]any, len(state))
+	for k, v := range state {
+		out[k] = v
+	}
+	return out
 }
 
 func TestIterateArray(t *testing.T) {

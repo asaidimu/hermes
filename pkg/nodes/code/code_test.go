@@ -8,7 +8,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-func runCode(code string, state map[string]any) (store.DocumentMutator, error) {
+func runCode(code string, state map[string]any) (store.Mutator, error) {
 	return Node.Run(context.Background(), nodekit.NodeRunContext{
 		Config: map[string]any{"code": code},
 		State:  state,

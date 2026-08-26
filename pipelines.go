@@ -27,7 +27,7 @@ type (
 
 	Store           = store.Store
 	MemoryStore     = store.MemoryStore
-	DocumentMutator = store.DocumentMutator
+	Mutator          = store.Mutator
 
 	PipelineEvent  = events.PipelineEvent
 	EventPath      = events.EventPath

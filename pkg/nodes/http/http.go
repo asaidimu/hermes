@@ -49,7 +49,7 @@ var privateIPRegex = regexp.MustCompile(
 	`^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|fe80|fc00|fd00)`,
 )
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	cfg := nCtx.Config
 	method, _ := cfg["method"].(string)
 	if method == "" {

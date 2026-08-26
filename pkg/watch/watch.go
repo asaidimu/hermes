@@ -1,22 +1,29 @@
-// Package watch defines shared types for the watch service interface.
-package watch
-
-// @note #review-20260822-009 issue status=open priority=P3 tags=#review,#documentation : Package doc misdescribes contents
+// Package watch defines the types and interface for event-based workflow resumption.
+// It provides WatchEvent, WatchCondition, WatchDescriptor for describing what events
+// a paused workflow should watch for, and the WatchService interface that
+// implementations must satisfy.
+// @note #review-20260822-009 issue status=resolved priority=P3 tags=#review,#documentation : Package doc misdescribes contents
 //
-// Package doc says "shared types for the watch service interface" but contains no
-// actual interface implementations — only type definitions and a stub WatchService
-// interface. The doc should describe what the package provides, not what it doesn't.
+// Fixed by rewriting the package doc to accurately describe what the package
+// provides: type definitions and the WatchService interface for event-based
+// workflow resumption.
+package watch
 
 // WatchEvent represents a matched event that should resume a paused run.
 type WatchEvent struct {
 	EventType string
-	// @note #review-20260822-010 issue status=open priority=P3 tags=#review,#documentation : Payload and Patch lack doc comments
+	// Payload contains the event data that was matched against the watch condition.
+	// Keys and value types depend on the event source (e.g., pipeline events may
+	// include "runId", "stageId", "status" keys).
+	Payload map[string]any
+	// Patch contains field updates to apply to the workflow state when resuming.
+	// Keys are dot-separated state paths (e.g., "entry.status") and values are
+	// the new values to set.
+	Patch map[string]any
+	// @note #review-20260822-010 issue status=resolved priority=P3 tags=#review,#documentation : Payload and Patch lack doc comments
 	//
-	// WatchEvent.Payload and WatchEvent.Patch are map[string]any with no documentation
-	// of their expected contents, keys, or value types. Callers cannot know what data
-	// these maps contain without reading implementation code.
-	Payload   map[string]any
-	Patch     map[string]any
+	// Fixed by adding doc comments explaining that Payload contains matched event
+	// data and Patch contains state updates to apply on resume.
 }
 
 // WatchCondition defines a filter on event payload fields.

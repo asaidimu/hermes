@@ -22,8 +22,7 @@ var Node = nodekit.NodeDefinition{
 			"code": {
 				"name": "code",
 				"type": "string",
-				"default": "// Example: Transform text to uppercase\nreturn {\n  text: state.text?.toUpperCase()\n};",
-				"required": true
+				"default": "// Example: Transform text to uppercase\nreturn {\n  text: state.text?.toUpperCase()\n};"
 			}
 		}
 	}`),
@@ -37,7 +36,7 @@ var Node = nodekit.NodeDefinition{
 	Run:       run,
 }
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	code, _ := nCtx.Config["code"].(string)
 	if strings.TrimSpace(code) == "" {
 		return nil, nil

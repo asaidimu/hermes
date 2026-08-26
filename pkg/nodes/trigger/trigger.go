@@ -20,7 +20,7 @@ var Node = nodekit.NodeDefinition{
 		"name": "trigger",
 		"fields": {
 			"event": { "name": "event", "type": "string", "default": "__manual__" },
-			"initialState": { "name": "initialState", "type": "record", "required": true },
+			"initialState": { "name": "initialState", "type": "record" },
 			"cron": { "name": "cron", "type": "string", "description": "Cron expression for recurring triggers (e.g. '@every 5m', '30 9 * * *'). When set, the trigger fires automatically on schedule." }
 		}
 	}`),
@@ -33,7 +33,7 @@ var Node = nodekit.NodeDefinition{
 
 // run coerces initialState values from strings to boolean/number, mirroring the
 // TS trigger node, and returns the coerced state as the initial patch.
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	raw, _ := nCtx.Config["initialState"].(map[string]any)
 	if raw == nil {
 		raw = map[string]any{}

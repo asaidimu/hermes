@@ -5,11 +5,10 @@ import (
 	"testing"
 
 	"github.com/asaidimu/hermes/pkg/nodekit"
-	"github.com/asaidimu/hermes/pkg/store"
 )
 
 func TestRunCoercesInitialState(t *testing.T) {
-	doc := store.NewMemoryStore(nil).Document()
+	state := map[string]any{}
 	ctx := context.Background()
 
 	nCtx := nodekit.NodeRunContext{
@@ -33,11 +32,10 @@ func TestRunCoercesInitialState(t *testing.T) {
 	if mut == nil {
 		t.Fatal("expected a mutator")
 	}
-	if err := mut(doc); err != nil {
+	if err := mut(state); err != nil {
 		t.Fatal(err)
 	}
 
-	state := doc.Data()
 	if state["flag"] != true {
 		t.Errorf("flag = %v, want true", state["flag"])
 	}

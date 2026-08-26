@@ -3,18 +3,17 @@ package pipeline
 import (
 	"context"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
 // DefaultStepRouter advances to the next stage by default.
-func DefaultStepRouter(ctx context.Context, doc *document.Document, st store.Store) (RoutingInstruction, error) {
+func DefaultStepRouter(ctx context.Context, state map[string]any, st store.Store) (RoutingInstruction, error) {
 	return Advance(), nil
 }
 
 // DefaultPipelineStageRouter checks if any child failed or paused, otherwise advances.
-func DefaultPipelineStageRouter(ctx context.Context, doc *document.Document, results []PipelineRunResult, st store.Store) (RoutingInstruction, error) {
+func DefaultPipelineStageRouter(ctx context.Context, state map[string]any, results []PipelineRunResult, st store.Store) (RoutingInstruction, error) {
 	for _, res := range results {
 		if res.Status == "failed" || res.Status == "aborted" {
 			if res.Error != nil {

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
@@ -53,10 +52,8 @@ func stepStage(id, label string) pipeline.Stage {
 		Steps: map[string]pipeline.Step{
 			"step-" + id: {
 				ID: "step-" + id,
-				Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-					return func(d *document.Document) error {
-						return d.Set("touched", id)
-					}, nil
+				Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					return store.SetValue("touched", id), nil
 				},
 			},
 		},
@@ -127,7 +124,7 @@ func TestEventWireSubPipelines(t *testing.T) {
 				ID:        "wire-sub-stage",
 				Label:     "Wire Sub Stage",
 				Pipelines: []pipeline.PipelineDefinition{child1, child2},
-				PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
+				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
 					require.Len(t, results, 2)
 					return pipeline.Advance(), nil
 				},
@@ -191,7 +188,7 @@ func TestEventWireSubPipelineSoftFailure(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"wire-fail-step": {
 						ID: "wire-fail-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return nil, core.NewSystemError(core.ErrCodeExecutionFailed, boom.Error()).WithCause(boom)
 						},
 					},
@@ -207,7 +204,7 @@ func TestEventWireSubPipelineSoftFailure(t *testing.T) {
 				ID:        "wire-soft-stage",
 				Label:     "Soft Stage",
 				Pipelines: []pipeline.PipelineDefinition{child},
-				PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
+				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
 					require.Len(t, results, 1)
 					require.Equal(t, "failed", results[0].Status)
 					require.NotNil(t, results[0].Error)
@@ -269,7 +266,7 @@ func TestEventWireSubPipelineHardFailure(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"wire-hard-step": {
 						ID: "wire-hard-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "hard failure")
 						},
 					},

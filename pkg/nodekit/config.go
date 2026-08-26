@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
 )
 
@@ -73,28 +72,25 @@ func setNested(obj map[string]any, path string, value any) {
 	current[parts[len(parts)-1]] = value
 }
 
-// ApplyPatch deep-merges a flat (dotted-key) patch into the document, mirroring
-// the TS engine: the patch is expanded to a nested object (setNestedValue) and
-// merged into state with @core/store merge semantics (arrays replace wholesale,
-// objects merge recursively, Delete sentinels remove keys, scalars are replaced).
-func ApplyPatch(doc *document.Document, flat map[string]any) error {
+// ApplyPatch deep-merges a flat (dotted-key) patch into the state map,
+// mirroring the TS engine: the patch is expanded to a nested object
+// (ExpandPatch) and merged with @core/store merge semantics (arrays replace
+// wholesale, objects merge recursively, Delete sentinels remove keys, scalars
+// are replaced). Mutates state in place; the caller holds the store lock.
+func ApplyPatch(state map[string]any, flat map[string]any) error {
 	if len(flat) == 0 {
 		return nil
 	}
 	nested := ExpandPatch(flat)
-	current := doc.Data()
-	merged := MergeMaps(current, nested)
-	for k := range nested {
-		v, ok := merged[k]
-		if !ok {
-			if err := doc.Delete(k); err != nil {
-				return err
-			}
-			continue
+	merged := MergeMaps(state, nested)
+	// Replace the top-level contents in place so callers holding the same map see the result.
+	for k := range state {
+		if _, ok := merged[k]; !ok {
+			delete(state, k)
 		}
-		if err := doc.Set(k, v); err != nil {
-			return err
-		}
+	}
+	for k, v := range merged {
+		state[k] = v
 	}
 	return nil
 }
@@ -314,7 +310,11 @@ func CoerceConfig(raw map[string]any, rs *definition.ResolvedSchema) map[string]
 			} else {
 				out[key] = stringify(v)
 			}
-		case definition.FieldTypeString, definition.FieldTypeEnum, definition.FieldTypeUnion:
+		case definition.FieldTypeUnion:
+			// Unions may hold object variants (e.g. simpleCondition) or scalar
+			// variants (e.g. complexCondition); pass through untouched.
+			out[key] = v
+		case definition.FieldTypeString, definition.FieldTypeEnum:
 			out[key] = stringify(v)
 		default:
 			out[key] = v
@@ -369,4 +369,27 @@ func stringify(v any) string {
 		return s
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// Lookup resolves a state key, supporting dotted paths ("a.b.c") like the
+// document getter it replaces. Returns (value, true) when found.
+func Lookup(state map[string]any, key string) (any, bool) {
+	if v, ok := state[key]; ok {
+		return v, true
+	}
+	if !strings.Contains(key, ".") {
+		return nil, false
+	}
+	parts := strings.Split(key, ".")
+	var cur any = state
+	for _, p := range parts {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if cur, ok = m[p]; !ok {
+			return nil, false
+		}
+	}
+	return cur, true
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodes/http"
 	ifnode "github.com/asaidimu/hermes/pkg/nodes/if"
 	"github.com/asaidimu/hermes/pkg/nodes/pause"
+	"github.com/asaidimu/hermes/pkg/nodes/pipeline-ref"
 	"github.com/asaidimu/hermes/pkg/nodes/query"
 	switchnode "github.com/asaidimu/hermes/pkg/nodes/switch"
 	"github.com/asaidimu/hermes/pkg/nodes/transformer"
@@ -29,6 +30,7 @@ func init() {
 	nodekit.Register(http.Node)
 	nodekit.Register(ifnode.Node)
 	nodekit.Register(pause.Node)
+	nodekit.Register(pipeleref.Node)
 	nodekit.Register(query.Node)
 	nodekit.Register(switchnode.Node)
 	nodekit.Register(transformer.Node)

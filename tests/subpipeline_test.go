@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/stretchr/testify/require"
@@ -23,10 +22,8 @@ func TestConcurrentSubPipelines(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"c1-step": {
 						ID: "c1-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("c1_done", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("c1_done", true), nil
 						},
 					},
 				},
@@ -43,10 +40,8 @@ func TestConcurrentSubPipelines(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"c2-step": {
 						ID: "c2-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("c2_done", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("c2_done", true), nil
 						},
 					},
 				},
@@ -62,7 +57,7 @@ func TestConcurrentSubPipelines(t *testing.T) {
 				ID:        "subpipeline-stage",
 				Label:     "Subpipelines Stage",
 				Pipelines: []pipeline.PipelineDefinition{child1, child2},
-				PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
+				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
 					require.Len(t, results, 2)
 					require.Equal(t, "succeeded", results[0].Status)
 					require.Equal(t, "succeeded", results[1].Status)
@@ -96,10 +91,8 @@ func TestHighConcurrencySubPipelines(t *testing.T) {
 					Steps: map[string]pipeline.Step{
 						"s-step": {
 							ID: "s-step",
-							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-								return func(d *document.Document) error {
-									return d.Set(fmt.Sprintf("key_%d", idx), idx)
-								}, nil
+							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+								return store.SetValue(fmt.Sprintf("key_%d", idx), idx), nil
 							},
 						},
 					},
@@ -115,7 +108,7 @@ func TestHighConcurrencySubPipelines(t *testing.T) {
 			{
 				ID:        "stress-stage",
 				Pipelines: children,
-				PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
+				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, _ store.Store) (pipeline.RoutingInstruction, error) {
 					require.Len(t, results, numChildren)
 					for _, r := range results {
 						require.Equal(t, "succeeded", r.Status)

@@ -8,7 +8,6 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodekit"
 	_ "github.com/asaidimu/hermes/pkg/nodes" // registers all real node kinds
 	"github.com/asaidimu/hermes/pkg/pipeline"
-	"github.com/asaidimu/hermes/pkg/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -18,7 +17,6 @@ import (
 
 func init() {
 	nodekit.Register(nodekit.NodeDefinition{Kind: "output", Label: "Output", Type: "executable"})
-	nodekit.Register(nodekit.NodeDefinition{Kind: "pipeline-ref", Label: "Pipeline Ref", Type: "executable"})
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +76,7 @@ func mustCompile(t *testing.T, nodes []compiler.Node, edges []compiler.Edge, reg
 func TestCompilesSimpleLinearWorkflow(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{"initialState": map[string]any{}}),
-		execNode("calc-1", "arithmetic", map[string]any{"op": "add", "operand": 10, "key": "result"}),
+		execNode("calc-1", "arithmetic", map[string]any{"operation": "add", "left": "10", "right": "5", "key": "result"}),
 		execNode("out-1", "output", map[string]any{}),
 	}
 	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "calc-1", ""), flowEdge("e2", "calc-1", "out-1", "")}
@@ -106,8 +104,8 @@ func TestCompilesSimpleLinearWorkflow(t *testing.T) {
 func TestAssignsAscendingOrders(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
-		execNode("a", "arithmetic", map[string]any{}),
-		execNode("b", "arithmetic", map[string]any{}),
+		execNode("a", "arithmetic", map[string]any{"key": "a"}),
+		execNode("b", "arithmetic", map[string]any{"key": "b"}),
 	}
 	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "a", ""), flowEdge("e2", "a", "b", "")}
 
@@ -121,7 +119,7 @@ func TestAssignsAscendingOrders(t *testing.T) {
 }
 
 func TestThrowsWithoutTopLevelTrigger(t *testing.T) {
-	_, err := compiler.Compile([]compiler.Node{execNode("calc-1", "arithmetic", map[string]any{})}, nil, nil)
+	_, err := compiler.Compile([]compiler.Node{execNode("calc-1", "arithmetic", map[string]any{"key": "calc-1"})}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "Add at least one top-level Trigger node") {
 		t.Fatalf("want trigger error, got %v", err)
 	}
@@ -130,7 +128,7 @@ func TestThrowsWithoutTopLevelTrigger(t *testing.T) {
 func TestIgnoresChildTrigger(t *testing.T) {
 	_, err := compiler.Compile([]compiler.Node{
 		childNode("trigger-child", "trigger", "some-container", 0, 0),
-		execNode("calc-1", "arithmetic", map[string]any{}),
+		execNode("calc-1", "arithmetic", map[string]any{"key": "calc-1"}),
 	}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "Add at least one top-level Trigger node") {
 		t.Fatalf("want trigger error, got %v", err)
@@ -144,7 +142,7 @@ func TestIgnoresChildTrigger(t *testing.T) {
 func TestOnlyFollowsFlowEdges(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
-		execNode("calc-1", "arithmetic", map[string]any{}),
+		execNode("calc-1", "arithmetic", map[string]any{"key": "calc-1"}),
 	}
 	edges := []compiler.Edge{depEdge("e1", "trigger-1", "calc-1")}
 
@@ -159,7 +157,7 @@ func TestSkipsResourceNodes(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
 		resourceNode("db-1", "database"),
-		execNode("calc-1", "arithmetic", map[string]any{}),
+		execNode("calc-1", "arithmetic", map[string]any{"key": "calc-1"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "calc-1", ""),
@@ -202,7 +200,7 @@ func TestDiamondMergeWithoutDuplicatingTail(t *testing.T) {
 		execNode("switch-1", "switch", map[string]any{"defaultHandle": "a"}),
 		execNode("path-a", "code", map[string]any{}),
 		execNode("path-b", "code", map[string]any{}),
-		execNode("tail", "arithmetic", map[string]any{}),
+		execNode("tail", "arithmetic", map[string]any{"key": "tail"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "switch-1", ""),
@@ -274,7 +272,7 @@ func TestForEachFansOutToDoAndDone(t *testing.T) {
 		execNode("trigger-1", "trigger", map[string]any{}),
 		execNode("loop-1", "for-each", map[string]any{"itemsKey": "items", "itemKey": "item"}),
 		execNode("body-1", "code", map[string]any{}),
-		execNode("after-1", "arithmetic", map[string]any{}),
+		execNode("after-1", "arithmetic", map[string]any{"key": "after-1"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "loop-1", ""),
@@ -326,7 +324,7 @@ func TestContainerDefaultRouterFollowsEdge(t *testing.T) {
 		execNode("trigger-1", "trigger", map[string]any{}),
 		containerNode("stage-1", "Simple Stage"),
 		childNode("child-1", "arithmetic", "stage-1", 0, 0),
-		execNode("next-1", "code", map[string]any{}),
+		execNode("next-1", "code", map[string]any{"code": "return state;"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "stage-1", ""),
@@ -339,9 +337,8 @@ func TestContainerDefaultRouterFollowsEdge(t *testing.T) {
 	if stage == nil || stage.Router == nil {
 		t.Fatal("stage-1 should have a router")
 	}
-	// Simulate routing by invoking the router against a fresh document.
-	doc := store.NewMemoryStore(nil).Document()
-	inst, err := stage.Router(t.Context(), doc, nil)
+	// Simulate routing by invoking the router against an empty state snapshot.
+	inst, err := stage.Router(t.Context(), map[string]any{}, nil)
 	_ = inst
 	if err != nil {
 		t.Fatalf("router error: %v", err)
@@ -425,8 +422,8 @@ func TestPipelineRefRequiresPipelineID(t *testing.T) {
 	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "ref-1", "")}
 
 	_, err := compiler.Compile(nodes, edges, stubRegistry{})
-	if err == nil || !strings.Contains(err.Error(), "no pipelineId configured") {
-		t.Fatalf("want no pipelineId error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "pipelineId") {
+		t.Fatalf("want pipelineId error, got %v", err)
 	}
 }
 
@@ -448,7 +445,7 @@ func TestPipelineRefCompilesToPipelinesMode(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
 		execNode("ref-1", "pipeline-ref", map[string]any{"pipelineId": "sub-pipeline-1"}),
-		execNode("after-1", "arithmetic", map[string]any{}),
+		execNode("after-1", "arithmetic", map[string]any{"key": "after-1"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "ref-1", ""),
@@ -474,7 +471,7 @@ func TestPipelineRefRoutesOnSuccess(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
 		execNode("ref-1", "pipeline-ref", map[string]any{"pipelineId": "sub-1"}),
-		execNode("after-1", "arithmetic", map[string]any{}),
+		execNode("after-1", "arithmetic", map[string]any{"key": "after-1"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "ref-1", ""),
@@ -502,7 +499,7 @@ func TestPipelineRefReturnsNilOnFailure(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
 		execNode("ref-1", "pipeline-ref", map[string]any{"pipelineId": "sub-1"}),
-		execNode("after-1", "arithmetic", map[string]any{}),
+		execNode("after-1", "arithmetic", map[string]any{"key": "after-1"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "ref-1", ""),
@@ -532,7 +529,7 @@ func TestResourceInjectionKeys(t *testing.T) {
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
 		resourceNode("db-1", "database"),
-		execNode("calc-1", "arithmetic", map[string]any{}),
+		execNode("calc-1", "arithmetic", map[string]any{"key": "calc-1"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "calc-1", ""),

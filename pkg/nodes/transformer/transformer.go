@@ -18,7 +18,7 @@ var Node = nodekit.NodeDefinition{
 		"version": "1.0.0",
 		"name": "transformer",
 		"fields": {
-			"rules": { "name": "rules", "type": "array", "schema": { "type": "record" }, "required": true, "default": [] }
+			"rules": { "name": "rules", "type": "array", "schema": { "type": "object" }, "required": true, "default": [] }
 		}
 	}`),
 	Handles: func(config map[string]any) []nodekit.HandleSpec {
@@ -35,7 +35,7 @@ var Node = nodekit.NodeDefinition{
 // state, collecting the resulting nested patch and DELETE_FIELD deletions
 // (represented with the nodekit.Delete sentinel). The final patch is deep-merged
 // into the document by the engine.
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	rules, _ := nCtx.Config["rules"].([]any)
 
 	workingState := nodekit.MergeMaps(nCtx.State, nil)

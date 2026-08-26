@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -179,7 +178,7 @@ func TestTimelineRecordsStepFailure(t *testing.T) {
 		Handles: func(config map[string]any) []nodekit.HandleSpec {
 			return []nodekit.HandleSpec{{Type: nodekit.HandleTarget, ID: ""}, {Type: nodekit.HandleSource, ID: ""}}
 		},
-		Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+		Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 			return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "generic error message")
 		},
 	})
@@ -259,7 +258,7 @@ func TestResourceResolverInjection(t *testing.T) {
 		Handles: func(config map[string]any) []nodekit.HandleSpec {
 			return []nodekit.HandleSpec{{Type: nodekit.HandleTarget, ID: ""}, {Type: nodekit.HandleSource, ID: ""}}
 		},
-		Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+		Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 			return nodekit.PatchMutator(map[string]any{"conn": nCtx.Config["conn"]}), nil
 		},
 	})
@@ -326,7 +325,7 @@ func TestResourceLifecycleEvents(t *testing.T) {
 		Handles: func(config map[string]any) []nodekit.HandleSpec {
 			return []nodekit.HandleSpec{{Type: nodekit.HandleTarget, ID: ""}, {Type: nodekit.HandleSource, ID: ""}}
 		},
-		Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+		Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 			return nodekit.PatchMutator(map[string]any{"consumed": true}), nil
 		},
 	})
@@ -395,7 +394,7 @@ func TestPauseResumeEventSource(t *testing.T) {
 				ID:    pauseStageID,
 				Label: "Pause",
 				Steps: map[string]pipeline.Step{},
-				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+				Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 					return pipeline.PauseForEvent("user:approved", 0), nil
 				},
 			},
@@ -406,14 +405,12 @@ func TestPauseResumeEventSource(t *testing.T) {
 					"step:code:Run Code": {
 						ID:    "step:code:Run Code",
 						Label: "Run Code",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state *document.Document) (store.DocumentMutator, error) {
-							state.Set("total", float64(10))
-							state.Set("resumed", true)
-							return nil, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("total", float64(10)), nil
 						},
 					},
 				},
-				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+				Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 					return pipeline.Advance(), nil
 				},
 			},
@@ -482,7 +479,7 @@ func TestResumeWithPayload(t *testing.T) {
 				ID:    pauseStageID,
 				Label: "Pause",
 				Steps: map[string]pipeline.Step{},
-				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+				Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 					return pipeline.PauseForEvent("data:arrived", 0), nil
 				},
 			},
@@ -493,14 +490,13 @@ func TestResumeWithPayload(t *testing.T) {
 					"step:code:Run Code": {
 						ID:    "step:code:Run Code",
 						Label: "Run Code",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state *document.Document) (store.DocumentMutator, error) {
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							// The resume payload should be available in state.
-							state.Set("fromPayload", "hello from event")
-							return nil, nil
+							return store.SetValue("fromPayload", "hello from event"), nil
 						},
 					},
 				},
-				Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+				Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 					return pipeline.Advance(), nil
 				},
 			},

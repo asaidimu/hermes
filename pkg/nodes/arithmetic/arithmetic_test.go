@@ -6,20 +6,19 @@ import (
 	"testing"
 
 	"github.com/asaidimu/hermes/pkg/nodekit"
-	"github.com/asaidimu/hermes/pkg/store"
 )
 
 func runWith(t *testing.T, cfg map[string]any) (map[string]any, error) {
 	t.Helper()
-	doc := store.NewMemoryStore(nil).Document()
+	state := map[string]any{}
 	mut, err := run(context.Background(), nodekit.NodeRunContext{Config: cfg})
 	if err != nil {
 		return nil, err
 	}
-	if err := mut(doc); err != nil {
+	if err := mut(state); err != nil {
 		return nil, err
 	}
-	return doc.Data(), nil
+	return state, nil
 }
 
 func TestRunOperations(t *testing.T) {

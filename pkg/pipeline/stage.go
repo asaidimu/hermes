@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -41,7 +40,7 @@ func ExecuteStageSteps(
 	}
 
 	var mu sync.Mutex
-	mutators := make([]store.DocumentMutator, 0, len(stage.Steps))
+	mutators := make([]store.Mutator, 0, len(stage.Steps))
 	var errsMu sync.Mutex
 	stepErrs := make([]error, 0, len(stage.Steps))
 
@@ -66,7 +65,7 @@ func ExecuteStageSteps(
 			})
 
 			stepStart := time.Now()
-			var mutator store.DocumentMutator
+			var mutator store.Mutator
 			var stepErr error
 
 			retries := step.Retries
@@ -87,7 +86,13 @@ func ExecuteStageSteps(
 				}
 
 				pCtx := NewPipelineContext(runID, pipelineID, stage.ID, sID, stepPath, logger, WithResourceResolver(resolver))
-				mutator, stepErr = executeStepAttempt(stepAttemptCtx, pCtx, step, st.Document())
+				snapshotErr := st.Read(func(state map[string]any) error {
+					mutator, stepErr = executeStepAttempt(stepAttemptCtx, pCtx, step, state)
+					return nil
+				})
+				if snapshotErr != nil && stepErr == nil {
+					stepErr = snapshotErr
+				}
 				if stepCancel != nil {
 					stepCancel()
 				}
@@ -170,9 +175,9 @@ func ExecuteStageSteps(
 
 	// Atomic commit of all step mutators to store
 	if len(mutators) > 0 {
-		commitErr := st.Transact(ctx, func(txDoc *document.Document) error {
+		commitErr := st.Update(ctx, func(state map[string]any) error {
 			for _, m := range mutators {
-				if err := m(txDoc); err != nil {
+				if err := m(state); err != nil {
 					return err
 				}
 			}
@@ -186,9 +191,9 @@ func ExecuteStageSteps(
 	return nil
 }
 
-func executeStepAttempt(ctx context.Context, pCtx PipelineContext, step Step, doc *document.Document) (store.DocumentMutator, error) {
+func executeStepAttempt(ctx context.Context, pCtx PipelineContext, step Step, state map[string]any) (store.Mutator, error) {
 	if step.Action == nil {
 		return nil, nil
 	}
-	return step.Action(ctx, pCtx, doc)
+	return step.Action(ctx, pCtx, state)
 }

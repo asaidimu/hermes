@@ -41,7 +41,7 @@ var Node = nodekit.NodeDefinition{
 // a single SystemError JSON written at errorKey. The engine only surfaces errors
 // to routers (buildStep does not pass errors), so this is effectively a no-op
 // during normal execution — kept for parity.
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	errorKey, _ := nCtx.Config["errorKey"].(string)
 	if errorKey == "" {
 		errorKey = "error"

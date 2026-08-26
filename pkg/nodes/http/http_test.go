@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/asaidimu/hermes/pkg/nodekit"
-	"github.com/asaidimu/hermes/pkg/store"
 )
 
 func TestSSRFBlock(t *testing.T) {
@@ -43,7 +42,7 @@ func TestRunAgainstTestServer(t *testing.T) {
 	// route through "localhost" (hostname passes the guard, resolves to loopback).
 	localURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 
-	doc := store.NewMemoryStore(nil).Document()
+	state := map[string]any{}
 	mut, err := run(context.Background(), nodekit.NodeRunContext{
 		NodeID: "http1",
 		Config: map[string]any{
@@ -55,11 +54,10 @@ func TestRunAgainstTestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := mut(doc); err != nil {
+	if err := mut(state); err != nil {
 		t.Fatal(err)
 	}
 
-	state := doc.Data()
 	result, ok := state["http_http1"].(map[string]any)
 	if !ok {
 		t.Fatalf("default key http_http1 missing: %v", state)
@@ -94,7 +92,7 @@ func TestCustomKeyAndThrowOnError(t *testing.T) {
 		t.Errorf("throwOnError: want HTTP 400 error, got %v", err)
 	}
 
-	doc := store.NewMemoryStore(nil).Document()
+	state := map[string]any{}
 	mut, err := run(context.Background(), nodekit.NodeRunContext{
 		NodeID: "http1",
 		Config: map[string]any{"url": localURL, "key": "resp", "throwOnError": false, "responseType": "text"},
@@ -102,10 +100,9 @@ func TestCustomKeyAndThrowOnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := mut(doc); err != nil {
+	if err := mut(state); err != nil {
 		t.Fatal(err)
 	}
-	state := doc.Data()
 	if _, ok := state["resp"]; !ok {
 		t.Errorf("custom key resp missing: %v", state)
 	}

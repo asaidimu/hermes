@@ -39,7 +39,7 @@ var Node = nodekit.NodeDefinition{
 // run guards on the database resource handle, mirroring the TS query node. The
 // database resource contract and its collection operations are on hold (see
 // WIP/todo) and will be wired here when they land.
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	db := nCtx.Resources["database"]
 	if db == nil {
 		return nil, fmt.Errorf(

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
@@ -28,10 +27,8 @@ func TestSequentialPipelineExecution(t *testing.T) {
 					"step-1": {
 						ID:    "step-1",
 						Label: "Step 1",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("count", int64(10))
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("count", int64(10)), nil
 						},
 					},
 				},
@@ -44,17 +41,9 @@ func TestSequentialPipelineExecution(t *testing.T) {
 					"step-2": {
 						ID:    "step-2",
 						Label: "Step 2",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								cntRaw, _ := d.Get("count")
-								var cnt int64
-								if c, ok := cntRaw.(int64); ok {
-									cnt = c
-								} else if c, ok := cntRaw.(int); ok {
-									cnt = int64(c)
-								}
-								return d.Set("count", cnt+5)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							cur := toInt64(state["count"])
+							return store.SetValue("count", cur+5), nil
 						},
 					},
 				},
@@ -75,7 +64,8 @@ func TestSequentialPipelineExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", res.Status)
 
-	val, err := res.FinalDoc.Get("count")
+	val := res.FinalState["count"]
+	_ = val
 	require.NoError(t, err)
 	require.Equal(t, int64(15), val)
 
@@ -100,14 +90,12 @@ func TestPipelineJumpRouting(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID: "init",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("jumped", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("jumped", true), nil
 						},
 					},
 				},
-				Router: func(ctx context.Context, doc *document.Document, _ store.Store) (pipeline.RoutingInstruction, error) {
+				Router: func(ctx context.Context, state map[string]any, _ store.Store) (pipeline.RoutingInstruction, error) {
 					return pipeline.Jump("finish"), nil
 				},
 			},
@@ -117,10 +105,8 @@ func TestPipelineJumpRouting(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"never": {
 						ID: "never",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("skipped_executed", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("skipped_executed", true), nil
 						},
 					},
 				},
@@ -131,10 +117,8 @@ func TestPipelineJumpRouting(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID: "done",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("completed", true)
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("completed", true), nil
 						},
 					},
 				},
@@ -149,10 +133,10 @@ func TestPipelineJumpRouting(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", res.Status)
 
-	skippedVal, _ := res.FinalDoc.Get("skipped_executed")
+	skippedVal := res.FinalState["skipped_executed"]
 	require.Nil(t, skippedVal)
 
-	completedVal, err := res.FinalDoc.Get("completed")
+	completedVal := res.FinalState["completed"]
 	require.NoError(t, err)
 	require.Equal(t, true, completedVal)
 
@@ -173,14 +157,12 @@ func TestPipelineStepRetryAndTimeout(t *testing.T) {
 						ID:      "flaky-step",
 						Retries: 2,
 						Timeout: 50 * time.Millisecond,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							attempts++
 							if attempts < 3 {
 								return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "temporary glitch")
 							}
-							return func(d *document.Document) error {
-								return d.Set("success_after_retries", true)
-							}, nil
+							return store.SetValue("success_after_retries", true), nil
 						},
 					},
 				},
@@ -195,4 +177,17 @@ func TestPipelineStepRetryAndTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", res.Status)
 	require.Equal(t, 3, attempts)
+}
+
+func toInt64(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	default:
+		return 0
+	}
 }

@@ -40,7 +40,7 @@ var Node = nodekit.NodeDefinition{
 	Run:       run,
 }
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	cfg := nCtx.Config
 	apiKey, _ := cfg["apiKey"].(string)
 	model, _ := cfg["model"].(string)

@@ -17,9 +17,9 @@ var Node = nodekit.NodeDefinition{
 		"version": "1.0.0",
 		"name": "switch",
 		"fields": {
-			"value":         { "name": "value", "type": "string", "default": "state.value", "required": true },
-			"cases":         { "name": "cases", "type": "string", "default": "[]", "required": true },
-			"defaultHandle": { "name": "defaultHandle", "type": "string", "default": "default", "required": true }
+			"value":         { "name": "value", "type": "string", "default": "state.value" },
+			"cases":         { "name": "cases", "type": "string", "default": "[]" },
+			"defaultHandle": { "name": "defaultHandle", "type": "string", "default": "default" }
 		}
 	}`),
 	Handles: func(config map[string]any) []nodekit.HandleSpec {

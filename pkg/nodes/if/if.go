@@ -18,17 +18,16 @@ var Node = nodekit.NodeDefinition{
 		"version": "1.0.0",
 		"name": "if",
 		"fields": {
-			"mode":        { "name": "mode", "type": "string", "default": "simple", "required": true },
-			"key":         { "name": "key", "type": "string", "default": "state.value", "required": true },
-			"predicate":   { "name": "predicate", "type": "string", "default": "===", "required": true },
-			"value":       { "name": "value", "type": "string", "default": "10", "required": true },
-			"conditions":  { "name": "conditions", "type": "array", "required": false },
-			"combinators": { "name": "combinators", "type": "array", "required": false },
+			"mode":        { "name": "mode", "type": "string", "default": "simple" },
+			"key":         { "name": "key", "type": "string", "default": "state.value" },
+			"predicate":   { "name": "predicate", "type": "string", "default": "===" },
+			"value":       { "name": "value", "type": "string", "default": "10" },
+			"conditions":  { "name": "conditions", "type": "array" },
+			"combinators": { "name": "combinators", "type": "array" },
 			"condition": {
 				"name": "condition",
 				"type": "union",
-				"schema": [ { "id": "simpleCondition" }, { "id": "complexCondition" } ],
-				"required": true
+				"schema": [ { "id": "simpleCondition" }, { "id": "complexCondition" } ]
 			}
 		},
 		"schemas": {

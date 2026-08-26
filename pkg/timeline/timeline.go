@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -242,8 +241,8 @@ func NewTimelinePlayer(tStore TimelineStore, runID string) *TimelinePlayer {
 	}
 }
 
-// Seek moves playback to a specific sequence number and reconstructs document state.
-func (p *TimelinePlayer) Seek(ctx context.Context, targetSeq int64) (*document.Document, error) {
+// Seek moves playback to a specific sequence number and reconstructs run state.
+func (p *TimelinePlayer) Seek(ctx context.Context, targetSeq int64) (map[string]any, error) {
 	snap, err := p.store.GetNearestSnapshot(ctx, p.runID, targetSeq)
 	if err != nil {
 		return nil, err
@@ -261,8 +260,6 @@ func (p *TimelinePlayer) Seek(ctx context.Context, targetSeq int64) (*document.D
 		state = make(map[string]any)
 	}
 
-	doc := document.NewRecordView(state)
-
 	// Replay delta events from snapshot up to targetSeq
 	events, err := p.store.GetEvents(ctx, p.runID, startSeq+1, targetSeq)
 	if err != nil {
@@ -272,11 +269,11 @@ func (p *TimelinePlayer) Seek(ctx context.Context, targetSeq int64) (*document.D
 	for _, e := range events {
 		if e.Delta != nil {
 			for k, v := range e.Delta {
-				_ = doc.Set(k, v)
+				state[k] = v
 			}
 		}
 	}
 
 	p.currentSeq = targetSeq
-	return doc, nil
+	return state, nil
 }

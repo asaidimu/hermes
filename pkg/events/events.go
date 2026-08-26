@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -15,12 +16,15 @@ type PathNode struct {
 	Label string `json:"label"`
 }
 
-type EventPath []PathNode
-
-// @note #review-20260822-014 issue status=open priority=P3 tags=#review,#documentation : EventPath type lacks doc comment
+// EventPath represents the hierarchical execution path within a workflow run.
+// It tracks the pipeline, stage, and step ancestry for an event, enabling
+// scoped event routing and bubbling. Paths are ordered from root to leaf
+// (e.g., [pipeline, stage, step]).
+// @note #review-20260822-014 issue status=resolved priority=P3 tags=#review,#documentation : EventPath type lacks doc comment
 //
-// EventPath is a named slice type with no doc comment explaining its purpose,
-// ordering semantics, or how it relates to hierarchical execution paths.
+// Fixed by adding doc comment explaining EventPath's purpose, ordering
+// semantics, and relationship to hierarchical execution paths.
+type EventPath []PathNode
 
 func (p EventPath) Clone() EventPath {
 	if p == nil {
@@ -132,6 +136,8 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 		// an error indicating a failed write, dropped event, or context cancellation, the
 		// caller has no way to know. This defeats Go's error propagation idiom.
 		//
+		// go-events ScopedBus.Publish() returns errors. Migrating to ScopedBus would
+		// fix this at the call site — callers can handle or propagate errors.
 		// At minimum, log the error; ideally, collect errors from all handlers and return
 		// them or pass them through a provided error channel.
 		_ = h(ctx, evt)
@@ -165,17 +171,15 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		list := b.handlers[eventType]
+		// @note #review-20260822-004 issue status=resolved priority=P1 tags=#review,#bug : Incorrect func pointer comparison in unsubscribe closure
+		//
+		// Fixed by using reflect.ValueOf to compare function pointers instead of
+		// comparing addresses of loop variables. The original `&h == &handler`
+		// compared the address of the loop variable `h` with the address of the
+		// captured `handler` parameter, which would never match.
+		handlerPtr := reflect.ValueOf(handler).Pointer()
 		for i, h := range list {
-			// @note #review-20260822-004 issue status=open priority=P1 tags=#review,#bug : Incorrect func pointer comparison in unsubscribe closure
-			//
-			// The comparison `&h == &handler` compares the address of the loop variable `h`
-			// with the address of the captured `handler` parameter. Since `h` is reassigned
-			// each iteration, this will never match. The unsubscribe closure will silently
-			// fail to remove the handler, causing a permanent handler leak.
-			//
-			// Fix by using reflect.ValueOf(h).Pointer() == reflect.ValueOf(handler).Pointer()
-			// or storing a unique integer ID per subscription returned alongside the handler.
-			if &h == &handler {
+			if reflect.ValueOf(h).Pointer() == handlerPtr {
 				b.handlers[eventType] = append(list[:i], list[i+1:]...)
 				break
 			}
@@ -183,4 +187,23 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 	}
 }
 
+// @note #scoped-bus-opportunity-001 todo status=open priority=P1 tags=#event-bus,#architecture : Replace MemoryScopedBus with go-events ScopedBus for topic isolation
+//
+// The go-events/v2 package now provides ScopedBus (scoped.go) which gives
+// real topic-level namespace isolation via topic prefixing. MemoryScopedBus
+// uses hierarchical bubbling but no actual topic isolation — all scopes
+// share the same flat event type namespace.
+//
+// go-events ScopedBus benefits for hermes:
+//   - bus.Scope("run:"+runID) gives per-run topic isolation (no cross-run interference)
+//   - bus.Scope("workflow:"+wfID) gives per-workflow isolation
+//   - IsolatedScope() creates a separate Pebble store for true data isolation
+//   - Publish() returns errors (current Emit discards all handler errors — P1 review note)
+//   - Durable event log via Pebble (the underlying field is currently never wired)
+//
+// Migration path:
+//   1. Replace NewMemoryScopedBus() with NewEventBus() + ScopedBus usage
+//   2. Replace Emit() calls with scoped.Publish() (error-returning)
+//   3. Remove manual parent-bubbling logic (ScopedBus handles it internally)
+//   4. Wire the durable backend that was designed but never connected
 var _ ScopedEventBus = (*MemoryScopedBus)(nil)

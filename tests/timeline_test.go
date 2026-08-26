@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
@@ -25,10 +24,8 @@ func TestTimelineRecordingAndPlayback(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"step1": {
 						ID: "step1",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("status", "in_progress")
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("status", "in_progress"), nil
 						},
 					},
 				},
@@ -38,10 +35,8 @@ func TestTimelineRecordingAndPlayback(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"step2": {
 						ID: "step2",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
-							return func(d *document.Document) error {
-								return d.Set("status", "done")
-							}, nil
+						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							return store.SetValue("status", "done"), nil
 						},
 					},
 				},
@@ -72,11 +67,9 @@ func TestTimelineRecordingAndPlayback(t *testing.T) {
 
 	// Time-travel replay
 	player := timeline.NewTimelinePlayer(tStore, "run-timeline-1")
-	doc, err := player.Seek(ctx, meta.EventCount)
+	state, err := player.Seek(ctx, meta.EventCount)
 	require.NoError(t, err)
-	require.NotNil(t, doc)
+	require.NotNil(t, state)
 
-	val, err := doc.Get("status")
-	require.NoError(t, err)
-	require.Equal(t, "done", val)
+	require.Equal(t, "done", state["status"])
 }

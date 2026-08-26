@@ -90,7 +90,7 @@ func TestDelayCronRouterFuncReturnsPauseInstruction(t *testing.T) {
 	}
 }
 
-func TestDelayNoCronRouterFuncReturnsTerminate(t *testing.T) {
+func TestDelayNoCronRouterFuncReturnsNil(t *testing.T) {
 	nCtx := nodekit.NodeRunContext{
 		Config: map[string]any{"ms": float64(100)},
 	}
@@ -98,10 +98,10 @@ func TestDelayNoCronRouterFuncReturnsTerminate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Without cron, RouterFunc returns Terminate to prevent advancing past
-	// branch boundaries (matches default leaf-node behavior).
-	if _, ok := instr.(pipeline.TerminateInstruction); !ok {
-		t.Errorf("expected TerminateInstruction, got %T", instr)
+	// Without cron, RouterFunc returns nil so the stage follows its outgoing
+	// edge (buildRouterFunc resolves the default edge and terminates at leaves).
+	if instr != nil {
+		t.Errorf("expected nil instruction, got %T", instr)
 	}
 }
 

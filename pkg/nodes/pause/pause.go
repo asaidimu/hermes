@@ -36,7 +36,7 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"do","label":"do","kind":"executable"},{"type":"source","id":"onResume","label":"onResume","kind":"executable"},{"type":"source","id":"onTimeout","label":"onTimeout","kind":"executable"}]`,
-	Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+	Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {

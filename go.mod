@@ -3,10 +3,11 @@ module github.com/asaidimu/hermes
 go 1.27rc1
 
 require (
-	github.com/asaidimu/go-anansi/v8 v8.5.9
+	github.com/asaidimu/go-anansi/v8 v8.6.4
 	github.com/asaidimu/go-events/v2 v2.0.1
 	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
 	github.com/google/uuid v1.6.0
+	github.com/mattn/go-sqlite3 v1.14.30
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
 )
@@ -30,7 +31,8 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -41,6 +43,7 @@ require (
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
+	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df // indirect
 	golang.org/x/sys v0.47.0 // indirect

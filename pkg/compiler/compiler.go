@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/nodekit"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -356,7 +355,7 @@ func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, b
 			Order: order,
 			Label: stageLabel,
 			Steps: steps,
-			Router: func(ctx context.Context, doc *document.Document, st store.Store) (pipeline.RoutingInstruction, error) {
+			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 				target := nextDefaultTarget(stageID, flow)
 				if target == "" {
 					return nil, nil
@@ -424,25 +423,51 @@ func compileStages(
 
 		def, hasDef := nodekit.Get(node.Kind)
 
+		if !hasDef {
+			return nil, fmt.Errorf(
+				"Unknown node kind %q (node %s). Ensure the node type is registered in the node registry.",
+				node.Kind, id)
+		}
+
+		// Validate node config against its schema at compile time.
+		if err := def.ValidateConfig(node.Config); err != nil {
+			return nil, fmt.Errorf("node %q (kind: %q): %w", id, node.Kind, err)
+		}
+
 		// ---- Pipeline reference -----------------------------------------
 		if node.Kind == "pipeline-ref" {
 			pipelineID, _ := node.Config["pipelineId"].(string)
 			pipelineID = strings.TrimSpace(pipelineID)
 			if pipelineID == "" {
+				// @note #review-20260825-003 issue status=open priority=P2 tags=#review,#style : Error string ends with period
+				//
+				// Go convention: error strings should not end with punctuation.
+				// Change to: fmt.Errorf("pipeline-ref node %s has no pipelineId configured", id)
 				return nil, fmt.Errorf("pipeline-ref node %s has no pipelineId configured.", id)
 			}
 			referencedDef, ok := registry.Resolve(pipelineID)
 			if !ok || referencedDef == nil {
+				// @note #review-20260825-004 issue status=open priority=P2 tags=#review,#style : Error string ends with period
+				//
+				// Go convention: error strings should not end with punctuation.
 				return nil, fmt.Errorf(
 					"Pipeline %q not found in registry (node %s). Ensure the pipeline is compiled and registered before running this workflow.",
 					pipelineID, id)
+			}
+			stageCfg := map[string]any{}
+			if initialState, ok := node.Config["initialState"].(map[string]any); ok {
+				stageCfg["initialState"] = initialState
+			}
+			if resultKey, ok := node.Config["resultKey"].(string); ok {
+				stageCfg["resultKey"] = resultKey
 			}
 			stages = append(stages, pipeline.Stage{
 				ID:        id,
 				Order:     order,
 				Label:     referencedDef.Label,
+				Config:    stageCfg,
 				Pipelines: []pipeline.PipelineDefinition{*referencedDef},
-				PipelinesRouter: func(ctx context.Context, doc *document.Document, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
+				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
 					for _, r := range results {
 						if r.PipelineID == pipelineID && r.Status == "succeeded" {
 							target := nextDefaultTarget(id, flow)
@@ -456,12 +481,6 @@ func compileStages(
 				},
 			})
 			continue
-		}
-
-		if !hasDef {
-			return nil, fmt.Errorf(
-				"Unknown node kind %q (node %s). Ensure the node type is registered in the node registry.",
-				node.Kind, id)
 		}
 
 		resources := buildResourcesFor(id, allEdges, byID)

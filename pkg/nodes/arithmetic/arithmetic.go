@@ -19,9 +19,9 @@ var Node = nodekit.NodeDefinition{
 		"version": "1.0.0",
 		"name": "arithmetic",
 		"fields": {
-			"operation": { "name": "operation", "type": "string", "default": "add", "required": true },
-			"left":      { "name": "left", "type": "string", "default": "", "required": true },
-			"right":     { "name": "right", "type": "string", "default": "", "required": true },
+			"operation": { "name": "operation", "type": "string", "default": "add" },
+			"left":      { "name": "left", "type": "string", "default": "" },
+			"right":     { "name": "right", "type": "string", "default": "" },
 			"key":       { "name": "key", "type": "string", "default": "", "required": true }
 		}
 	}`),
@@ -35,7 +35,7 @@ var Node = nodekit.NodeDefinition{
 	Run:       run,
 }
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	cfg := nCtx.Config
 	operation, _ := cfg["operation"].(string)
 	if operation == "" {
@@ -49,15 +49,14 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutato
 		return nil, fmt.Errorf("Arithmetic node: 'key' is required (where to store the result).")
 	}
 
-	// Helper to resolve an operand: tries literal conversion first, then looks up document keys
+	// Helper to resolve an operand: tries literal conversion first, then looks up state keys
 	resolve := func(raw any) (float64, bool) {
 		if num, ok := nodekit.Number(raw); ok {
 			return num, true
 		}
-		// Fallback: look up key in document context if operand is a document field name
+		// Fallback: look up key in state if operand is a state field reference
 		if fieldKey, ok := raw.(string); ok && fieldKey != "" {
-			docVal, err := nCtx.Document.Get(fieldKey)
-			if err == nil {
+			if docVal, ok := nodekit.Lookup(nCtx.State, fieldKey); ok {
 				return nodekit.Number(docVal)
 			}
 		}

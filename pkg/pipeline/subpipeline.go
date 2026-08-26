@@ -16,6 +16,10 @@ import (
 // TS `errors` record. The returned error is reserved for infrastructural
 // failures (store clone) and parent-run cancellation (abort).
 //
+// If initialState is non-nil, each child gets a fresh store seeded with that
+// state instead of a clone of the parent store. This provides true isolation:
+// the child starts from scratch with only the specified initial state.
+//
 // resolver (optional) resolves run-scoped resource keys into handles; it
 // propagates to the child run contexts so steps in subpipelines can resolve
 // resource dependencies. Children share the parent's runID so their events
@@ -35,6 +39,23 @@ func ExecuteSubPipelines(
 	if len(stage.Pipelines) == 0 {
 		return nil, nil
 	}
+
+	// Resolve initialState from stage config if present.
+	var initialState map[string]any
+	if stage.Config != nil {
+		if is, ok := stage.Config["initialState"].(map[string]any); ok {
+			initialState = is
+		}
+	}
+
+	// @note #review-20260825-002 issue status=open priority=P2 tags=#review,#concurrency : Shared initialState across concurrent goroutines
+	//
+	// The initialState map is extracted once and shared across all child goroutines
+	// that call NewFreshStore(initialState). If any child mutates the map (e.g., via
+	// a code node), other children see the mutation. This is unlikely since
+	// NewFreshStore copies the map into a document, but the map itself is not
+	// deep-copied before being passed. Consider deep-copying initialState per
+	// child if mutation is possible.
 
 	results := make([]PipelineRunResult, len(stage.Pipelines))
 	var mu sync.Mutex
@@ -59,18 +80,24 @@ func ExecuteSubPipelines(
 
 			childBus := bus.Scope(path.Append("pipeline", childDef.ID, childDef.Label))
 
-			// Clone parent store for child pipeline isolation
-			childStore, err := parentStore.Clone()
-			if err != nil {
-				mu.Lock()
-				results[childIdx] = PipelineRunResult{
-					Status:     "failed",
-					RunID:      runID,
-					PipelineID: childDef.ID,
-					Error:      core.NewSystemError(core.ErrCodeExecutionFailed, "failed to clone store for subpipeline").WithCause(err),
+			// Create fresh store with initialState, or clone parent if no initialState.
+			var childStore store.Store
+			var err error
+			if initialState != nil {
+				childStore = store.NewFreshStore(initialState)
+			} else {
+				childStore, err = parentStore.Clone()
+				if err != nil {
+					mu.Lock()
+					results[childIdx] = PipelineRunResult{
+						Status:     "failed",
+						RunID:      runID,
+						PipelineID: childDef.ID,
+						Error:      core.NewSystemError(core.ErrCodeExecutionFailed, "failed to clone store for subpipeline").WithCause(err),
+					}
+					mu.Unlock()
+					return
 				}
-				mu.Unlock()
-				return
 			}
 
 			childFactory := NewFactory(childDef, childDef.Schema, FactoryOptions{
@@ -92,7 +119,7 @@ func ExecuteSubPipelines(
 					Status:     "failed",
 					RunID:      runID,
 					PipelineID: childDef.ID,
-					FinalDoc:   childStore.Document(),
+					FinalState: stateSnapshot(childStore),
 					Error:      runErr,
 				}
 			}

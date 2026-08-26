@@ -19,9 +19,6 @@ var Node = nodekit.NodeDefinition{
 		"name": "while",
 		"fields": {
 			"mode":      { "name": "mode", "type": "string", "default": "simple", "required": true },
-			"key":       { "name": "key", "type": "string", "default": "state.index", "required": true },
-			"predicate": { "name": "predicate", "type": "string", "default": "<", "required": true },
-			"value":     { "name": "value", "type": "string", "default": "5", "required": true },
 			"condition": {
 				"name": "condition",
 				"type": "union",
@@ -65,9 +62,13 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 	var ok bool
 	var err error
 	if mode == "simple" {
-		key, _ := cfg["key"].(string)
-		predicate, _ := cfg["predicate"].(string)
-		value, _ := cfg["value"].(string)
+		condition, _ := cfg["condition"].(map[string]any)
+		if condition == nil {
+			condition = cfg
+		}
+		key, _ := condition["key"].(string)
+		predicate, _ := condition["predicate"].(string)
+		value, _ := condition["value"].(string)
 		ok, err = expr.EvalBody(ctx, evalString(key, predicate, value), nCtx.State)
 	} else {
 		condition, _ := cfg["condition"].(string)

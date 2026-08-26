@@ -54,10 +54,20 @@ func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...events.Sc
 	} else if f.options.EventBus != nil {
 		b = f.options.EventBus
 	} else {
+		// @note #scoped-bus-opportunity-002 issue status=open priority=P1 tags=#event-bus,#data-loss : Orphan bus fallback silently loses all events
+		//
+		// When no bus is provided and factory has no EventBus option, a standalone
+		// MemoryScopedBus is created with no parent and no underlying go-events bus.
+		// Events emitted on this bus go nowhere — no subscribers, no bubbling, no
+		// timeline recording. This is a silent data loss scenario.
+		//
+		// Fix with go-events ScopedBus: use bus.IsolatedScope(runID) from the root
+		// runtime bus instead of creating orphan buses. This ensures every pipeline
+		// execution has a durable event log and proper scoping.
 		b = events.NewMemoryScopedBus()
 	}
 	if st == nil {
-		st = store.NewMemoryStore(nil, f.schema)
+		st = store.NewMemoryStore(nil)
 	}
 
 	rc := NewRunContext(runID, f.definition, st, b, f.options.Logger)
@@ -80,7 +90,7 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus eve
 		}
 	}
 	if st == nil {
-		st = store.NewMemoryStore(nil, f.schema)
+		st = store.NewMemoryStore(nil)
 	}
 
 	rc := NewRunContext(runID, f.definition, st, bus, f.options.Logger, entry)
@@ -96,8 +106,12 @@ func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Sto
 		return nil, core.NewSystemError(core.ErrCodeValidation, "store is required to resume pipeline")
 	}
 
-	ckpt, err := ReadCheckpoint(st.Document(), f.definition.ID)
-	if err != nil {
+	var ckpt *PipelineCheckpoint
+	if err := st.Read(func(state map[string]any) error {
+		var rErr error
+		ckpt, rErr = ReadCheckpoint(state, f.definition.ID)
+		return rErr
+	}); err != nil {
 		return nil, err
 	}
 	if ckpt == nil {

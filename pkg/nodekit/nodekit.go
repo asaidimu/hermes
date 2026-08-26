@@ -3,10 +3,11 @@ package nodekit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
+	"github.com/asaidimu/go-anansi/v8/core/schema/meta"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -38,7 +39,6 @@ type HandleSpec struct {
 type NodeRunContext struct {
 	NodeID    string
 	Config    map[string]any
-	Document  *document.Document
 	State     map[string]any
 	Results   map[string]any
 	Errors    map[string]any
@@ -48,7 +48,7 @@ type NodeRunContext struct {
 }
 
 // NodeRunner executes step logic for an executable node.
-type NodeRunner func(ctx context.Context, nCtx NodeRunContext) (store.DocumentMutator, error)
+type NodeRunner func(ctx context.Context, nCtx NodeRunContext) (store.Mutator, error)
 
 // NodeRouter evaluates routing logic for branching nodes (if, switch, etc.).
 type NodeRouter func(ctx context.Context, nCtx NodeRunContext) (string, error)
@@ -86,6 +86,42 @@ type NodeDefinition struct {
 	PipelinesRouterFunc func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) `json:"-"`
 	ResourceInit        NodeResourceInit                                                                                                          `json:"-"`
 	ResourceEnd         NodeResourceCleanup                                                                                                       `json:"-"`
+	// validator is lazily compiled from ConfigSchema on first call to ValidateConfig.
+	validator *definition.DocumentValidator
+}
+
+// ValidateConfig validates a raw config map against this node's ConfigSchema.
+// Returns nil if valid or if no schema is defined. Returns an error describing
+// the first validation issue found.
+func (d *NodeDefinition) ValidateConfig(raw map[string]any) error {
+	if len(d.ConfigSchema) == 0 {
+		return nil
+	}
+	if err := d.ensureValidator(); err != nil {
+		return err
+	}
+	issues, valid := d.validator.Validate(raw)
+	if !valid && len(issues) > 0 {
+		return fmt.Errorf("config validation failed: %s", issues[0].Message)
+	}
+	return nil
+}
+
+// ensureValidator lazily compiles the ConfigSchema into a DocumentValidator.
+func (d *NodeDefinition) ensureValidator() error {
+	if d.validator != nil {
+		return nil
+	}
+	schema, err := definition.FromJSON(d.ConfigSchema)
+	if err != nil {
+		return fmt.Errorf("failed to parse config schema for %q: %w", d.Kind, err)
+	}
+	validator, err := definition.NewDocumentValidator(schema, meta.MetaSchemaPredicates)
+	if err != nil {
+		return fmt.Errorf("failed to create validator for %q: %w", d.Kind, err)
+	}
+	d.validator = validator
+	return nil
 }
 
 // CompileConfigSchema compiles a node's ConfigSchema (an anansi schema) through
@@ -139,11 +175,10 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 	return pipeline.Step{
 		ID:    nodeID,
 		Label: def.Label,
-		Action: func(ctx context.Context, pcxt pipeline.PipelineContext, doc *document.Document) (store.DocumentMutator, error) {
+		Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 			if def.Run == nil {
 				return nil, nil
 			}
-			state := doc.Data()
 			var results map[string]any
 			if r, ok := state["results"].(map[string]any); ok {
 				results = r
@@ -159,7 +194,6 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 				State:     state,
 				Results:   results,
 				Resources: res,
-				Document:  doc,
 				Logger:    pcxt.Logger(),
 			})
 		},
@@ -187,10 +221,10 @@ func resolveStepResources(pcxt pipeline.PipelineContext, resources func() map[st
 	return res
 }
 
-// PatchMutator wraps a flat (dotted-key) patch into a DocumentMutator that
-// deep-merges it into the document (deleting keys marked with Delete).
-func PatchMutator(flat map[string]any) store.DocumentMutator {
-	return func(doc *document.Document) error {
-		return ApplyPatch(doc, flat)
+// PatchMutator wraps a flat (dotted-key) patch into a Mutator that
+// deep-merges it into state (deleting keys marked with Delete).
+func PatchMutator(flat map[string]any) store.Mutator {
+	return func(state map[string]any) error {
+		return ApplyPatch(state, flat)
 	}
 }

@@ -7,10 +7,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -19,7 +19,6 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
 	"github.com/asaidimu/hermes/pkg/watch"
-	"github.com/google/uuid"
 )
 
 // Event names used by the runtime (mirror the TS constants).
@@ -34,9 +33,15 @@ type Options struct {
 	// pipeline/run events emitted during execution. When nil, the runtime
 	// creates an isolated in-memory bus.
 	Bus events.ScopedEventBus
-	// StoreFactory creates a fresh store per run. When nil, a bare
-	// store.NewMemoryStore is used for every run.
-	StoreFactory func(runID string) store.Store
+	// StoreFactory mints a brand-new store per run. The returned store's ID()
+	// becomes the run identifier: a run IS its state document, and creating
+	// that document creates the run's identity (a system-minted UUIDv7). When
+	// nil, a bare store.NewMemoryStore is used for every run.
+	StoreFactory func() (store.Store, error)
+	// StoreLoader recovers an existing run's store by run identifier after a
+	// restart or crash. When nil, runs paused in memory cannot be recovered
+	// from persistence.
+	StoreLoader func(runID string) (store.Store, error)
 	// Timeline, when set, records every run into the store (TimelineRecorder).
 	Timeline timeline.TimelineStore
 	Logger   core.Logger
@@ -100,7 +105,7 @@ func (h *RunHandle) On(eventType string, handler events.EventHandler) func() {
 	return h.Events.Subscribe(eventType, handler)
 }
 
-func (h *RunHandle) Write(mutator store.DocumentMutator) { h.Context.Write(mutator) }
+func (h *RunHandle) Write(mutator store.Mutator) { h.Context.Write(mutator) }
 
 func (h *RunHandle) Abort(err error) { h.Context.Abort(err) }
 
@@ -133,7 +138,8 @@ type WorkflowRuntime struct {
 	bus          events.ScopedEventBus
 	logger       core.Logger
 	env          map[string]any
-	storeFactory func(runID string) store.Store
+	storeFactory func() (store.Store, error)
+	storeLoader  func(runID string) (store.Store, error)
 	timeline     timeline.TimelineStore
 	eventSource  EventSource
 	scheduler    scheduler.Scheduler
@@ -229,6 +235,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		logger:       opts.Logger,
 		env:          opts.Env,
 		storeFactory: opts.StoreFactory,
+		storeLoader:  opts.StoreLoader,
 		timeline:     opts.Timeline,
 		workflows:    make(map[string]*workflowRecord),
 		index:        make(map[string][]*routeEntry),
@@ -253,6 +260,17 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	}
 	rt.bus = opts.Bus
 	if rt.bus == nil {
+		// @note #scoped-bus-opportunity-005 issue status=open priority=P2 tags=#event-bus,#durability : Durable event backend designed but never wired
+		//
+		// NewMemoryScopedBus accepts an optional go-events SimpleEventBus for
+		// durable Pebble LSM event sourcing (designed in the spec). However,
+		// the runtime never passes one — the underlying field is always nil.
+		// All events are purely in-memory and lost on restart.
+		//
+		// Fix with go-events ScopedBus: create a root EventBus with Pebble-backed
+		// Config, then use bus.Scope() for per-run and per-workflow isolation.
+		// This gives durable event logs, checkpoint recovery, and compaction
+		// out of the box.
 		rt.bus = events.NewMemoryScopedBus()
 	}
 	rt.watchService = NewWatchService(rt.bus, func(runID string, patch map[string]any) {
@@ -610,8 +628,8 @@ func (rt *WorkflowRuntime) multiEventConditionMet(pr *pausedRun) bool {
 // spawnRun executes a pipeline for a trigger and fires onComplete. It runs
 // synchronously within its goroutine; callers dispatch it in the background.
 func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, evt events.PipelineEvent) {
-	runID := rt.generateRunID(record.workflow.ID, triggerID)
-	result := rt.executePipeline(record, triggerID, runID, evt)
+	result := rt.executePipeline(record, triggerID, evt)
+	runID := result.RunID
 	if result.Status == "paused" {
 		// Track the paused run so it can be resumed when the awaited event(s) arrive.
 		if result.Checkpoint != nil && (result.WaitForEvent != "" || len(result.WaitForEvents) > 0) {
@@ -695,8 +713,7 @@ func (rt *WorkflowRuntime) Invoke(workflowID, triggerID string, evt events.Pipel
 				`[WorkflowRuntime] invoke() failed: no pipeline definition for workflow "`+workflowID+`" trigger "`+triggerID+`".`),
 		}
 	}
-	runID := rt.generateRunID(workflowID, triggerID)
-	result := rt.executePipeline(record, triggerID, runID, evt)
+	result := rt.executePipeline(record, triggerID, evt)
 	if result.Status != "paused" {
 		rt.callOnComplete(record, result)
 	}
@@ -759,6 +776,16 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	}
 
 	bus := rt.bus.Scope(events.EventPath{})
+	// @note #scoped-bus-opportunity-003 issue status=open priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
+	//
+	// Per-run buses are scoped with an empty EventPath{}. The path is only used
+	// for metadata decoration (populated into PipelineEvent.Path for the frontend
+	// timeline) — it does NOT filter or route events. All runs share the same
+	// flat namespace on the root bus.
+	//
+	// Fix with go-events ScopedBus: use bus.Scope("run:"+runID) instead of
+	// bus.Scope(EventPath{}). This gives actual topic isolation — each run's
+	// events are prefixed with its runID, preventing cross-run interference.
 	factory := pipeline.NewFactory(record.workflow.Pipelines[paused.pipelineID], record.workflow.Pipelines[paused.pipelineID].Schema, pipeline.FactoryOptions{Logger: rt.logger})
 	runCtx := factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
 
@@ -833,11 +860,12 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 }
 
 // resumeFromPersistence attempts to load a paused run from the persistent store.
-// It reads the checkpoint from document metadata and reconstructs the pausedRun.
+// It reads the run's state document by id, resolves its workflow from the
+// seeded __run_meta__ linkage, and reconstructs the pausedRun from the
+// checkpoint stored in the document body.
 func (rt *WorkflowRuntime) resumeFromPersistence(runID string, payload map[string]any) RunResult {
-	// Try loading store from persistence (PersistentStore backed by anansi).
-	st := rt.newStore(runID)
-	if st == nil {
+	st, err := rt.newStoreForID(runID)
+	if err != nil || st == nil {
 		return RunResult{
 			OK:     false,
 			Status: "failed",
@@ -845,17 +873,35 @@ func (rt *WorkflowRuntime) resumeFromPersistence(runID string, payload map[strin
 		}
 	}
 
-	// Read checkpoint from document metadata.
+	// Read run linkage and checkpoint from state.
+	var meta struct{ workflowID, triggerID string }
 	var ckpt *pipeline.PipelineCheckpoint
-	_ = st.Read(func(doc *document.Document) error {
-		// Try to find checkpoint across all pipelines in all workflows.
+	_ = st.Read(func(state map[string]any) error {
+		if m, ok := state[store.RunMetaKey].(map[string]any); ok {
+			meta.workflowID, _ = m["workflowId"].(string)
+			meta.triggerID, _ = m["triggerId"].(string)
+		}
+		if meta.workflowID != "" {
+			rt.mu.Lock()
+			if rec, ok := rt.workflows[meta.workflowID]; ok {
+				for pipeID := range rec.workflow.Pipelines {
+					if c, rErr := pipeline.ReadCheckpoint(state, pipeID); c != nil && rErr == nil {
+						ckpt = c
+						break
+					}
+				}
+			}
+			rt.mu.Unlock()
+			return nil
+		}
+		// No linkage (legacy run): scan all workflows' pipelines.
 		rt.mu.Lock()
 		for _, rec := range rt.workflows {
 			for pipeID := range rec.workflow.Pipelines {
-				if c, err := pipeline.ReadCheckpoint(doc, pipeID); c != nil {
+				if c, rErr := pipeline.ReadCheckpoint(state, pipeID); c != nil && rErr == nil {
 					ckpt = c
 					rt.mu.Unlock()
-					return err
+					return nil
 				}
 			}
 		}
@@ -871,16 +917,19 @@ func (rt *WorkflowRuntime) resumeFromPersistence(runID string, payload map[strin
 		}
 	}
 
-	// Find the workflow that contains this pipeline.
-	var workflowID string
-	rt.mu.Lock()
-	for wfID, rec := range rt.workflows {
-		if _, ok := rec.workflow.Pipelines[ckpt.PipelineID]; ok {
-			workflowID = wfID
-			break
+	// Resolve the workflow: direct from seeded linkage, falling back to a
+	// scan for the workflow containing this pipeline.
+	workflowID := meta.workflowID
+	if workflowID == "" {
+		rt.mu.Lock()
+		for wfID, rec := range rt.workflows {
+			if _, ok := rec.workflow.Pipelines[ckpt.PipelineID]; ok {
+				workflowID = wfID
+				break
+			}
 		}
+		rt.mu.Unlock()
 	}
-	rt.mu.Unlock()
 
 	if workflowID == "" {
 		return RunResult{
@@ -908,7 +957,7 @@ func (rt *WorkflowRuntime) resumeFromPersistence(runID string, payload map[strin
 	rt.paused[runID] = &pausedRun{
 		runID:         runID,
 		workflowID:    workflowID,
-		triggerID:     "", // unknown from persistence
+		triggerID:     meta.triggerID, // empty when the doc predates run linkage
 		pipelineID:    ckpt.PipelineID,
 		waitForEvent:  waitForEvent,
 		waitForEvents: waitForEvents,
@@ -1000,12 +1049,11 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 // Pipeline execution
 // ---------------------------------------------------------------------------
 
-func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID, runID string, evt events.PipelineEvent) RunResult {
+func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID string, evt events.PipelineEvent) RunResult {
 	wf := record.workflow
 	def := wf.Pipelines[triggerID]
 	if def.ID == "" {
 		return rt.finishRun(record, RunResult{
-			RunID:      runID,
 			WorkflowID: wf.ID,
 			TriggerID:  triggerID,
 			Status:     "failed",
@@ -1013,7 +1061,18 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID, ru
 		})
 	}
 
-	st := rt.newStore(runID)
+	// Creating the state document creates the run: its minted _id_ is the run id.
+	st, err := rt.newStore()
+	if err != nil || st == nil {
+		return rt.finishRun(record, RunResult{
+			WorkflowID: wf.ID,
+			TriggerID:  triggerID,
+			Status:     "failed",
+			Error:      core.NewSystemError(core.ErrCodeExecutionFailed, "failed to create store for run: "+fmt.Sprintf("%v", err)),
+		})
+	}
+	runID := st.ID()
+
 	rt.mu.Lock()
 	rt.stores[runID] = st
 	rt.mu.Unlock()
@@ -1025,14 +1084,20 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID, ru
 	factory := pipeline.NewFactory(def, def.Schema, pipeline.FactoryOptions{Logger: rt.logger})
 	runCtx := factory.Prepare(runID, st, bus)
 
-	// Seed the trigger event metadata and fold its payload directly into state.
-	// The payload keys become top-level state fields so configs can address
-	// them with the standardized dotted path (e.g. `status`, `userId`).
+	// Seed run linkage so crash recovery can resolve the workflow directly,
+	// plus the trigger event metadata. Payload keys become top-level state
+	// fields so configs can address them with the standardized dotted path
+	// (e.g. `status`, `userId`).
 	// @note #review-20260822-047 issue status=open priority=P2 tags=#review,#error-handling : Store update errors discarded when seeding trigger metadata
 	//
 	// _ = st.Update(...) discards the error when seeding trigger event metadata. If the
 	// store rejects the update (e.g., validation error, key collision), state will be
 	// missing critical trigger data.
+	_ = st.Update(context.Background(), store.SetValue(store.RunMetaKey, map[string]any{
+		"workflowId": wf.ID,
+		"triggerId":  triggerID,
+		"pipelineId": def.ID,
+	}))
 	_ = st.Update(context.Background(), store.SetValue("__trigger_event__", map[string]any{
 		"type":      evt.Type,
 		"payload":   evt.Payload,
@@ -1144,11 +1209,37 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID, ru
 	return result
 }
 
-func (rt *WorkflowRuntime) newStore(runID string) store.Store {
+// newStore mints a brand-new run store. The store's ID() becomes the run
+// identifier; a run IS its state document. Falls back to a bare MemoryStore
+// when no factory is configured or the factory errors.
+func (rt *WorkflowRuntime) newStore() (store.Store, error) {
 	if rt.storeFactory != nil {
-		return rt.storeFactory(runID)
+		st, err := rt.storeFactory()
+		if err != nil || st == nil {
+			if rt.logger != nil {
+				rt.logger.Error("store factory failed, falling back to memory store", map[string]any{"error": fmt.Sprintf("%v", err)})
+			}
+			return store.NewMemoryStore(nil), nil
+		}
+		return st, nil
 	}
-	return store.NewMemoryStore(nil)
+	return store.NewMemoryStore(nil), nil
+}
+
+// newStoreForID recovers an existing run's store from persistence via the
+// configured loader.
+func (rt *WorkflowRuntime) newStoreForID(runID string) (store.Store, error) {
+	if rt.storeLoader == nil {
+		return nil, core.NewSystemError(core.ErrCodeNotFound, "no store loader configured for run "+runID)
+	}
+	st, err := rt.storeLoader(runID)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil {
+		return nil, core.NewSystemError(core.ErrCodeNotFound, "store loader returned nothing for run "+runID)
+	}
+	return st, nil
 }
 
 func (rt *WorkflowRuntime) clearActive(runID string) {
@@ -1264,8 +1355,4 @@ func (rt *WorkflowRuntime) finishRun(record *workflowRecord, result RunResult) R
 	rt.outcomes[result.RunID] = result
 	rt.mu.Unlock()
 	return result
-}
-
-func (rt *WorkflowRuntime) generateRunID(workflowID, triggerID string) string {
-	return workflowID + ":" + triggerID + ":" + uuid.NewString()
 }

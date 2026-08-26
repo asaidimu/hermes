@@ -289,6 +289,16 @@ func (s *WatchService) acquireBusSubscriptionLocked(eventType string) {
 	if _, ok := s.busSubs[eventType]; ok {
 		return
 	}
+	// @note #scoped-bus-opportunity-004 issue status=open priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
+	//
+	// The WatchService subscribes to the root runtime bus for all watched event
+	// types. When a watched event arrives, it fans out to ALL runs waiting for
+	// that event type via the byEventType reverse index, then each run's onEvent
+	// handler manually checks if the event belongs to it.
+	//
+	// With go-events ScopedBus, the WatchService could subscribe to per-run
+	// scoped buses (bus.Scope("run:"+runID)) instead of the root bus. This
+	// eliminates manual runID filtering and reduces unnecessary fan-out.
 	unsubscribe := s.bus.Subscribe(eventType, func(ctx context.Context, evt events.PipelineEvent) error {
 		s.onEvent(eventType, evt.Payload)
 		return nil

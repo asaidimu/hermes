@@ -11,26 +11,28 @@ type Logger interface {
 	With(keysAndValues ...any) Logger
 }
 
-type NopLogger struct{}
-
-// @note #review-20260822-030 issue status=open priority=P3 tags=#review,#documentation : NopLogger lacks doc comment
+// NopLogger is a no-op logger that discards all log output. It serves as the
+// default logger when none is configured, allowing code to call logging methods
+// without nil checks.
+// @note #review-20260822-030 issue status=resolved priority=P3 tags=#review,#documentation : NopLogger lacks doc comment
 //
-// NopLogger is a public type used as the default logger when none is configured. Its
-// purpose (silent discard of all log output) should be documented for callers who
-// encounter it in debug traces.
+// Fixed by adding doc comment explaining NopLogger's purpose as the default
+// silent logger.
+type NopLogger struct{}
 func (NopLogger) Debug(msg string, keysAndValues ...any) {}
 func (NopLogger) Info(msg string, keysAndValues ...any)  {}
 func (NopLogger) Warn(msg string, keysAndValues ...any)  {}
 func (NopLogger) Error(msg string, keysAndValues ...any) {}
 func (n NopLogger) With(keysAndValues ...any) Logger     { return n }
 
-type contextKey struct{}
-
-// @note #review-20260822-031 issue status=open priority=P3 tags=#review,#documentation : Context key is undocumented
+// contextKey is a private type for context keys to avoid collisions with
+// keys from other packages. Callers should use WithLogger/GetLogger rather
+// than creating their own context keys for logger storage.
+// @note #review-20260822-031 issue status=resolved priority=P3 tags=#review,#documentation : Context key is undocumented
 //
-// WithLogger/GetLogger use a package-private contextKey{} struct to store the logger.
-// There is no documentation warning callers not to create their own context keys, which
-// would bypass the package's storage and retrieval mechanism.
+// Fixed by adding doc comment explaining the context key's purpose and
+// warning callers to use WithLogger/GetLogger instead of their own keys.
+type contextKey struct{}
 func WithLogger(ctx context.Context, logger Logger) context.Context {
 	return context.WithValue(ctx, contextKey{}, logger)
 }

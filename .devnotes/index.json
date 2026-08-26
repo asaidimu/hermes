@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-22T17:41:42.539138296Z",
+  "generatedAt": "2026-08-25T16:09:09.781090448Z",
   "root": ".",
   "notes": {
     "review-20260822-001": {
@@ -53,15 +53,15 @@
       "category": "issue",
       "status": "open",
       "title": "Incorrect func pointer comparison in unsubscribe closure",
-      "body": "The comparison `\u0026h == \u0026handler` compares the address of the loop variable `h`\nwith the address of the captured `handler` parameter. Since `h` is reassigned\neach iteration, this will never match. The unsubscribe closure will silently\nfail to remove the handler, causing a permanent handler leak.\n\nFix by using reflect.ValueOf(h).Pointer() == reflect.ValueOf(handler).Pointer()\nor storing a unique integer ID per subscription returned alongside the handler.\n",
+      "body": "Fixed by using reflect.ValueOf to compare function pointers instead of\ncomparing addresses of loop variables. The original `\u0026h == \u0026handler`\ncompared the address of the loop variable `h` with the address of the\ncaptured `handler` parameter, which would never match.\n",
       "location": {
         "file": "pkg/events/events.go",
-        "startLine": 177,
+        "startLine": 173,
         "startCol": 3,
-        "endLine": 185,
+        "endLine": 178,
         "endCol": 3
       },
-      "hash": "1a3faa89d407e806"
+      "hash": "57edea58e911acd2"
     },
     "review-20260822-005": {
       "id": "review-20260822-005",
@@ -71,9 +71,9 @@
       "body": "This method acquires RLock, obtains a raw *document.Document pointer, releases\nthe lock via defer RUnlock, and returns the pointer. Callers can then mutate the\ndocument freely without any lock held, creating a data race with concurrent\nRead/Update/Transact calls. The mutex is effectively pointless for this method.\n\nFix by returning a defensive copy, returning an interface, or documenting that\nthe caller must not mutate the returned value.\n",
       "location": {
         "file": "pkg/store/store.go",
-        "startLine": 66,
+        "startLine": 70,
         "startCol": 3,
-        "endLine": 74,
+        "endLine": 78,
         "endCol": 3
       },
       "hash": "c85ca5f81227ffc5"
@@ -83,30 +83,30 @@
       "category": "issue",
       "status": "open",
       "title": "Emit silently discards all handler errors",
-      "body": "Every handler error is discarded via `_ = h(ctx, evt)`. If a subscriber returns\nan error indicating a failed write, dropped event, or context cancellation, the\ncaller has no way to know. This defeats Go's error propagation idiom.\n\nAt minimum, log the error; ideally, collect errors from all handlers and return\nthem or pass them through a provided error channel.\n",
+      "body": "Every handler error is discarded via `_ = h(ctx, evt)`. If a subscriber returns\nan error indicating a failed write, dropped event, or context cancellation, the\ncaller has no way to know. This defeats Go's error propagation idiom.\n\ngo-events ScopedBus.Publish() returns errors. Migrating to ScopedBus would\nfix this at the call site — callers can handle or propagate errors.\nAt minimum, log the error; ideally, collect errors from all handlers and return\nthem or pass them through a provided error channel.\n",
       "location": {
         "file": "pkg/events/events.go",
-        "startLine": 137,
+        "startLine": 132,
         "startCol": 3,
-        "endLine": 144,
+        "endLine": 141,
         "endCol": 3
       },
-      "hash": "cbf8abde2b025360"
+      "hash": "81320232178b7ceb"
     },
     "review-20260822-007": {
       "id": "review-20260822-007",
       "category": "issue",
       "status": "open",
       "title": "Unreachable branch in CauseMessage",
-      "body": "The condition `se.Cause == nil` at line 62 is unreachable because any error\nthat reaches it must have `se.Cause != nil` (otherwise the first condition\nalready returned). This is dead code that suggests the author intended\ndifferent logic — possibly checking for `se.Message == \"\"` with `Cause == nil`\nto handle empty messages.\n",
+      "body": "Fixed by removing the dead `if se.Cause == nil` branch which was only\nreachable when se.Message was empty, returning a useless empty string.\n",
       "location": {
         "file": "pkg/core/errors.go",
         "startLine": 72,
         "startCol": 3,
-        "endLine": 78,
+        "endLine": 75,
         "endCol": 3
       },
-      "hash": "92e928d1556bcbf0"
+      "hash": "447d98f98fc9d6ac"
     },
     "review-20260822-008": {
       "id": "review-20260822-008",
@@ -116,42 +116,27 @@
       "body": "Clone() holds RLock and calls s.ExportJSON(), which itself acquires RLock.\nWhile Go allows multiple concurrent readers, a pending writer between the two\nlock acquisitions will cause deadlock. The RLock is not reentrant in the presence\nof a writer — if ExportJSON is ever changed to use Lock, or if a writer is queued,\nthis deadlocks.\n\nFix by having Clone call an internal unexported exportJSONLocked method that\nassumes the lock is already held.\n",
       "location": {
         "file": "pkg/store/store.go",
-        "startLine": 151,
+        "startLine": 170,
         "startCol": 3,
-        "endLine": 160,
+        "endLine": 179,
         "endCol": 3
       },
       "hash": "cf0365a3a4f8ae9d"
-    },
-    "review-20260822-009": {
-      "id": "review-20260822-009",
-      "category": "issue",
-      "status": "open",
-      "title": "Package doc misdescribes contents",
-      "body": "Package doc says \"shared types for the watch service interface\" but contains no\nactual interface implementations — only type definitions and a stub WatchService\ninterface. The doc should describe what the package provides, not what it doesn't.\n",
-      "location": {
-        "file": "pkg/watch/watch.go",
-        "startLine": 3,
-        "startCol": 3,
-        "endLine": 7,
-        "endCol": 3
-      },
-      "hash": "719d866d817f8f49"
     },
     "review-20260822-010": {
       "id": "review-20260822-010",
       "category": "issue",
       "status": "open",
       "title": "Payload and Patch lack doc comments",
-      "body": "WatchEvent.Payload and WatchEvent.Patch are map[string]any with no documentation\nof their expected contents, keys, or value types. Callers cannot know what data\nthese maps contain without reading implementation code.\n",
+      "body": "Fixed by adding doc comments explaining that Payload contains matched event\ndata and Patch contains state updates to apply on resume.\n",
       "location": {
         "file": "pkg/watch/watch.go",
-        "startLine": 12,
+        "startLine": 22,
         "startCol": 3,
-        "endLine": 16,
+        "endLine": 25,
         "endCol": 3
       },
-      "hash": "bd77ecd1bd9c5c1b"
+      "hash": "0db02c17e3f2e66b"
     },
     "review-20260822-011": {
       "id": "review-20260822-011",
@@ -161,9 +146,9 @@
       "body": "WatchCondition.Op, WatchCondition.Field, and WatchDescriptor.Mode are bare string\ntypes with no compile-time validation. Invalid operator names like \"eqq\" or modes\nlike \"ALL\" will silently pass through. Define `type ConditionOp string` with\nconstants (OpEqual, OpNotEqual, etc.) and `type WatchMode string` to catch invalid\nvalues at compile time.\n",
       "location": {
         "file": "pkg/watch/watch.go",
-        "startLine": 23,
+        "startLine": 30,
         "startCol": 3,
-        "endLine": 29,
+        "endLine": 36,
         "endCol": 3
       },
       "hash": "37d662dba19344cc"
@@ -176,9 +161,9 @@
       "body": "WatchDescriptor.Timeout is int64 with no documentation of whether the value is in\nmilliseconds, seconds, or nanoseconds. Different callers will interpret this\ndifferently. Change to time.Duration for type-safe, unambiguous units, or add a\nclear doc comment specifying the unit.\n",
       "location": {
         "file": "pkg/watch/watch.go",
-        "startLine": 39,
+        "startLine": 46,
         "startCol": 3,
-        "endLine": 44,
+        "endLine": 51,
         "endCol": 3
       },
       "hash": "72703263b9085b8f"
@@ -191,42 +176,12 @@
       "body": "WatchService.Register returns nothing, so a registration failure (duplicate run ID,\ninvalid descriptor, resource exhaustion) is silently dropped. PeekBufferedEvent\nreturns *WatchEvent where nil means \"no event,\" but this is ambiguous with a system\nerror. Register should return error, and PeekBufferedEvent should return\n(WatchEvent, bool) or (WatchEvent, error).\n",
       "location": {
         "file": "pkg/watch/watch.go",
-        "startLine": 52,
+        "startLine": 59,
         "startCol": 3,
-        "endLine": 58,
+        "endLine": 65,
         "endCol": 3
       },
       "hash": "a3a87d02bb165eaf"
-    },
-    "review-20260822-014": {
-      "id": "review-20260822-014",
-      "category": "issue",
-      "status": "open",
-      "title": "EventPath type lacks doc comment",
-      "body": "EventPath is a named slice type with no doc comment explaining its purpose,\nordering semantics, or how it relates to hierarchical execution paths.\n",
-      "location": {
-        "file": "pkg/events/events.go",
-        "startLine": 19,
-        "startCol": 3,
-        "endLine": 22,
-        "endCol": 3
-      },
-      "hash": "1b677f09e24604c6"
-    },
-    "review-20260822-015": {
-      "id": "review-20260822-015",
-      "category": "issue",
-      "status": "open",
-      "title": "Underlying() leaks concrete implementation through interface",
-      "body": "ScopedEventBus.Underlying() exposes gevents.SimpleEventBus[PipelineEvent] — a\nconcrete external type — through the interface. This violates the Interface\nSegregation Principle, couples consumers to the go-events library, and makes\nmocking impossible without importing the real dependency.\n\nRemove from the interface or return a narrower interface.\n",
-      "location": {
-        "file": "pkg/events/events.go",
-        "startLine": 57,
-        "startCol": 3,
-        "endLine": 64,
-        "endCol": 3
-      },
-      "hash": "205bcdb498359dd1"
     },
     "review-20260822-016": {
       "id": "review-20260822-016",
@@ -236,9 +191,9 @@
       "body": "Emit reads b.parent and b.underlying without holding any lock. While these fields\nare only set during Scope() construction and are structurally immutable after that,\nthere is no enforcement or documentation of this immutability contract. A future\nrefactor adding post-construction mutation would silently introduce a data race.\n\nAdd a doc comment stating immutability, or protect with a lock.\n",
       "location": {
         "file": "pkg/events/events.go",
-        "startLine": 107,
+        "startLine": 102,
         "startCol": 3,
-        "endLine": 114,
+        "endLine": 109,
         "endCol": 3
       },
       "hash": "f58f2b01c94f3820"
@@ -251,9 +206,9 @@
       "body": "Subscribe acquires b.mu.Lock() (exclusive write lock) but only appends to a slice.\nFor a read-heavy system where subscriptions are infrequent but Emit is called\nconstantly, a copy-on-write pattern with RLock for Emit and atomic slice\nreplacement for Subscribe would reduce contention. Not a correctness issue, but a\nperformance consideration at scale.\n",
       "location": {
         "file": "pkg/events/events.go",
-        "startLine": 163,
+        "startLine": 160,
         "startCol": 3,
-        "endLine": 169,
+        "endLine": 166,
         "endCol": 3
       },
       "hash": "e2cb2e6312ec7406"
@@ -296,9 +251,9 @@
       "body": "ExportJSON marshals the document to []byte via json.Marshal, then immediately\nunmarshals back into map[string]any. This is a redundant encode/decode cycle.\n\nEither json.Unmarshal directly into map[string]any from the document's internal\nrepresentation, or add a ToMap() method to the document type.\n",
       "location": {
         "file": "pkg/store/store.go",
-        "startLine": 125,
+        "startLine": 129,
         "startCol": 3,
-        "endLine": 131,
+        "endLine": 135,
         "endCol": 3
       },
       "hash": "b394d7d663ef0187"
@@ -311,9 +266,9 @@
       "body": "`var _ = data.DocumentIDField` is a blank variable assignment that asserts nothing\nabout types. Unlike `var _ Interface = (*Type)(nil)`, it has no compile-time\nverification purpose. If it exists to force an import for side effects, it should use\n`_ \"package/path\"` import syntax instead.\n",
       "location": {
         "file": "pkg/store/store.go",
-        "startLine": 186,
+        "startLine": 206,
         "startCol": 3,
-        "endLine": 191,
+        "endLine": 211,
         "endCol": 3
       },
       "hash": "6619fd8f8199f240"
@@ -438,36 +393,6 @@
       },
       "hash": "ea8542ff38ff2d70"
     },
-    "review-20260822-030": {
-      "id": "review-20260822-030",
-      "category": "issue",
-      "status": "open",
-      "title": "NopLogger lacks doc comment",
-      "body": "NopLogger is a public type used as the default logger when none is configured. Its\npurpose (silent discard of all log output) should be documented for callers who\nencounter it in debug traces.\n",
-      "location": {
-        "file": "pkg/core/logger.go",
-        "startLine": 15,
-        "startCol": 3,
-        "endLine": 19,
-        "endCol": 3
-      },
-      "hash": "1a8e53d461de401b"
-    },
-    "review-20260822-031": {
-      "id": "review-20260822-031",
-      "category": "issue",
-      "status": "open",
-      "title": "Context key is undocumented",
-      "body": "WithLogger/GetLogger use a package-private contextKey{} struct to store the logger.\nThere is no documentation warning callers not to create their own context keys, which\nwould bypass the package's storage and retrieval mechanism.\n",
-      "location": {
-        "file": "pkg/core/logger.go",
-        "startLine": 28,
-        "startCol": 3,
-        "endLine": 32,
-        "endCol": 3
-      },
-      "hash": "72ad325a2efd359a"
-    },
     "review-20260822-033": {
       "id": "review-20260822-033",
       "category": "issue",
@@ -476,9 +401,9 @@
       "body": "The error from r.store.Update is discarded with `_ =`. If the store update fails\n(e.g., validation error, key collision), the pipeline continues with stale state.\nThis defeats Go's error propagation idiom. At minimum, log the error; ideally,\npropagate it or return it to the caller.\n",
       "location": {
         "file": "pkg/pipeline/context.go",
-        "startLine": 83,
+        "startLine": 78,
         "startCol": 3,
-        "endLine": 88,
+        "endLine": 83,
         "endCol": 3
       },
       "hash": "7db17b43e023b71a"
@@ -488,15 +413,15 @@
       "category": "issue",
       "status": "open",
       "title": "Unsafe type assertion without comma-ok",
-      "body": "instruction.(PauseInstruction) is an unsafe type assertion. If instruction is\nnot a PauseInstruction, this panics. Use a comma-ok assertion to prevent\nruntime panics:\npi, ok := instruction.(PauseInstruction)\nif !ok { return r.failStage(...) }\n",
+      "body": "Fixed by using comma-ok type assertion to prevent runtime panics\nwhen instruction is not a PauseInstruction.\n",
       "location": {
         "file": "pkg/pipeline/context.go",
-        "startLine": 366,
+        "startLine": 420,
         "startCol": 3,
-        "endLine": 372,
+        "endLine": 423,
         "endCol": 3
       },
-      "hash": "bb66bd4411b62cb6"
+      "hash": "e81d4dc1ef034989"
     },
     "review-20260822-035": {
       "id": "review-20260822-035",
@@ -551,9 +476,9 @@
       "body": "time.After(timeout) creates a timer that is not stopped if the select completes via\ndone or ctx.Done(). This leaks a timer until it fires. Use time.NewTimer with\nexplicit Stop().\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 890,
+        "startLine": 1002,
         "startCol": 3,
-        "endLine": 894,
+        "endLine": 1006,
         "endCol": 3
       },
       "hash": "df3cf320b2d827d0"
@@ -566,9 +491,9 @@
       "body": "dispatch calls rt.mu.Unlock() at line 531 then rt.mu.Lock() again at line 540.\nBetween these two critical sections, rt.paused and rt.index could be mutated by\nother goroutines (e.g., Deregister). The snapshot of toResume and entries is taken\nunder separate locks, creating a TOCTOU window.\n\nFix by taking both snapshots under a single lock acquisition, or by using a\nsnapshot that is immutable after release.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 498,
+        "startLine": 510,
         "startCol": 3,
-        "endLine": 506,
+        "endLine": 518,
         "endCol": 3
       },
       "hash": "3f6ec32a2a10a270"
@@ -581,9 +506,9 @@
       "body": "The error from rt.scheduler.Schedule is silently discarded. If scheduling fails\n(e.g., invalid cron expression), the trigger will never fire and the failure\nwill be invisible to the caller.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 352,
+        "startLine": 364,
         "startCol": 3,
-        "endLine": 356,
+        "endLine": 368,
         "endCol": 3
       },
       "hash": "b90eb638ef2c2f7c"
@@ -686,27 +611,12 @@
       "body": "_ = st.Update(...) discards the error when folding the resume event payload\ninto state. If the store rejects the update, the resumed pipeline will run\nwith incomplete state.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 745,
+        "startLine": 757,
         "startCol": 3,
-        "endLine": 749,
+        "endLine": 761,
         "endCol": 3
       },
       "hash": "e4cc710e6fa547e9"
-    },
-    "review-20260822-049": {
-      "id": "review-20260822-049",
-      "category": "issue",
-      "status": "open",
-      "title": "Code injection vulnerability in EvalValue",
-      "body": "EvalValue wraps user input in parentheses: `\"(\" + expr + \")\"`. If `expr` is\n`\"); malicious_code(); (\"`, it breaks out of the expression. No input validation\nis performed. This is vulnerable to code injection if `expr` contains untrusted\ninput.\n",
-      "location": {
-        "file": "pkg/expr/expr.go",
-        "startLine": 86,
-        "startCol": 3,
-        "endLine": 91,
-        "endCol": 3
-      },
-      "hash": "e8937c6420f3dba3"
     },
     "review-20260822-050": {
       "id": "review-20260822-050",
@@ -776,9 +686,9 @@
       "body": "WriteCheckpoint marshals ckpt to JSON, then immediately unmarshals it back into\nmap[string]any. This is a pointless double-serialization to satisfy\nSetMetadataValue. If SetMetadataValue truly needs a raw map, marshal the struct\ndirectly to the target map using a single pass, or change the API.\n",
       "location": {
         "file": "pkg/pipeline/checkpoint.go",
-        "startLine": 83,
+        "startLine": 84,
         "startCol": 3,
-        "endLine": 88,
+        "endLine": 89,
         "endCol": 3
       },
       "hash": "e84f3533a0c7de91"
@@ -791,12 +701,162 @@
       "body": "A goroutine is spawned per Run call to bridge abortChan -\u003e cancel(). On the normal\n(non-aborted) path, this goroutine blocks on select until runCtx.Done() fires. The\ndefer cancel() ensures the context is cancelled, so the goroutine will eventually\ndrain — but there is a brief window where the goroutine outlives the Run return. If\nRun is called in a tight loop, these goroutines accumulate transiently. Consider\nusing context.AfterFunc (Go 1.21+) instead of a dedicated goroutine.\n",
       "location": {
         "file": "pkg/pipeline/context.go",
-        "startLine": 115,
+        "startLine": 116,
         "startCol": 3,
-        "endLine": 122,
+        "endLine": 123,
         "endCol": 3
       },
       "hash": "1219d6a54a366eb1"
+    },
+    "review-20260825-001": {
+      "id": "review-20260825-001",
+      "category": "issue",
+      "status": "open",
+      "title": "Discarded store update error in result merge",
+      "body": "The error from r.store.Update is discarded with `_ =`. If the store\nupdate fails (e.g., document corruption, write conflict), the parent\nsilently loses the child's result with no indication. At minimum,\nlog the error; ideally, return it or fail the stage.\n",
+      "location": {
+        "file": "pkg/pipeline/context.go",
+        "startLine": 324,
+        "startCol": 3,
+        "endLine": 329,
+        "endCol": 3
+      },
+      "hash": "a9a3fa3df15e3cf2"
+    },
+    "review-20260825-002": {
+      "id": "review-20260825-002",
+      "category": "issue",
+      "status": "open",
+      "title": "Shared initialState across concurrent goroutines",
+      "body": "The initialState map is extracted once and shared across all child goroutines\nthat call NewFreshStore(initialState). If any child mutates the map (e.g., via\na code node), other children see the mutation. This is unlikely since\nNewFreshStore copies the map into a document, but the map itself is not\ndeep-copied before being passed. Consider deep-copying initialState per\nchild if mutation is possible.\n",
+      "location": {
+        "file": "pkg/pipeline/subpipeline.go",
+        "startLine": 50,
+        "startCol": 3,
+        "endLine": 57,
+        "endCol": 3
+      },
+      "hash": "2d74601449c1b228"
+    },
+    "review-20260825-003": {
+      "id": "review-20260825-003",
+      "category": "issue",
+      "status": "open",
+      "title": "Error string ends with period",
+      "body": "Go convention: error strings should not end with punctuation.\nChange to: fmt.Errorf(\"pipeline-ref node %s has no pipelineId configured\", id)\n",
+      "location": {
+        "file": "pkg/compiler/compiler.go",
+        "startLine": 442,
+        "startCol": 3,
+        "endLine": 445,
+        "endCol": 3
+      },
+      "hash": "e13012dd3992983f"
+    },
+    "review-20260825-004": {
+      "id": "review-20260825-004",
+      "category": "issue",
+      "status": "open",
+      "title": "Error string ends with period",
+      "body": "Go convention: error strings should not end with punctuation.\n",
+      "location": {
+        "file": "pkg/compiler/compiler.go",
+        "startLine": 450,
+        "startCol": 3,
+        "endLine": 452,
+        "endCol": 3
+      },
+      "hash": "374ed3bea366225f"
+    },
+    "review-20260825-005": {
+      "id": "review-20260825-005",
+      "category": "observation",
+      "status": "open",
+      "title": "Wasteful JSON round-trip for result merging",
+      "body": "json.Marshal then json.Unmarshal is a wasteful encode/decode cycle.\nConsider adding a ToMap() method to document.Document, or use\nsRes.FinalDoc.Data() directly if it returns the underlying map.\n",
+      "location": {
+        "file": "pkg/pipeline/context.go",
+        "startLine": 313,
+        "startCol": 3,
+        "endLine": 317,
+        "endCol": 3
+      },
+      "hash": "7e04880310bbd5dd"
+    },
+    "scoped-bus-opportunity-001": {
+      "id": "scoped-bus-opportunity-001",
+      "category": "todo",
+      "status": "open",
+      "title": "Replace MemoryScopedBus with go-events ScopedBus for topic isolation",
+      "body": "The go-events/v2 package now provides ScopedBus (scoped.go) which gives\nreal topic-level namespace isolation via topic prefixing. MemoryScopedBus\nuses hierarchical bubbling but no actual topic isolation — all scopes\nshare the same flat event type namespace.\n\ngo-events ScopedBus benefits for hermes:\n  - bus.Scope(\"run:\"+runID) gives per-run topic isolation (no cross-run interference)\n  - bus.Scope(\"workflow:\"+wfID) gives per-workflow isolation\n  - IsolatedScope() creates a separate Pebble store for true data isolation\n  - Publish() returns errors (current Emit discards all handler errors — P1 review note)\n  - Durable event log via Pebble (the underlying field is currently never wired)\n\nMigration path:\n  1. Replace NewMemoryScopedBus() with NewEventBus() + ScopedBus usage\n  2. Replace Emit() calls with scoped.Publish() (error-returning)\n  3. Remove manual parent-bubbling logic (ScopedBus handles it internally)\n  4. Wire the durable backend that was designed but never connected\n",
+      "location": {
+        "file": "pkg/events/events.go",
+        "startLine": 189,
+        "startCol": 3,
+        "endLine": 207,
+        "endCol": 3
+      },
+      "hash": "94e3414ea764e9fc"
+    },
+    "scoped-bus-opportunity-002": {
+      "id": "scoped-bus-opportunity-002",
+      "category": "issue",
+      "status": "open",
+      "title": "Orphan bus fallback silently loses all events",
+      "body": "When no bus is provided and factory has no EventBus option, a standalone\nMemoryScopedBus is created with no parent and no underlying go-events bus.\nEvents emitted on this bus go nowhere — no subscribers, no bubbling, no\ntimeline recording. This is a silent data loss scenario.\n\nFix with go-events ScopedBus: use bus.IsolatedScope(runID) from the root\nruntime bus instead of creating orphan buses. This ensures every pipeline\nexecution has a durable event log and proper scoping.\n",
+      "location": {
+        "file": "pkg/pipeline/factory.go",
+        "startLine": 56,
+        "startCol": 3,
+        "endLine": 65,
+        "endCol": 3
+      },
+      "hash": "01fc06e193597e86"
+    },
+    "scoped-bus-opportunity-003": {
+      "id": "scoped-bus-opportunity-003",
+      "category": "issue",
+      "status": "open",
+      "title": "Empty EventPath scoping provides no real isolation",
+      "body": "Per-run buses are scoped with an empty EventPath{}. The path is only used\nfor metadata decoration (populated into PipelineEvent.Path for the frontend\ntimeline) — it does NOT filter or route events. All runs share the same\nflat namespace on the root bus.\n\nFix with go-events ScopedBus: use bus.Scope(\"run:\"+runID) instead of\nbus.Scope(EventPath{}). This gives actual topic isolation — each run's\nevents are prefixed with its runID, preventing cross-run interference.\n",
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 772,
+        "startCol": 3,
+        "endLine": 781,
+        "endCol": 3
+      },
+      "hash": "c7ee0ea6000b8e6c"
+    },
+    "scoped-bus-opportunity-004": {
+      "id": "scoped-bus-opportunity-004",
+      "category": "issue",
+      "status": "open",
+      "title": "WatchService subscribes to root bus and manually filters by runID",
+      "body": "The WatchService subscribes to the root runtime bus for all watched event\ntypes. When a watched event arrives, it fans out to ALL runs waiting for\nthat event type via the byEventType reverse index, then each run's onEvent\nhandler manually checks if the event belongs to it.\n\nWith go-events ScopedBus, the WatchService could subscribe to per-run\nscoped buses (bus.Scope(\"run:\"+runID)) instead of the root bus. This\neliminates manual runID filtering and reduces unnecessary fan-out.\n",
+      "location": {
+        "file": "pkg/runtime/watchservice.go",
+        "startLine": 291,
+        "startCol": 3,
+        "endLine": 300,
+        "endCol": 3
+      },
+      "hash": "c1397ea23333ac51"
+    },
+    "scoped-bus-opportunity-005": {
+      "id": "scoped-bus-opportunity-005",
+      "category": "issue",
+      "status": "open",
+      "title": "Durable event backend designed but never wired",
+      "body": "NewMemoryScopedBus accepts an optional go-events SimpleEventBus for\ndurable Pebble LSM event sourcing (designed in the spec). However,\nthe runtime never passes one — the underlying field is always nil.\nAll events are purely in-memory and lost on restart.\n\nFix with go-events ScopedBus: create a root EventBus with Pebble-backed\nConfig, then use bus.Scope() for per-run and per-workflow isolation.\nThis gives durable event logs, checkpoint recovery, and compaction\nout of the box.\n",
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 255,
+        "startCol": 3,
+        "endLine": 265,
+        "endCol": 3
+      },
+      "hash": "a94d0e37cb216c42"
     }
   },
   "files": {
@@ -813,13 +873,17 @@
       "hash": "f8e19ee569198f33"
     },
     "pkg/compiler/compiler.go": {
-      "hash": "73df8d2d6eb1e9a1"
+      "hash": "3a19c70101be2716",
+      "noteIds": [
+        "review-20260825-003",
+        "review-20260825-004"
+      ]
     },
     "pkg/compiler/compiler_test.go": {
-      "hash": "dbb306e28389ff9a"
+      "hash": "e0a3baa73a325871"
     },
     "pkg/core/errors.go": {
-      "hash": "2218b82c11dcea94",
+      "hash": "1d58125be36ef533",
       "noteIds": [
         "review-20260822-007",
         "review-20260822-022",
@@ -827,11 +891,7 @@
       ]
     },
     "pkg/core/logger.go": {
-      "hash": "60a7f71f90b36919",
-      "noteIds": [
-        "review-20260822-030",
-        "review-20260822-031"
-      ]
+      "hash": "74cb3d1f02df9de8"
     },
     "pkg/core/systemerror_json.go": {
       "hash": "7b9f80f772879c73",
@@ -844,25 +904,24 @@
         "review-20260822-029"
       ]
     },
+    "pkg/core/zap_adapter.go": {
+      "hash": "21ec9352b0189e6f"
+    },
     "pkg/events/events.go": {
-      "hash": "176f37a92665a81e",
+      "hash": "2a081058bd184910",
       "noteIds": [
         "review-20260822-004",
         "review-20260822-006",
-        "review-20260822-014",
-        "review-20260822-015",
         "review-20260822-016",
-        "review-20260822-017"
+        "review-20260822-017",
+        "scoped-bus-opportunity-001"
       ]
     },
     "pkg/expr/expr.go": {
-      "hash": "33b248a351a8dfdf",
-      "noteIds": [
-        "review-20260822-049"
-      ]
+      "hash": "6b5f335f1109971a"
     },
     "pkg/expr/expr_test.go": {
-      "hash": "0ad43e893fb28397"
+      "hash": "b8667582646854d5"
     },
     "pkg/nodekit/build.go": {
       "hash": "32a1df1b3c99cd06",
@@ -880,10 +939,10 @@
       "hash": "8667f159f72bc235"
     },
     "pkg/nodekit/nodekit.go": {
-      "hash": "4ec7ad66e6ec9715"
+      "hash": "dde1330a25e37fb4"
     },
     "pkg/nodes/arithmetic/arithmetic.go": {
-      "hash": "b2e7cc5fbdeabdb9"
+      "hash": "e0e19adffa79ba9d"
     },
     "pkg/nodes/arithmetic/arithmetic.ts": {
       "hash": "78effe3f7e250b2a"
@@ -892,7 +951,7 @@
       "hash": "bf44703c8a8f101f"
     },
     "pkg/nodes/code/code.go": {
-      "hash": "bd9107550f176890"
+      "hash": "478af379dd69ec25"
     },
     "pkg/nodes/code/code.ts": {
       "hash": "a5759359734e7050"
@@ -944,7 +1003,7 @@
       "hash": "5fccac261135099d"
     },
     "pkg/nodes/if/if.go": {
-      "hash": "9ff72e8d34a64704"
+      "hash": "613286e25c10a957"
     },
     "pkg/nodes/if/if.ts": {
       "hash": "51e1d1854f3c3c19"
@@ -953,10 +1012,10 @@
       "hash": "e20a1229820ad73d"
     },
     "pkg/nodes/nodes.go": {
-      "hash": "5dc286a4dd5f6b49"
+      "hash": "25fda9b031b2fc62"
     },
     "pkg/nodes/nodes_test.go": {
-      "hash": "5b9ef94842737661"
+      "hash": "b8b082633a7e44f0"
     },
     "pkg/nodes/pause/pause.go": {
       "hash": "d5ddf1046e494b71",
@@ -970,6 +1029,12 @@
     "pkg/nodes/pause/pause_test.go": {
       "hash": "c085e27fa6dec3ba"
     },
+    "pkg/nodes/pipeline-ref/pipeleref.go": {
+      "hash": "c4c8d906d51e9d25"
+    },
+    "pkg/nodes/pipeline-ref/pipeleref.ts": {
+      "hash": "98e2886349acd162"
+    },
     "pkg/nodes/query/query.go": {
       "hash": "6826e41c84477a50"
     },
@@ -980,7 +1045,7 @@
       "hash": "9af2efa57dc3bf71"
     },
     "pkg/nodes/switch/switch.go": {
-      "hash": "5421943e0c04b741"
+      "hash": "054e573aad3bceb2"
     },
     "pkg/nodes/switch/switch.ts": {
       "hash": "0a35e790c1e6bbda"
@@ -1001,7 +1066,7 @@
       "hash": "3bc0e3c9ee9a5525"
     },
     "pkg/nodes/trigger/trigger.go": {
-      "hash": "1e6ebd30c51ea852"
+      "hash": "b7a95cccf462497a"
     },
     "pkg/nodes/trigger/trigger.ts": {
       "hash": "e9d6ec429209d818"
@@ -1028,21 +1093,26 @@
       "hash": "7b455be4f2233f22"
     },
     "pkg/pipeline/checkpoint.go": {
-      "hash": "43bae228672866c7",
+      "hash": "92d1b7fd54ca4076",
       "noteIds": [
         "review-20260822-054"
       ]
     },
     "pkg/pipeline/context.go": {
-      "hash": "52c489644d6db8a5",
+      "hash": "6b376330b666eaf0",
       "noteIds": [
         "review-20260822-033",
         "review-20260822-034",
-        "review-20260822-055"
+        "review-20260822-055",
+        "review-20260825-001",
+        "review-20260825-005"
       ]
     },
     "pkg/pipeline/factory.go": {
-      "hash": "7888e48e25d9352d"
+      "hash": "e445369cc15b97cf",
+      "noteIds": [
+        "scoped-bus-opportunity-002"
+      ]
     },
     "pkg/pipeline/router.go": {
       "hash": "a8c3839f2d4a8511"
@@ -1051,10 +1121,13 @@
       "hash": "6ddefba1a0775e87"
     },
     "pkg/pipeline/subpipeline.go": {
-      "hash": "40634fc35f166dd6"
+      "hash": "101a2efb73dd2f7d",
+      "noteIds": [
+        "review-20260825-002"
+      ]
     },
     "pkg/pipeline/types.go": {
-      "hash": "a1017e47a379cd52"
+      "hash": "e8a23de8d92f234d"
     },
     "pkg/pipeline/workflow.go": {
       "hash": "9fb75f247f3e9a20"
@@ -1068,23 +1141,29 @@
     "pkg/runtime/eventsource.go": {
       "hash": "0cc0cea146fe3190"
     },
+    "pkg/runtime/hestia_eventsource.go": {
+      "hash": "38d79fe2bf637d3c"
+    },
     "pkg/runtime/runtime.go": {
-      "hash": "f681ea5b437171c7",
+      "hash": "58879d71b94ba784",
       "noteIds": [
         "review-20260822-038",
         "review-20260822-039",
         "review-20260822-040",
-        "review-20260822-048"
+        "review-20260822-048",
+        "scoped-bus-opportunity-003",
+        "scoped-bus-opportunity-005"
       ]
     },
     "pkg/runtime/runtime_test.go": {
       "hash": "17e979e084f5254e"
     },
     "pkg/runtime/watchservice.go": {
-      "hash": "4848e8c3e7fccdfd",
+      "hash": "e593c38005698861",
       "noteIds": [
         "review-20260822-001",
-        "review-20260822-044"
+        "review-20260822-044",
+        "scoped-bus-opportunity-004"
       ]
     },
     "pkg/scheduler/cron.go": {
@@ -1092,6 +1171,9 @@
       "noteIds": [
         "review-20260822-053"
       ]
+    },
+    "pkg/scheduler/hestia.go": {
+      "hash": "c620113326774f92"
     },
     "pkg/scheduler/inmemory.go": {
       "hash": "2905e6088429460c",
@@ -1114,8 +1196,14 @@
         "review-20260822-051"
       ]
     },
+    "pkg/store/anansi.go": {
+      "hash": "8ee419d060268619"
+    },
+    "pkg/store/persistent.go": {
+      "hash": "37cc915528b99642"
+    },
     "pkg/store/store.go": {
-      "hash": "99299be5be0f538c",
+      "hash": "957c34c8aa78ecb9",
       "noteIds": [
         "review-20260822-005",
         "review-20260822-008",
@@ -1129,9 +1217,8 @@
       "hash": "29e0d96ab2e52e91"
     },
     "pkg/watch/watch.go": {
-      "hash": "a0c4ad884ef2ca8b",
+      "hash": "d3c62db19d4ba73f",
       "noteIds": [
-        "review-20260822-009",
         "review-20260822-010",
         "review-20260822-011",
         "review-20260822-012",

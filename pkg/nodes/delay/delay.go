@@ -35,18 +35,18 @@ var Node = nodekit.NodeDefinition{
 }
 
 // routerFunc is used when cron is configured — pauses the pipeline and
-// schedules a resume via the scheduler. When no cron is set, it returns
-// Terminate to match the default leaf-node behavior (prevents advancing
-// past branch boundaries in if/switch/try-catch).
+// schedules a resume via the scheduler. When no cron is set, it returns nil
+// so the stage follows its outgoing edge (buildRouterFunc falls back to
+// default edge resolution and terminates at terminal leaves).
 func routerFunc(ctx context.Context, nCtx nodekit.NodeRunContext) (pipeline.RoutingInstruction, error) {
 	cron, _ := nCtx.Config["cron"].(string)
 	if cron == "" {
-		return pipeline.Terminate(), nil
+		return nil, nil
 	}
 	return pipeline.PauseForCron("__cron_delay__", cron), nil
 }
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.DocumentMutator, error) {
+func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
 	// If cron is configured, skip the blocking delay — the router will pause.
 	cron, _ := nCtx.Config["cron"].(string)
 	if cron != "" {

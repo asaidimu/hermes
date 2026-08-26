@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/document"
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -73,8 +72,10 @@ func NewPipelineContext(runID, pipelineID, stageID, stepID string, path events.E
 	return c
 }
 
-// StepAction executes user logic on the Anansi document and returns a mutator to commit.
-type StepAction func(ctx context.Context, pcxt PipelineContext, state *document.Document) (store.DocumentMutator, error)
+// StepAction executes user logic against a read-only view of the run state
+// and returns a mutator to commit. Mutate the passed map only via the
+// returned mutator.
+type StepAction func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error)
 
 // Step represents a single concurrent unit of execution within a Stage.
 type Step struct {
@@ -140,11 +141,12 @@ func PauseForCron(eventType string, cron string) RoutingInstruction {
 	return PauseInstruction{StageID: "", Timeout: 0, Persist: true, WaitForEvent: eventType, Cron: cron}
 }
 
-// StepStageRouter evaluates routing instructions based on the document after stage steps complete.
-type StepStageRouter func(ctx context.Context, doc *document.Document, st store.Store) (RoutingInstruction, error)
+// StepStageRouter evaluates routing instructions based on a state snapshot
+// taken after stage steps complete.
+type StepStageRouter func(ctx context.Context, state map[string]any, st store.Store) (RoutingInstruction, error)
 
 // PipelineStageRouter evaluates routing instructions after subpipelines settle.
-type PipelineStageRouter func(ctx context.Context, doc *document.Document, results []PipelineRunResult, st store.Store) (RoutingInstruction, error)
+type PipelineStageRouter func(ctx context.Context, state map[string]any, results []PipelineRunResult, st store.Store) (RoutingInstruction, error)
 
 // Stage represents a sequential step/subpipeline block within a Pipeline.
 type Stage struct {
@@ -156,6 +158,7 @@ type Stage struct {
 	Router          StepStageRouter
 	Pipelines       []PipelineDefinition
 	PipelinesRouter PipelineStageRouter
+	Config          map[string]any
 }
 
 // PipelineDefinition declares the static DAG/pipeline structure.
@@ -171,7 +174,7 @@ type PipelineRunResult struct {
 	Status        string              `json:"status"` // "succeeded" | "paused" | "failed" | "aborted"
 	RunID         string              `json:"runId"`
 	PipelineID    string              `json:"pipelineId"`
-	FinalDoc      *document.Document  `json:"-"`
+	FinalState    map[string]any      `json:"-"`
 	Checkpoint    *PipelineCheckpoint `json:"checkpoint,omitempty"`
 	WaitForEvent  string              `json:"waitForEvent,omitempty"`  // single event (backward compat)
 	WaitForEvents []string            `json:"waitForEvents,omitempty"` // multiple events
@@ -187,6 +190,6 @@ type RunContext interface {
 	EventBus() events.ScopedEventBus
 	Run(ctx context.Context) (PipelineRunResult, error)
 	Abort(err error)
-	Write(mutator store.DocumentMutator)
+	Write(mutator store.Mutator)
 	On(eventType string, handler events.EventHandler) (unsubscribe func())
 }

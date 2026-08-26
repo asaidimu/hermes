@@ -10,12 +10,7 @@ import (
 
 func runRules(t *testing.T, state map[string]any, rules []any) (map[string]any, error) {
 	t.Helper()
-	doc := store.NewMemoryStore(nil).Document()
-	for k, v := range state {
-		if err := doc.Set(k, v); err != nil {
-			t.Fatal(err)
-		}
-	}
+	st := store.NewFreshStore(state)
 	mut, err := run(context.Background(), nodekit.NodeRunContext{
 		Config: map[string]any{"rules": rules},
 		State:  state,
@@ -23,13 +18,12 @@ func runRules(t *testing.T, state map[string]any, rules []any) (map[string]any, 
 	if err != nil {
 		return nil, err
 	}
-	if mut == nil {
-		return doc.Data(), nil
+	if mut != nil {
+		if err := st.Update(context.Background(), mut); err != nil {
+			return nil, err
+		}
 	}
-	if err := mut(doc); err != nil {
-		return nil, err
-	}
-	return doc.Data(), nil
+	return st.ExportJSON()
 }
 
 func TestSetValueAndExtract(t *testing.T) {

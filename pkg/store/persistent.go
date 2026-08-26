@@ -2,134 +2,120 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
-	"github.com/asaidimu/go-anansi/v8/core/data"
 	"github.com/asaidimu/go-anansi/v8/core/document"
-	"github.com/asaidimu/go-anansi/v8/core/persistence/base"
-	"github.com/asaidimu/go-anansi/v8/core/query"
+	"github.com/asaidimu/go-anansi/v8/core/persistence/collection"
 	"github.com/asaidimu/hermes/pkg/core"
 )
 
-// PersistentStore is a write-through Store backed by an anansi collection.
-// Every Update/Transact persists to the collection immediately, and Flush
-// ensures the current in-memory state is persisted.
+// PersistentStore is a write-through Store backed by an anansi ModelCollection
+// of PipelineState. Every Update persists to the collection immediately, and
+// Flush ensures the current in-memory state is persisted.
+//
+// Identity model: a run IS its state document. NewPersistentStore mints the
+// document identity (a UUIDv7 _id_, via anansi's own document.New) in memory
+// with no database round-trip; Store.ID() returns it as the run identifier.
+// The first write-through inserts the document, preserving the pre-minted
+// _id_. Recovery loads by that id via NewPersistentStoreForID. The _id_ itself
+// is never overwritten by hermes — it is owned by the system.
 type PersistentStore struct {
 	*MemoryStore
-	coll   base.Collection
-	runID  string
-	exists bool // whether the document was loaded from the collection
+	models *collection.ModelCollection[*PipelineState]
+	exists bool // whether the document has been inserted into the collection
 }
 
-// NewPersistentStore creates a PersistentStore backed by the given collection.
-// It attempts to load an existing document for runID from the collection.
-func NewPersistentStore(ctx context.Context, coll base.Collection, runID string) (*PersistentStore, error) {
-	s := &PersistentStore{
-		MemoryStore: NewMemoryStore(nil),
-		coll:        coll,
-		runID:       runID,
-	}
+var _ Store = (*PersistentStore)(nil)
 
-	if err := s.load(ctx); err != nil {
-		return nil, fmt.Errorf("persistent store: load failed: %w", err)
+// NewPersistentStore creates a run document in memory only: the identity is
+// minted immediately through anansi's struct-model pipeline but nothing is
+// written to the collection until the first write-through. initialState may
+// be nil.
+func NewPersistentStore(models *collection.ModelCollection[*PipelineState], initialState map[string]any) *PersistentStore {
+	ps := document.New(&PipelineState{Data: RunData(initialState)})
+	ms := NewMemoryStore(initialState)
+	ms.id = ps.GetID()
+	return &PersistentStore{
+		MemoryStore: ms,
+		models:      models,
 	}
-
-	return s, nil
 }
 
-// load attempts to load an existing document from the collection by runID.
-func (s *PersistentStore) load(ctx context.Context) error {
-	q := query.NewQueryBuilder().Where(data.DocumentIDField).Eq(s.runID).Build()
-
-	result, err := s.coll.Read(ctx, &q)
+// NewPersistentStoreForID loads an existing run document from the collection
+// by its identifier. It returns a NotFound error when no document exists for
+// runID — recovery of an unknown run must fail loudly rather than silently
+// fabricate empty state.
+func NewPersistentStoreForID(ctx context.Context, models *collection.ModelCollection[*PipelineState], runID string) (*PersistentStore, error) {
+	ps, err := models.FindByID(ctx, runID)
 	if err != nil {
-		return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
+		return nil, core.SystemErrorFrom(err, core.ErrCodeNotFound)
 	}
 
-	if result.Count == 0 {
-		s.doc = document.NewRecordView(map[string]any{
-			data.DocumentIDField: s.runID,
-		})
-		s.exists = false
-		return nil
+	body := make(map[string]any, len(ps.Data)+1)
+	for k, v := range ps.Data {
+		body[k] = v
+	}
+	if info := ps.RunInfo; info != (RunMetadata{}) {
+		body[RunMetaKey] = info.Map()
 	}
 
-	docs := result.Data
-	if len(docs) == 0 {
-		s.doc = document.NewRecordView(map[string]any{
-			data.DocumentIDField: s.runID,
-		})
-		s.exists = false
-		return nil
-	}
-
-	raw, err := json.Marshal(docs[0])
-	if err != nil {
-		return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
-	}
-
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
-	}
-
-	s.doc = document.NewRecordView(m)
-	s.exists = true
-	return nil
+	ms := NewMemoryStore(body)
+	ms.id = ps.GetID()
+	return &PersistentStore{
+		MemoryStore: ms,
+		models:      models,
+		exists:      true,
+	}, nil
 }
 
-// persist writes the current in-memory state to the anansi collection.
+// persist writes the current in-memory state to the collection. On the first
+// call the document is inserted with its pre-minted _id_; subsequent calls
+// update by _id_. The flat state is persisted as the PipelineState shape:
+// pipeline state under "state", run linkage under "metadata". System fields
+// (_id_, _metadata_) remain under anansi's control.
+//
+// Caller must hold the store lock (invoked from Update/Flush).
 func (s *PersistentStore) persist(ctx context.Context) error {
-	m := s.doc.ToMap()
-	m[data.DocumentIDField] = s.runID
+	state, info := s.typedView()
 
-	d := data.MustNewDocument(m, ctx)
-
-	if s.exists {
-		filter := query.NewQueryBuilder().Where(data.DocumentIDField).Eq(s.runID).Build().Filters
-
-		cu := base.NewCollectionUpdate().WithFilter(filter)
-		for k, v := range m {
-			cu.SetField(k, v)
-		}
-
-		_, err := s.coll.Update(ctx, cu)
-		if err != nil {
-			return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
-		}
-	} else {
-		_, err := s.coll.CreateOne(ctx, d)
-		if err != nil {
+	if !s.exists {
+		full := &PipelineState{Data: state, RunInfo: info}
+		full.ID = s.MemoryStore.id
+		if _, err := s.models.Create(ctx, full); err != nil {
 			return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
 		}
 		s.exists = true
+		return nil
+	}
+
+	if _, err := s.models.Update(ctx, s.MemoryStore.id, &PipelineState{Data: state, RunInfo: info}); err != nil {
+		return core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
 	}
 	return nil
 }
 
-// Update mutates the document and persists to the collection.
-func (s *PersistentStore) Update(ctx context.Context, mutator DocumentMutator) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if mutator == nil {
-		return nil
+// typedView converts the flat state into the persisted PipelineState fields.
+// Assumes the caller holds the store lock.
+func (s *PersistentStore) typedView() (RunData, RunMetadata) {
+	metaRaw, _ := s.state[RunMetaKey].(map[string]any)
+	info := RunInfoFromMap(metaRaw)
+	state := make(RunData, len(s.state))
+	for k, v := range s.state {
+		if k == RunMetaKey {
+			continue
+		}
+		state[k] = v
 	}
-	if err := mutator(s.doc); err != nil {
-		return err
-	}
-	return s.persist(ctx)
+	return state, info
 }
 
-// Transact executes a function and persists to the collection.
-func (s *PersistentStore) Transact(ctx context.Context, fn func(txDoc *document.Document) error) error {
+// Update applies the mutator under lock and writes through to the collection.
+func (s *PersistentStore) Update(ctx context.Context, mutator Mutator) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if fn == nil {
-		return nil
-	}
-	if err := fn(s.doc); err != nil {
-		return err
+	if mutator != nil {
+		if err := mutator(s.state); err != nil {
+			return err
+		}
 	}
 	return s.persist(ctx)
 }
@@ -141,44 +127,19 @@ func (s *PersistentStore) Flush(ctx context.Context) error {
 	return s.persist(ctx)
 }
 
-// Clone creates a deep copy backed by the same collection.
+// Clone creates a deep copy backed by the same model collection, preserving
+// the run identity and insertion state.
 func (s *PersistentStore) Clone() (Store, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	exported, err := s.exportJSONLocked()
+	cloned, err := s.MemoryStore.Clone()
 	if err != nil {
 		return nil, err
 	}
-
-	clonedDoc := document.NewRecordView(exported)
-	ms := NewMemoryStore(clonedDoc, s.schema)
 	return &PersistentStore{
-		MemoryStore: ms,
-		coll:        s.coll,
-		runID:       s.runID,
+		MemoryStore: cloned.(*MemoryStore),
+		models:      s.models,
 		exists:      s.exists,
 	}, nil
 }
-
-// exportJSONLocked is an internal helper that assumes the lock is held.
-func (s *PersistentStore) exportJSONLocked() (map[string]any, error) {
-	if s.doc == nil {
-		return make(map[string]any), nil
-	}
-	dataBytes, err := json.Marshal(s.doc)
-	if err != nil {
-		return nil, core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
-	}
-
-	var res map[string]any
-	if err := json.Unmarshal(dataBytes, &res); err != nil {
-		return nil, core.SystemErrorFrom(err, core.ErrCodeExecutionFailed)
-	}
-	if res == nil {
-		res = make(map[string]any)
-	}
-	return res, nil
-}
-
-var _ Store = (*PersistentStore)(nil)
