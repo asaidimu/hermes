@@ -7,34 +7,23 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-type ForkConfig struct {
-	Branches []string `config:"branches"`
-}
+type ForkConfig struct{}
 
 var Node = nodekit.Define(nodekit.TypedDefinition[ForkConfig]{
 	Kind:        "fork",
 	Label:       "Fork",
-	Description: "Split execution into parallel branches. Each branch runs concurrently and must converge at the same Join node.",
+	Description: "Split execution into parallel branches. Multiple edges from the \"do\" handle each become a concurrent sub-pipeline. All branches must converge at the same Join node.",
 	Type:        "executable",
 	Handles: func(cfg *ForkConfig) []nodekit.HandleSpec {
-		specs := []nodekit.HandleSpec{{Type: nodekit.HandleTarget, ID: "", Label: "in"}}
-		branches := cfg.Branches
-		if len(branches) == 0 {
-			branches = []string{"a", "b"}
+		return []nodekit.HandleSpec{
+			{Type: nodekit.HandleTarget, ID: "", Label: "in"},
+			{Type: nodekit.HandleSource, ID: "do", Label: "do"},
 		}
-		for _, b := range branches {
-			specs = append(specs, nodekit.HandleSpec{Type: nodekit.HandleSource, ID: b, Label: b})
-		}
-		return specs
 	},
-	HandlesJS: `(config) => {
-  const specs = [{ type: "target", id: "", label: "in", kind: "executable" }];
-  const branches = config.branches || ["a", "b"];
-  for (const b of branches) {
-    specs.push({ type: "source", id: String(b), label: String(b), kind: "executable" });
-  }
-  return specs;
-}`,
+	HandlesJS: `() => [
+		{ type: "target", id: "", label: "in", kind: "executable" },
+		{ type: "source", id: "do", label: "do", kind: "executable" },
+	]`,
 	Run: run,
 })
 

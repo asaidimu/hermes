@@ -303,6 +303,61 @@ func bfsBodyNodes(boundedNodeID, bodyEntryID string, byID map[string]Node, allEd
 	return reached, orderByID, bodyEdges
 }
 
+// bfsForkBranchNodes traverses nodes within a fork branch stopping before the join node.
+func bfsForkBranchNodes(forkID, branchEntryID, joinID string, byID map[string]Node, allEdges []Edge) (reached []string, orderByID map[string]int, bodyEdges []Edge) {
+	flow := flowEdges(allEdges)
+	orderByID = map[string]int{}
+	reached = []string{}
+	reachedSet := map[string]bool{}
+	queue := []string{branchEntryID}
+	seen := map[string]bool{forkID: true}
+	ord := 0
+
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if id == joinID || id == forkID || seen[id] {
+			continue
+		}
+		node, ok := byID[id]
+		if !ok || node.ParentID != "" || node.Type == NodeResource {
+			continue
+		}
+		seen[id] = true
+		ord += 10
+		orderByID[id] = ord
+		reached = append(reached, id)
+		reachedSet[id] = true
+
+		if node.Type == NodeExecutable {
+			def, hasDef := nodekit.Get(node.Kind)
+			if hasDef && (def.BodyHandle != "" || def.Router != nil) {
+				for _, e := range flow {
+					if e.Source == id && e.Target != "" && e.Target != forkID && e.Target != joinID {
+						queue = append(queue, e.Target)
+					}
+				}
+			} else {
+				if t := nextDefaultTarget(id, flow); t != "" && t != forkID && t != joinID {
+					queue = append(queue, t)
+				}
+			}
+		} else {
+			if t := nextDefaultTarget(id, flow); t != "" && t != forkID && t != joinID {
+				queue = append(queue, t)
+			}
+		}
+	}
+
+	for _, e := range allEdges {
+		if reachedSet[e.Source] && reachedSet[e.Target] {
+			bodyEdges = append(bodyEdges, e)
+		}
+	}
+
+	return reached, orderByID, bodyEdges
+}
+
 // ---------------------------------------------------------------------------
 // Stage container compilation
 // ---------------------------------------------------------------------------
@@ -503,18 +558,18 @@ func compileStages(
 			joinID := joinTargets[id]
 			branchStages := map[string][]pipeline.Stage{}
 			for _, e := range flow {
-				if e.Source == id && e.SourceHandle != "" {
-					branchReached, branchOrderByID, branchEdges := bfsBodyNodes(id, e.Target, byID, allEdges)
+				if e.Source == id && e.SourceHandle == "do" {
+					branchReached, branchOrderByID, branchEdges := bfsForkBranchNodes(id, e.Target, joinID, byID, allEdges)
 					if len(branchReached) == 0 {
 						return nil, fmt.Errorf(
-							"Fork node %q branch %q is empty. Connect at least one node after the branch handle.",
-							id, e.SourceHandle)
+							"Fork node %q branch to %q is empty. Connect at least one node after the edge.",
+							id, e.Target)
 					}
-					bs, err := compileStages(branchReached, branchOrderByID, byID, childrenOf, branchEdges, registry, requirements, forkBranches, joinTargets)
+					bs, err := compileStages(branchReached, branchOrderByID, byID, childrenOf, branchEdges, registry, requirements, nil, joinTargets)
 					if err != nil {
 						return nil, err
 					}
-					branchStages[e.SourceHandle] = bs
+					branchStages[e.Target] = bs
 				}
 			}
 			stages = append(stages, nodekit.BuildForkStage(id, def, order, branchStages, joinID))
@@ -674,7 +729,8 @@ func appendRequirement(reqs []pipeline.Requirement, req pipeline.Requirement) []
 
 // detectForks scans the reached node set for fork nodes, traces each branch to
 // its terminal node, and validates that all branches converge at the same join
-// node (a node with kind "join"). Returns:
+// node (a node with kind "join"). Fork has a single source handle "do"; all
+// edges from that handle each become a concurrent sub-pipeline. Returns:
 //   - forkBranches: maps branchNodeID → forkNodeID (used by compileStages to skip)
 //   - joinTargets:  maps forkNodeID → joinNodeID   (used by BuildForkStage)
 func detectForks(reached []string, byID map[string]Node, allEdges []Edge) (forkBranches map[string]string, joinTargets map[string]string, err error) {
@@ -688,21 +744,21 @@ func detectForks(reached []string, byID map[string]Node, allEdges []Edge) (forkB
 			continue
 		}
 
-		// Collect branch edge targets.
+		// Collect all edges from the fork's single "do" handle.
 		type branchEnd struct {
-			handle     string
+			targetID   string
 			terminalID string
 		}
 		var branches []branchEnd
 		for _, e := range flow {
-			if e.Source == id && e.SourceHandle != "" {
+			if e.Source == id && e.SourceHandle == "do" {
 				terminal := traceToTerminal(e.Target, byID, flow)
-				branches = append(branches, branchEnd{handle: e.SourceHandle, terminalID: terminal})
+				branches = append(branches, branchEnd{targetID: e.Target, terminalID: terminal})
 			}
 		}
 
 		if len(branches) == 0 {
-			err = fmt.Errorf("Fork node %q has no outgoing branch edges. Connect branch handles to downstream nodes.", id)
+			err = fmt.Errorf("Fork node %q has no outgoing branch edges. Draw edges from the \"do\" handle to downstream nodes.", id)
 			return
 		}
 
@@ -711,19 +767,19 @@ func detectForks(reached []string, byID map[string]Node, allEdges []Edge) (forkB
 		for _, b := range branches {
 			terminalNode, ok := byID[b.terminalID]
 			if !ok {
-				err = fmt.Errorf("Fork node %q branch %q leads to unknown node %q.", id, b.handle, b.terminalID)
+				err = fmt.Errorf("Fork node %q branch to %q leads to unknown node %q.", id, b.targetID, b.terminalID)
 				return
 			}
 			if terminalNode.Kind != "join" {
-				err = fmt.Errorf("Fork node %q branch %q must terminate at a Join node, but terminates at %q (kind: %q).",
-					id, b.handle, b.terminalID, terminalNode.Kind)
+				err = fmt.Errorf("Fork node %q branch to %q must terminate at a Join node, but terminates at %q (kind: %q).",
+					id, b.targetID, b.terminalID, terminalNode.Kind)
 				return
 			}
 			if joinID == "" {
 				joinID = b.terminalID
 			} else if joinID != b.terminalID {
-				err = fmt.Errorf("Fork node %q branches do not converge: branch %q ends at %q, but another branch ends at %q. All branches must terminate at the same Join node.",
-					id, b.handle, b.terminalID, joinID)
+				err = fmt.Errorf("Fork node %q branches do not converge: branch to %q ends at %q, but another branch ends at %q. All branches must terminate at the same Join node.",
+					id, b.targetID, b.terminalID, joinID)
 				return
 			}
 		}
@@ -732,7 +788,7 @@ func detectForks(reached []string, byID map[string]Node, allEdges []Edge) (forkB
 
 		// Mark all non-terminal branch nodes as fork branches (to skip from flat list).
 		for _, e := range flow {
-			if e.Source == id && e.SourceHandle != "" {
+			if e.Source == id && e.SourceHandle == "do" {
 				markBranchNodes(e.Target, id, byID, flow, forkBranches, joinID)
 			}
 		}

@@ -587,11 +587,11 @@ func findStage(stages []pipeline.Stage, id string) *pipeline.Stage {
 // ---------------------------------------------------------------------------
 
 func TestForkJoinCompiles(t *testing.T) {
-	// trigger → fork --(a)--> delay1 --(a)--> join → output
-	//                   \--(b)--> delay2 --(b)--> ↗
+	// trigger → fork --(do)--> delay-a --→ join → output
+	//             \--(do)--> delay-b --→ ↗
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
-		execNode("fork-1", "fork", map[string]any{"branches": []any{"a", "b"}}),
+		execNode("fork-1", "fork", map[string]any{}),
 		execNode("delay-a", "delay", map[string]any{"ms": 10}),
 		execNode("delay-b", "delay", map[string]any{"ms": 20}),
 		execNode("join-1", "join", map[string]any{}),
@@ -599,8 +599,8 @@ func TestForkJoinCompiles(t *testing.T) {
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "fork-1", ""),
-		flowEdge("e2", "fork-1", "delay-a", "a"),
-		flowEdge("e3", "fork-1", "delay-b", "b"),
+		flowEdge("e2", "fork-1", "delay-a", "do"),
+		flowEdge("e3", "fork-1", "delay-b", "do"),
 		flowEdge("e4", "delay-a", "join-1", ""),
 		flowEdge("e5", "delay-b", "join-1", ""),
 		flowEdge("e6", "join-1", "out-1", ""),
@@ -651,11 +651,11 @@ func TestForkJoinCompiles(t *testing.T) {
 }
 
 func TestForkBranchesMustConverge(t *testing.T) {
-	// trigger → fork --(a)--> delay1 → out1  (branch a ends at out1, not join)
-	//                   \--(b)--> delay2 → join → out2
+	// trigger → fork --(do)--> delay-a → out-a  (branch ends at out-a, not join)
+	//             \--(do)--> delay-b → join → out-2
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
-		execNode("fork-1", "fork", map[string]any{"branches": []any{"a", "b"}}),
+		execNode("fork-1", "fork", map[string]any{}),
 		execNode("delay-a", "delay", map[string]any{}),
 		execNode("delay-b", "delay", map[string]any{}),
 		execNode("out-a", "output", map[string]any{}),
@@ -664,8 +664,8 @@ func TestForkBranchesMustConverge(t *testing.T) {
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "fork-1", ""),
-		flowEdge("e2", "fork-1", "delay-a", "a"),
-		flowEdge("e3", "fork-1", "delay-b", "b"),
+		flowEdge("e2", "fork-1", "delay-a", "do"),
+		flowEdge("e3", "fork-1", "delay-b", "do"),
 		flowEdge("e4", "delay-a", "out-a", ""),
 		flowEdge("e5", "delay-b", "join-1", ""),
 		flowEdge("e6", "join-1", "out-2", ""),
@@ -681,11 +681,11 @@ func TestForkBranchesMustConverge(t *testing.T) {
 }
 
 func TestForkBranchesMustConvergeAtSameJoin(t *testing.T) {
-	// trigger → fork --(a)--> delay1 → join1 → out1
-	//                   \--(b)--> delay2 → join2 → out2
+	// trigger → fork --(do)--> delay-a → join-a → out-a
+	//             \--(do)--> delay-b → join-b → out-b
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{}),
-		execNode("fork-1", "fork", map[string]any{"branches": []any{"a", "b"}}),
+		execNode("fork-1", "fork", map[string]any{}),
 		execNode("delay-a", "delay", map[string]any{}),
 		execNode("delay-b", "delay", map[string]any{}),
 		execNode("join-a", "join", map[string]any{}),
@@ -695,8 +695,8 @@ func TestForkBranchesMustConvergeAtSameJoin(t *testing.T) {
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "fork-1", ""),
-		flowEdge("e2", "fork-1", "delay-a", "a"),
-		flowEdge("e3", "fork-1", "delay-b", "b"),
+		flowEdge("e2", "fork-1", "delay-a", "do"),
+		flowEdge("e3", "fork-1", "delay-b", "do"),
 		flowEdge("e4", "delay-a", "join-a", ""),
 		flowEdge("e5", "delay-b", "join-b", ""),
 		flowEdge("e6", "join-a", "out-a", ""),
@@ -713,8 +713,111 @@ func TestForkBranchesMustConvergeAtSameJoin(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Distribute (parallel for-each) tests
+// While + Fork/Join integration test
 // ---------------------------------------------------------------------------
+
+func TestWhileForkJoinWorkflow(t *testing.T) {
+	// Workflow: trigger → transformer(total=11) → while(total≥10)
+	//   do: arithmetic(total-1→total) → back to while
+	//   done: delay → fork --(do)--> arithmetic(total*3→thrice) --→ join
+	//                  \--(do)--> arithmetic(total*2→twice)  --→ ↗
+	//
+	// Expected final state: total=10, twice=20, thrice=30
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{"initialState": map[string]any{}}),
+		execNode("transform-1", "transformer", map[string]any{
+			"rules": []any{
+				map[string]any{"targetKey": "total", "sourceKey": "", "action": "SET_VALUE", "actionParam": "11"},
+			},
+		}),
+		execNode("while-1", "while", map[string]any{
+			"mode":      "simple",
+			"condition": map[string]any{"key": "total", "predicate": "greater_equals", "value": "10"},
+		}),
+		execNode("arith-1", "arithmetic", map[string]any{"left": "total", "right": "1", "operation": "subtract", "key": "total"}),
+		execNode("delay-1", "delay", map[string]any{}),
+		execNode("fork-1", "fork", map[string]any{}),
+		execNode("arith-thrice", "arithmetic", map[string]any{"operation": "multiply", "left": "total", "right": "3", "key": "thrice"}),
+		execNode("arith-twice", "arithmetic", map[string]any{"left": "total", "operation": "multiply", "right": "2", "key": "twice"}),
+		execNode("join-1", "join", map[string]any{}),
+	}
+	edges := []compiler.Edge{
+		// trigger → transformer
+		flowEdge("e1", "trigger-1", "transform-1", ""),
+		// transformer → while
+		flowEdge("e2", "transform-1", "while-1", ""),
+		// while do → arithmetic (body)
+		flowEdge("e3", "while-1", "arith-1", "do"),
+		// arithmetic → while (loop back)
+		flowEdge("e4", "arith-1", "while-1", ""),
+		// while done → delay
+		flowEdge("e5", "while-1", "delay-1", "done"),
+		// delay → fork
+		flowEdge("e6", "delay-1", "fork-1", ""),
+		// fork → arith-thrice (branch 1)
+		flowEdge("e7", "fork-1", "arith-thrice", "do"),
+		// fork → arith-twice (branch 2)
+		flowEdge("e8", "fork-1", "arith-twice", "do"),
+		// arith-thrice → join
+		flowEdge("e9", "arith-thrice", "join-1", ""),
+		// arith-twice → join
+		flowEdge("e10", "arith-twice", "join-1", ""),
+	}
+
+	wf, err := compiler.Compile(nodes, edges, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	if wf == nil {
+		t.Fatal("expected non-nil workflow")
+	}
+
+	// Should have exactly one pipeline.
+	if len(wf.Pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(wf.Pipelines))
+	}
+
+	p, ok := wf.Pipelines["trigger-1"]
+	if !ok {
+		t.Fatal("pipeline for trigger-1 not found")
+	}
+
+	// Should have stages for: trigger, transformer, while, fork, join.
+	// (arith-1 is inside while body, delay-1 is a standard stage,
+	//  arith-thrice and arith-twice are inside fork branches)
+	stageIDs := map[string]bool{}
+	for _, s := range p.Stages {
+		stageIDs[s.ID] = true
+	}
+
+	for _, expected := range []string{"trigger-1", "transform-1", "while-1", "fork-1", "join-1"} {
+		if !stageIDs[expected] {
+			t.Errorf("expected stage %q not found in pipeline stages", expected)
+		}
+	}
+
+	// Fork should have 2 sub-pipelines.
+	var forkStage *pipeline.Stage
+	for i := range p.Stages {
+		if p.Stages[i].ID == "fork-1" {
+			forkStage = &p.Stages[i]
+			break
+		}
+	}
+	if forkStage == nil {
+		t.Fatal("fork-1 stage not found")
+	}
+	if len(forkStage.Pipelines) != 2 {
+		t.Errorf("fork stage should have 2 sub-pipelines, got %d", len(forkStage.Pipelines))
+	}
+
+	// Branch nodes should NOT be in flat stages.
+	for _, s := range p.Stages {
+		if s.ID == "arith-thrice" || s.ID == "arith-twice" {
+			t.Errorf("branch node %q should not be in flat stages", s.ID)
+		}
+	}
+}
 
 func TestDistributeCompiles(t *testing.T) {
 	nodes := []compiler.Node{

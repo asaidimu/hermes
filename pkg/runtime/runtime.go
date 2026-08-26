@@ -539,15 +539,15 @@ func (rt *WorkflowRuntime) releaseBusSubscriptionLocked(eventType string) {
 // the background (mirrors WorkflowRuntime.dispatch + spawnRun). It also resumes
 // any paused runs that are waiting for this event type.
 func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) {
-	// @note #review-20260822-039 issue status=open priority=P1 tags=#review,#concurrency : TOCTOU race in dispatch between lock acquisitions
+	// @note #review-20260822-039 issue status=resolved priority=P1 tags=#review,#concurrency : TOCTOU race in dispatch between lock acquisitions
 	//
-	// dispatch calls rt.mu.Unlock() at line 531 then rt.mu.Lock() again at line 540.
-	// Between these two critical sections, rt.paused and rt.index could be mutated by
-	// other goroutines (e.g., Deregister). The snapshot of toResume and entries is taken
-	// under separate locks, creating a TOCTOU window.
-	//
-	// Fix by taking both snapshots under a single lock acquisition, or by using a
-	// snapshot that is immutable after release.
+	// Resolved: Snapshot toResume candidates, route entries, and workflow records under a single lock acquisition.
+	type matchedRoute struct {
+		trigger   pipeline.WorkflowTrigger
+		triggerID string
+		record    *workflowRecord
+	}
+
 	rt.mu.Lock()
 	var toResume []*pausedRun
 	for _, pr := range rt.paused {
@@ -584,6 +584,18 @@ func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) 
 			}
 		}
 	}
+
+	bucket := rt.index[eventType]
+	routes := make([]matchedRoute, 0, len(bucket))
+	for _, entry := range bucket {
+		if rec, ok := rt.workflows[entry.workflowID]; ok && rec != nil {
+			routes = append(routes, matchedRoute{
+				trigger:   entry.trigger,
+				triggerID: entry.triggerID,
+				record:    rec,
+			})
+		}
+	}
 	rt.mu.Unlock()
 
 	for _, pr := range toResume {
@@ -592,14 +604,7 @@ func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) 
 		}(pr)
 	}
 
-	// Also dispatch to matching triggers (start new runs).
-	rt.mu.Lock()
-	bucket := rt.index[eventType]
-	entries := make([]*routeEntry, 0, len(bucket))
-	entries = append(entries, bucket...)
-	rt.mu.Unlock()
-
-	if len(entries) == 0 && len(toResume) == 0 {
+	if len(routes) == 0 && len(toResume) == 0 {
 		return
 	}
 	evt.Type = eventType
@@ -607,31 +612,24 @@ func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) 
 		evt.Timestamp = time.Now().UnixMilli()
 	}
 
-	for _, entry := range entries {
+	for _, r := range routes {
 		matched := true
-		if entry.trigger.Predicate != nil {
-			matched = entry.trigger.Predicate(evt)
+		if r.trigger.Predicate != nil {
+			matched = r.trigger.Predicate(evt)
 		}
 		if !matched {
 			continue
 		}
 
-		rt.mu.Lock()
-		record := rt.workflows[entry.workflowID]
-		rt.mu.Unlock()
-		if record == nil {
-			continue
-		}
-
-		ok, release := record.gate.tryAcquire()
+		ok, release := r.record.gate.tryAcquire()
 		if !ok {
-			rt.logger.Warn(`[WorkflowRuntime] run rejected by execution gate for workflow "` + entry.workflowID + `"`)
+			rt.logger.Warn(`[WorkflowRuntime] run rejected by execution gate for workflow "` + r.record.workflow.ID + `"`)
 			continue
 		}
 		go func(rec *workflowRecord, tid string, ev events.PipelineEvent) {
 			defer release()
 			rt.spawnRun(rec, tid, ev)
-		}(record, entry.triggerID, evt)
+		}(r.record, r.triggerID, evt)
 	}
 }
 
@@ -1056,11 +1054,9 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	// @note #review-20260822-038 issue status=open priority=P1 tags=#review,#bug : Timer leak in select
+	// @note #review-20260822-038 issue status=resolved priority=P1 tags=#review,#bug : Timer leak in select
 	//
-	// time.After(timeout) creates a timer that is not stopped if the select completes via
-	// done or ctx.Done(). This leaks a timer until it fires. Use time.NewTimer with
-	// explicit Stop().
+	// Resolved: Use time.NewTimer with explicit defer timer.Stop().
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {

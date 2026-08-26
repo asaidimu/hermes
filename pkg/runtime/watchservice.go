@@ -224,12 +224,9 @@ func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, pay
 		// Only == and != operators are implemented. Other operators (>, >=, <, <=)
 		// silently return false. This may be intentional for simplicity, but should
 		// be documented or extended if needed.
-		// @note #review-20260822-044 issue status=open priority=P1 tags=#review,#bug : Unknown operator returns true
+		// @note #review-20260822-044 issue status=resolved priority=P1 tags=#review,#bug : Unknown operator returns true
 		//
-		// The switch statement has no default case. Unknown operators (e.g., ">", "<=")
-		// silently fall through and return true (the loop continues). This means invalid
-		// conditions are treated as satisfied, which could cause incorrect event matching.
-		// Add a default case that returns false for unrecognized operators.
+		// Resolved: Added default: return false to reject unknown comparison operators.
 		switch cond.Op {
 		case "==":
 			if value != cond.Value {
@@ -239,6 +236,8 @@ func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, pay
 			if value == cond.Value {
 				return false
 			}
+		default:
+			return false
 		}
 	}
 	return true

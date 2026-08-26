@@ -159,3 +159,36 @@ func TestCustomKeyAndThrowOnError(t *testing.T) {
 		t.Errorf("custom key resp missing: %v", state)
 	}
 }
+
+func TestConnectionPoolingAndReuse(t *testing.T) {
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"count": requestCount})
+	}))
+	defer srv.Close()
+
+	localURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+
+	for i := 1; i <= 5; i++ {
+		state := map[string]any{}
+		mut, err := httpRun(context.Background(), "http1", map[string]any{
+			"url": localURL,
+			"key": "resp",
+		})
+		if err != nil {
+			t.Fatalf("request %d failed: %v", i, err)
+		}
+		if err := mut(state); err != nil {
+			t.Fatalf("mutator %d failed: %v", i, err)
+		}
+		resp, ok := state["resp"].(map[string]any)
+		if !ok || resp["status"] != float64(200) {
+			t.Fatalf("unexpected response: %v", resp)
+		}
+	}
+	if requestCount != 5 {
+		t.Fatalf("expected 5 requests, got %d", requestCount)
+	}
+}

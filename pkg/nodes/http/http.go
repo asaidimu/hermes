@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -14,6 +15,28 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodekit"
 	"github.com/asaidimu/hermes/pkg/store"
 )
+
+// maxResponseBodyBytes limits the amount of data read from an HTTP response to prevent OOM.
+const maxResponseBodyBytes = 32 * 1024 * 1024 // 32 MB
+
+// defaultPooledTransport provides connection pooling and timeout configurations.
+var defaultPooledTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          100,
+	MaxIdleConnsPerHost:   10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
+
+var defaultHTTPClient = &http.Client{
+	Transport: defaultPooledTransport,
+}
 
 type HTTPParam struct {
 	Key   string `config:"key"`
@@ -145,31 +168,30 @@ func run(ctx context.Context, nCtx *nodekit.TypedRunContext[HTTPConfig]) (store.
 		req.Body = nil
 	}
 
-	// @note #review-20260822-036 issue status=open priority=P1 tags=#review,#bug : New HTTP client per request
+	// @note #review-20260822-036 issue status=resolved priority=P1 tags=#review,#bug : New HTTP client per request
 	//
-	// client := &http.Client{} creates a new HTTP client per request with no connection
-	// pooling and a nil Transport (no TLS tuning, no timeouts on dial/TLS/etc.). Should
-	// use a package-level or injected client.
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// Resolved: Use package-level pooled defaultHTTPClient with configured connection pooling and timeouts.
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		if reqCtx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("HTTP node: request timed out after %vms", int(timeoutMs))
 		}
 		return nil, fmt.Errorf("HTTP node: request failed - %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Drain up to 512 bytes and close to ensure keep-alive connection reuse
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+		_ = resp.Body.Close()
+	}()
 
 	if throwOnError && resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
-	// @note #review-20260822-037 issue status=open priority=P1 tags=#review,#bug : Unbounded response body read
+	// @note #review-20260822-037 issue status=resolved priority=P1 tags=#review,#bug : Unbounded response body read
 	//
-	// io.ReadAll(resp.Body) reads unbounded response into memory. A malicious endpoint
-	// returning a multi-GB body will OOM the process. Use io.LimitReader(resp.Body,
-	// maxBytes).
-	respBody, err := io.ReadAll(resp.Body)
+	// Resolved: Limit response body reading to maxResponseBodyBytes (32MB) using io.LimitReader.
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("HTTP node: request failed - %v", err)
 	}

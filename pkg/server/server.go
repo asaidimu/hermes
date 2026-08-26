@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -190,11 +191,22 @@ func (s *PipelineServer) handlePostRun(w http.ResponseWriter, r *http.Request) {
 	}
 	prep := make(chan prepResult, 1)
 
-	ctx := r.Context()
+	runCtx, cancel := context.WithCancel(context.Background())
+	var prepared bool
+	defer func() {
+		if !prepared {
+			cancel()
+		}
+	}()
+
 	go func() {
-		_, err := s.rt.Run(ctx, nodes, edges, runtime.RunOptions{
+		_, err := s.rt.Run(runCtx, nodes, edges, runtime.RunOptions{
 			OnPrepare: func(h *runtime.RunHandle) error {
-				prep <- prepResult{runID: h.RunID}
+				select {
+				case prep <- prepResult{runID: h.RunID}:
+				case <-runCtx.Done():
+					return runCtx.Err()
+				}
 				return nil
 			},
 		})
@@ -206,27 +218,26 @@ func (s *PipelineServer) handlePostRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// @note #review-20260822-041 issue status=open priority=P1 tags=#review,#concurrency,#bug : Goroutine leak when HTTP client disconnects
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+
+	// @note #review-20260822-041 issue status=resolved priority=P1 tags=#review,#concurrency,#bug : Goroutine leak when HTTP client disconnects
 	//
-	// handlePostRun spawns a goroutine that calls s.rt.Run(). If the HTTP client
-	// disconnects (line 212 time.After), the goroutine continues running the workflow.
-	// There is no cancellation of the ctx passed to rt.Run. The select on prep channel
-	// has no default, and the goroutine may block sending to prep if the handler returns
-	// early. The goroutine does check select with default on the error path, but the
-	// success path (prep <- prepResult{runID: h.RunID}) blocks until consumed — if the
-	// handler timed out, the goroutine blocks forever.
+	// Resolved: Use buffered prep channel, cancel background context on prepare timeout/disconnect, and guard channel sends.
+	// @note #review-20260822-042 issue status=resolved priority=P1 tags=#review,#bug : Timer leak in handlePostRun
+	//
+	// Resolved: Use time.NewTimer with defer timer.Stop().
 	select {
 	case p := <-prep:
 		if p.err != nil {
 			s.writeError(w, http.StatusBadRequest, core.ErrCodeValidation, p.err.Error())
 			return
 		}
+		prepared = true
 		s.writeJSON(w, http.StatusOK, map[string]string{"runId": p.runID})
-	// @note #review-20260822-042 issue status=open priority=P1 tags=#review,#bug : Timer leak in handlePostRun
-	//
-	// time.After(10 * time.Second) leaks a timer if the prep channel receives first. Use
-	// time.NewTimer with defer timer.Stop().
-	case <-time.After(10 * time.Second):
+	case <-r.Context().Done():
+		s.writeError(w, 499, core.ErrCodeTimeout, "client disconnected while preparing workflow run")
+	case <-timer.C:
 		s.writeError(w, http.StatusGatewayTimeout, core.ErrCodeTimeout, "timed out preparing workflow run")
 	}
 }

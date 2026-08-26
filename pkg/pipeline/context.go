@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -297,8 +298,9 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				return r.failStage(ctx, pipePath, stage, stageStart, startTime, subErr)
 			}
 
-			// Merge child results into parent under resultKey if configured.
-			if stage.Config != nil {
+			// Merge child results into parent under resultKey if configured,
+			// otherwise merge mutated application state fields into the parent store (e.g. fork branches).
+			if stage.Config != nil && stage.Config["resultKey"] != nil {
 				if resultKey, ok := stage.Config["resultKey"].(string); ok && resultKey != "" {
 					for i, sRes := range subResults {
 						if i >= len(resolvedPipelines) {
@@ -331,6 +333,20 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 							// log the error; ideally, return it or fail the stage.
 							_ = r.store.Update(ctx, store.SetValue(key, mergeVal))
 						}
+					}
+				}
+			} else {
+				// Default merge: merge application keys from successful sub-pipelines (e.g. fork branches)
+				for _, sRes := range subResults {
+					if sRes.Status == "succeeded" && sRes.FinalState != nil {
+						_ = r.store.Update(ctx, func(state map[string]any) error {
+							for k, v := range sRes.FinalState {
+								if !strings.HasPrefix(k, "__") {
+									state[k] = v
+								}
+							}
+							return nil
+						})
 					}
 				}
 			}

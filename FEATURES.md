@@ -57,7 +57,7 @@ graph (nodes+edges) → compiler → pipeline.PipelineDefinition
 | `http` | GET/POST/etc.; headers/params arrays; body; responseType json/text; throwOnError (default true); timeoutMs (default 30s); output under `http_<nodeId>` or custom key; SSRF guard blocks private/loopback IP literals |
 | `query` | STUB — requires database resource; returns "not yet implemented" (Phase 5 WIP) |
 | `pipeline-ref` | Invoke registered sub-workflow; own fresh state; `initialState` interpolation from parent; result merged under `resultKey`; compile-time config validation against target trigger |
-| `fork` | Split execution into parallel branches (N source handles); each branch runs as a sub-pipeline; converges at a single Join node |
+| `fork` | Split execution into parallel branches; single source handle `"do"` — multiple edges from it each become a concurrent sub-pipeline; all branches must converge at the same Join node |
 | `join` | Synchronization point after Fork; 1 target, 1 source; waits for all fork branches to complete before advancing |
 | `distribute` | Parallel for-each: execute the body concurrently for each element in an array; each iteration gets its own sub-pipeline with the element injected; results merged under `resultKey` |
 
