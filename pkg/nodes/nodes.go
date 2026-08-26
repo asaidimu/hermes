@@ -7,7 +7,6 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodes/database"
 	"github.com/asaidimu/hermes/pkg/nodes/delay"
 	"github.com/asaidimu/hermes/pkg/nodes/for-each"
-	"github.com/asaidimu/hermes/pkg/nodes/gemini"
 	"github.com/asaidimu/hermes/pkg/nodes/http"
 	ifnode "github.com/asaidimu/hermes/pkg/nodes/if"
 	"github.com/asaidimu/hermes/pkg/nodes/pause"
@@ -26,7 +25,6 @@ func init() {
 	nodekit.Register(database.Node)
 	nodekit.Register(delay.Node)
 	nodekit.Register(foreach.Node)
-	nodekit.Register(gemini.Node)
 	nodekit.Register(http.Node)
 	nodekit.Register(ifnode.Node)
 	nodekit.Register(pause.Node)

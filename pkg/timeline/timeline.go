@@ -268,6 +268,17 @@ func (p *TimelinePlayer) Seek(ctx context.Context, targetSeq int64) (map[string]
 
 	for _, e := range events {
 		if e.Delta != nil {
+			// @note #review-20260826-006 observation status=open priority=P3 tags=#review,#timeline : Delta replay has no producer and applies keys flat
+			// @author ox-alpha
+			//
+			// Nothing in the codebase emits TimelineEvents with a Delta
+			// populated (grep confirms), so this replay path is dead inbound;
+			// Seek state comes entirely from snapshots. Also note: the old
+			// implementation used doc.Set (dotted-path aware); this version
+			// assigns top-level keys only. Harmless today, but if delta
+			// emission lands later with dotted keys it will silently nest
+			// incorrectly. Either implement delta emission with flat keys or
+			// restore path-aware assignment here.
 			for k, v := range e.Delta {
 				state[k] = v
 			}

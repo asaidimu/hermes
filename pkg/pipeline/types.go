@@ -22,6 +22,14 @@ type PipelineContext interface {
 	// "resource:db-1") into the initialized handle. Implementations without a
 	// resource manager return (nil, false).
 	ResolveResource(key string) (any, bool)
+	// Env returns the run's environment layers (non-secret configuration from
+	// the host). May be nil/empty when the host provides none.
+	Env() map[string]any
+	// ResolveSecret resolves a credential by key through the host-supplied
+	// secret provider. Values are for immediate use only — implementations
+	// must never persist them into state. Returns (nil, false) when the key
+	// is unknown or no provider is configured.
+	ResolveSecret(key string) (any, bool)
 }
 
 type pipelineContextImpl struct {
@@ -32,6 +40,8 @@ type pipelineContextImpl struct {
 	path             events.EventPath
 	logger           core.Logger
 	resourceResolver func(key string) (any, bool)
+	runEnv           map[string]any
+	secretLookup     func(key string) (any, bool)
 }
 
 func (c *pipelineContextImpl) RunID() string          { return c.runID }
@@ -46,6 +56,27 @@ func (c *pipelineContextImpl) ResolveResource(key string) (any, bool) {
 		return c.resourceResolver(key)
 	}
 	return nil, false
+}
+
+func (c *pipelineContextImpl) Env() map[string]any { return c.runEnv }
+
+func (c *pipelineContextImpl) ResolveSecret(key string) (any, bool) {
+	if c.secretLookup == nil {
+		return nil, false
+	}
+	return c.secretLookup(key)
+}
+
+// WithRunEnv attaches the run's environment layers to a context built by
+// NewPipelineContext.
+func WithRunEnv(env map[string]any) func(*pipelineContextImpl) {
+	return func(c *pipelineContextImpl) { c.runEnv = env }
+}
+
+// WithSecretLookup attaches the run's credential lookup to a context built by
+// NewPipelineContext.
+func WithSecretLookup(lookup func(key string) (any, bool)) func(*pipelineContextImpl) {
+	return func(c *pipelineContextImpl) { c.secretLookup = lookup }
 }
 
 // WithResourceResolver attaches a run-scoped resource resolver to a context

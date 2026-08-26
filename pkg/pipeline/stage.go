@@ -25,6 +25,8 @@ func ExecuteStageSteps(
 	logger core.Logger,
 	skipStepID string,
 	resolver func(key string) (any, bool),
+	runEnv map[string]any,
+	secretLookup func(key string) (any, bool),
 ) error {
 	if len(stage.Steps) == 0 {
 		return nil
@@ -85,7 +87,8 @@ func ExecuteStageSteps(
 					stepAttemptCtx, stepCancel = context.WithTimeout(stageCtx, step.Timeout)
 				}
 
-				pCtx := NewPipelineContext(runID, pipelineID, stage.ID, sID, stepPath, logger, WithResourceResolver(resolver))
+				pCtx := NewPipelineContext(runID, pipelineID, stage.ID, sID, stepPath, logger,
+					WithResourceResolver(resolver), WithRunEnv(runEnv), WithSecretLookup(secretLookup))
 				snapshotErr := st.Read(func(state map[string]any) error {
 					mutator, stepErr = executeStepAttempt(stepAttemptCtx, pCtx, step, state)
 					return nil

@@ -1,3 +1,11 @@
+// @note #review-20260826-005 todo status=open priority=P2 tags=#review,#testing : No runtime test covers pipeline-ref execution semantics
+// @author ox-alpha
+//
+// Compile-time behavior is covered (compiler_test.go: TestPipelineRef*), but
+// no integration test exercises the runtime contract: fresh-state isolation
+// from the parent, initialState interpolation, and resultKey merging back
+// into parent state. The calc sample does not use pipeline-ref. Add a
+// tests/-level scenario asserting all three behaviors.
 package pipeleref
 
 import (

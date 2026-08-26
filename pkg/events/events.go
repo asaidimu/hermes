@@ -202,8 +202,8 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 //   - Durable event log via Pebble (the underlying field is currently never wired)
 //
 // Migration path:
-//   1. Replace NewMemoryScopedBus() with NewEventBus() + ScopedBus usage
-//   2. Replace Emit() calls with scoped.Publish() (error-returning)
-//   3. Remove manual parent-bubbling logic (ScopedBus handles it internally)
-//   4. Wire the durable backend that was designed but never connected
+//  1. Replace NewMemoryScopedBus() with NewEventBus() + ScopedBus usage
+//  2. Replace Emit() calls with scoped.Publish() (error-returning)
+//  3. Remove manual parent-bubbling logic (ScopedBus handles it internally)
+//  4. Wire the durable backend that was designed but never connected
 var _ ScopedEventBus = (*MemoryScopedBus)(nil)

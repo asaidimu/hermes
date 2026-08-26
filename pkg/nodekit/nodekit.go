@@ -13,6 +13,19 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
+// Requirement kinds and the Requirement type are defined in pkg/pipeline and
+// aliased here so node authors declare dependencies without importing two
+// packages.
+type (
+	Requirement     = pipeline.Requirement
+	RequirementKind = pipeline.RequirementKind
+)
+
+const (
+	ReqEnv    = pipeline.ReqEnv
+	ReqSecret = pipeline.ReqSecret
+)
+
 type HandleType string
 
 const (
@@ -45,6 +58,14 @@ type NodeRunContext struct {
 	Resources map[string]any
 	Store     store.Store
 	Logger    core.Logger
+	// Env holds the run's environment layers (non-secret configuration from
+	// the host, via Options.Env). Nodes declared via Requirements(ReqEnv) read
+	// their keys here.
+	Env map[string]any
+	// Secret resolves credentials by key at execution time. Values are for
+	// immediate use only: never write them into state, checkpoints, or event
+	// payloads. Returns (nil, false) when unknown or no provider configured.
+	Secret func(key string) (any, bool)
 }
 
 // NodeRunner executes step logic for an executable node.
@@ -66,11 +87,27 @@ type NodeResourceCleanup func(ctx context.Context, nCtx NodeRunContext, handle a
 
 // NodeDefinition declares the visual and execution metadata for a node.
 type NodeDefinition struct {
-	Kind         string                                   `json:"kind"`
-	Label        string                                   `json:"label"`
-	Description  string                                   `json:"description,omitempty"`
-	Icon         string                                   `json:"icon,omitempty"`
-	ConfigSchema json.RawMessage                          `json:"configSchema,omitempty"`
+	Kind         string          `json:"kind"`
+	Label        string          `json:"label"`
+	Description  string          `json:"description,omitempty"`
+	Icon         string          `json:"icon,omitempty"`
+	ConfigSchema json.RawMessage `json:"configSchema,omitempty"`
+	// Requirements declares the env/secret keys this node reads from run
+	// context at execution time. The compiler aggregates these onto
+	// Workflow.Requirements; the runtime validates them against what the host
+	// provides before a workflow may register or run. Never place secret
+	// VALUES in configs — configs persist verbatim in workflow definitions.
+	//
+	// @note #review-20260826-003 issue status=deprecated priority=P2 tags=#review,#security : Secrets in node configs (gemini experiment)
+	// @author ox-alpha
+	//
+	// The gemini node (removed) accepted an apiKey as plain config, which
+	// persisted verbatim into workflow definitions readable by anyone with
+	// definition read access. Deprecated by this requirements mechanism:
+	// credential-consuming nodes declare ReqSecret entries and resolve values
+	// via NodeRunContext.Secret at execution time through runtime
+	// Options.Secrets. Configs carry references, context carries credentials.
+	Requirements []Requirement                            `json:"requirements,omitempty"`
 	Scope        string                                   `json:"scope,omitempty"`
 	Type         string                                   `json:"type,omitempty"`
 	BodyHandle   string                                   `json:"bodyHandle,omitempty"`
@@ -194,6 +231,8 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 				State:     state,
 				Results:   results,
 				Resources: res,
+				Env:       pcxt.Env(),
+				Secret:    pcxt.ResolveSecret,
 				Logger:    pcxt.Logger(),
 			})
 		},

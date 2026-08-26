@@ -45,6 +45,14 @@ var Node = nodekit.NodeDefinition{
 	Run:       run,
 }
 
+// @note #review-20260826-004 observation status=open priority=P2 tags=#review,#security : SSRF guard is a host-literal regex — DNS rebinding and redirects bypass it
+// @author ox-alpha
+//
+// privateIPRegex inspects the URL host string only. It does not resolve the
+// hostname, so a public DNS name resolving to a private IP passes the guard,
+// and 30x redirects to internal targets are followed unchecked. IPv6 zone or
+// hex-encoded forms are also only partially covered. For production, resolve
+// then dial with an IP-checking DialContext (or use a allowlist).
 var privateIPRegex = regexp.MustCompile(
 	`^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|fe80|fc00|fd00)`,
 )

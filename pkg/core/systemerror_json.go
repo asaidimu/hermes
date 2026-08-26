@@ -129,14 +129,14 @@ func SystemErrorJSON(err error) map[string]any {
 		// creation time is far more useful. If SystemError has a Timestamp field, use it;
 		// otherwise the serialization time may differ from the actual error time by seconds
 		// or minutes, making log correlation unreliable.
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
 		// @note #review-20260822-028 issue status=open priority=P3 tags=#review,#documentation : Stack field is always empty string
 		//
 		// The serialized JSON always includes `"stack": ""` as an empty string. This is dead
 		// data that wastes wire bytes and confuses consumers who expect a stack trace. Either
 		// populate it with a real stack (using runtime.Callers) or omit the key entirely when
 		// empty.
-		"stack":      "",
+		"stack": "",
 	}
 	if issues != nil {
 		m["issues"] = issues

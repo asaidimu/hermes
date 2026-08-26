@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/asaidimu/go-anansi/v8/core/persistence/base"
-	"github.com/asaidimu/go-anansi/v8/core/persistence/persistence"
 	pevents "github.com/asaidimu/go-anansi/v8/core/persistence/events"
+	"github.com/asaidimu/go-anansi/v8/core/persistence/persistence"
 	"github.com/asaidimu/go-anansi/v8/core/query"
 	"github.com/asaidimu/go-anansi/v8/core/query/native"
 	sqliteExecutor "github.com/asaidimu/go-anansi/v8/sqlite/executor"

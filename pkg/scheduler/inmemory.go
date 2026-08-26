@@ -60,13 +60,24 @@ func (s *InMemoryScheduler) scheduleNextLocked(id string, js *jobState, cron str
 			return
 		}
 		js.callback(context.Background())
-		// Reschedule if still registered.
+		// @note #review-20260826-001 issue status=resolved priority=P1 tags=#review,#concurrency : Timer re-arm writes js.timer without holding s.mu
+		// @author ox-alpha
+		//
+		// The callback unlocked at the bottom, then called
+		// s.scheduleNextLocked WITHOUT re-acquiring s.mu, so the js.timer
+		// assignment ran unsynchronized on the recursive path. `go test
+		// -race` confirmed: concurrent Shutdown()/Cancel() reads of js.timer
+		// raced this write (TestDelayCronPauseResume). Fixed by moving the
+		// still-registered check and reschedule call back inside the
+		// critical section.
+		// Reschedule if still registered. See the review note above: this
+		// critical section must also cover the re-arm write.
 		s.mu.Lock()
 		_, still := s.jobs[id]
-		s.mu.Unlock()
 		if still {
 			s.scheduleNextLocked(id, js, cron)
 		}
+		s.mu.Unlock()
 	})
 }
 

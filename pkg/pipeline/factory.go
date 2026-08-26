@@ -18,6 +18,12 @@ type FactoryOptions struct {
 	// ResourceResolver resolves run-scoped resource artifact keys ("resource:<id>")
 	// into initialized handles. Attached to every run context this factory prepares.
 	ResourceResolver func(key string) (any, bool)
+	// RunEnv holds the host's environment layers exposed to steps via
+	// PipelineContext.Env(). Non-secret configuration only.
+	RunEnv map[string]any
+	// SecretLookup resolves credentials by key at execution time. Attached to
+	// every run context this factory prepares; values never persist to state.
+	SecretLookup func(key string) (any, bool)
 }
 
 // PipelineFactory creates and prepares pipeline run contexts.
@@ -74,6 +80,8 @@ func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...events.Sc
 	if f.options.ResourceResolver != nil {
 		rc.SetResourceResolver(f.options.ResourceResolver)
 	}
+	rc.runEnv = f.options.RunEnv
+	rc.secretLookup = f.options.SecretLookup
 	return rc
 }
 
@@ -97,6 +105,8 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus eve
 	if f.options.ResourceResolver != nil {
 		rc.SetResourceResolver(f.options.ResourceResolver)
 	}
+	rc.runEnv = f.options.RunEnv
+	rc.secretLookup = f.options.SecretLookup
 	return rc
 }
 

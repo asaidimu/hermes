@@ -49,7 +49,16 @@ var Node = nodekit.NodeDefinition{
 	Router:    router,
 }
 
-// router mirrors the TS while node: evaluates the simple predicate or the
+// @note #review-20260826-008 observation status=open priority=P3 tags=#review,#robustness : Loop safety relies solely on context cancellation — no iteration cap
+// @author ox-alpha
+//
+// A predicate that never turns false loops until the run's context is
+// cancelled (stage timeout, run abort). Each iteration still emits stage/step
+// events, so an unbounded loop grows the timeline and event log without
+// bound. Consider an optional maxIterations config that fails the stage when
+// exceeded, mirroring defensive guards in similar engines.
+//
+// Router mirrors the TS while node: evaluates the simple predicate or the
 // complex condition body, returning "do" / "done". Any evaluation error routes
 // to "done".
 func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {

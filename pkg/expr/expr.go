@@ -18,33 +18,33 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bsetTimeout\s*\(`),
 	regexp.MustCompile(`\bsetInterval\s*\(`),
 	regexp.MustCompile(`\bsetImmediate\s*\(`),
-	
+
 	// Variable declarations and assignments
 	regexp.MustCompile(`\bvar\s+\w`),
 	regexp.MustCompile(`\blet\s+\w`),
 	regexp.MustCompile(`\bconst\s+\w`),
 	regexp.MustCompile(`\bdelete\s+\w`),
 	regexp.MustCompile(`\bvoid\s+\w`),
-	
+
 	// Object and array manipulation that could be dangerous
 	regexp.MustCompile(`__proto__`),
 	regexp.MustCompile(`constructor\s*\[`),
 	regexp.MustCompile(`prototype\s*\[`),
-	
+
 	// Access to global objects
 	regexp.MustCompile(`\bglobalThis\b`),
 	regexp.MustCompile(`\bwindow\b`),
 	regexp.MustCompile(`\bglobal\b`),
 	regexp.MustCompile(`\bself\b`),
-	
+
 	// Import/export statements
 	regexp.MustCompile(`\bimport\s*\(`),
 	regexp.MustCompile(`\bexport\s+`),
 	regexp.MustCompile(`\brequire\s*\(`),
-	
+
 	// Class definitions
 	regexp.MustCompile(`\bclass\s+\w`),
-	
+
 	// Debugger and other dangerous statements
 	regexp.MustCompile(`\bdebugger\b`),
 	regexp.MustCompile(`\bwith\s*\(`),
@@ -91,17 +91,17 @@ func ValidateExpression(expr string) error {
 	escaped := false
 	for i := 0; i < len(expr); i++ {
 		ch := expr[i]
-		
+
 		if escaped {
 			escaped = false
 			continue
 		}
-		
+
 		if ch == '\\' {
 			escaped = true
 			continue
 		}
-		
+
 		if !inString {
 			if ch == '\'' || ch == '"' || ch == '`' {
 				inString = true
@@ -205,13 +205,13 @@ func EvalValue(ctx context.Context, expr string, state map[string]any) (any, err
 	rt, stop := newRuntime(ctx)
 	defer stop()
 	_ = rt.Set("state", state)
-	
+
 	// Wrap in a function with restricted globals to prevent injection
 	script := `(function(state, window, global, globalThis, fetch, XMLHttpRequest) {
 "use strict";
 return (` + expr + `);
 })(state, undefined, undefined, undefined, undefined, undefined)`
-	
+
 	v, err := rt.RunString(script)
 	if err != nil {
 		return nil, err

@@ -21,6 +21,13 @@ type RunContextImpl struct {
 	logger       core.Logger
 	entryAddress *EntryAddress
 
+	// runEnv holds the host's environment layers exposed to steps via the
+	// PipelineContext. Non-secret configuration only.
+	runEnv map[string]any
+	// secretLookup resolves credentials at execution time; values are for
+	// immediate use and never persist to state.
+	secretLookup func(key string) (any, bool)
+
 	abortChan chan struct{}
 	abortErr  error
 	aborted   bool
@@ -208,7 +215,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		if mode == "steps" {
 			// 1. Run stage steps if defined
 			if len(stage.Steps) > 0 {
-				err := ExecuteStageSteps(runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentStepID, r.resourceResolver)
+				err := ExecuteStageSteps(runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentStepID, r.resourceResolver, r.runEnv, r.secretLookup)
 				currentStepID = "" // reset step resume targeting after first stage
 				if err != nil {
 					return r.failStage(ctx, pipePath, stage, stageStart, startTime, err)
@@ -239,7 +246,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			})
 
 			subResults, subErr := ExecuteSubPipelines(
-				runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentSubAddr, r.resourceResolver,
+				runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentSubAddr, r.resourceResolver, r.runEnv, r.secretLookup,
 			)
 			currentSubAddr = nil // reset subpipeline address after first run
 
@@ -675,15 +682,24 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 
 var _ RunContext = (*RunContextImpl)(nil)
 
+// @note #review-20260826-002 issue status=resolved priority=P1 tags=#review,#concurrency,#bug : stateSnapshot is a shallow copy — nested maps alias live store state
+// @author ox-alpha
+//
+// Only top-level keys were copied; nested values (results, __pipeline_data__,
+// user objects) were shared references into the live store map. Routers
+// receiving the snapshot could observe concurrent step mutations mid-read
+// (map concurrent read/write panic) and, if they ever mutated nested data,
+// corrupt live state while bypassing the store lock.
+//
+// Fixed by delegating to store.DeepCopyMap, which clones maps/slices
+// recursively; covered by TestStateSnapshotDeepCopy.
+//
 // stateSnapshot returns a deep copy of the run state for read-only consumers
-// (routers). Safe to retain beyond the store lock.
+// (routers), safe to retain beyond the store lock.
 func stateSnapshot(st store.Store) map[string]any {
 	var snap map[string]any
 	_ = st.Read(func(state map[string]any) error {
-		snap = make(map[string]any, len(state))
-		for k, v := range state {
-			snap[k] = v
-		}
+		snap = store.DeepCopyMap(state)
 		return nil
 	})
 	if snap == nil {

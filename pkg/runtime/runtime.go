@@ -8,6 +8,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,18 @@ import (
 	"github.com/asaidimu/hermes/pkg/timeline"
 	"github.com/asaidimu/hermes/pkg/watch"
 )
+
+// SecretProvider supplies credentials to runs declaring secret requirements.
+// Implementations back onto the host's credential store (settings, vault,
+// keychain). Get values are consumed in-process by steps; implementations and
+// callers must never persist or log them.
+type SecretProvider interface {
+	// Get resolves a secret by key. Returns (nil, false) when unknown.
+	Get(ctx context.Context, key string) (any, bool)
+	// Has reports whether a key is resolvable without reading its value.
+	// Used for pre-flight validation at workflow registration time.
+	Has(ctx context.Context, key string) bool
+}
 
 // Event names used by the runtime (mirror the TS constants).
 const (
@@ -42,6 +55,11 @@ type Options struct {
 	// restart or crash. When nil, runs paused in memory cannot be recovered
 	// from persistence.
 	StoreLoader func(runID string) (store.Store, error)
+	// Secrets resolves credentials requested by nodes via their declared
+	// Requirements. Values surface to steps only through NodeRunContext.Secret
+	// lookups — they never persist to state, checkpoints, or events. When nil,
+	// workflows whose nodes declare required secrets fail registration.
+	Secrets SecretProvider
 	// Timeline, when set, records every run into the store (TimelineRecorder).
 	Timeline timeline.TimelineStore
 	Logger   core.Logger
@@ -138,6 +156,7 @@ type WorkflowRuntime struct {
 	bus          events.ScopedEventBus
 	logger       core.Logger
 	env          map[string]any
+	secrets      SecretProvider
 	storeFactory func() (store.Store, error)
 	storeLoader  func(runID string) (store.Store, error)
 	timeline     timeline.TimelineStore
@@ -234,6 +253,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	rt := &WorkflowRuntime{
 		logger:       opts.Logger,
 		env:          opts.Env,
+		secrets:      opts.Secrets,
 		storeFactory: opts.StoreFactory,
 		storeLoader:  opts.StoreLoader,
 		timeline:     opts.Timeline,
@@ -347,6 +367,10 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 	if _, ok := rt.workflows[wf.ID]; ok {
 		return core.NewSystemError(core.ErrCodeConflict,
 			`[WorkflowRuntime] Workflow "`+wf.ID+`" is already registered. Call deregister("`+wf.ID+`") before registering again.`)
+	}
+
+	if err := rt.validateRequirements(wf); err != nil {
+		return err
 	}
 
 	record := &workflowRecord{
@@ -786,7 +810,11 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// Fix with go-events ScopedBus: use bus.Scope("run:"+runID) instead of
 	// bus.Scope(EventPath{}). This gives actual topic isolation — each run's
 	// events are prefixed with its runID, preventing cross-run interference.
-	factory := pipeline.NewFactory(record.workflow.Pipelines[paused.pipelineID], record.workflow.Pipelines[paused.pipelineID].Schema, pipeline.FactoryOptions{Logger: rt.logger})
+	factory := pipeline.NewFactory(record.workflow.Pipelines[paused.pipelineID], record.workflow.Pipelines[paused.pipelineID].Schema, pipeline.FactoryOptions{
+		Logger:       rt.logger,
+		RunEnv:       rt.env,
+		SecretLookup: rt.secretLookup(),
+	})
 	runCtx := factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
 
 	resolver, cleanup := rt.initResources(record, bus, runID, paused.pipelineID)
@@ -1081,7 +1109,11 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	// the runtime bus (external subscribers and timeline recorder see them).
 	bus := rt.bus.Scope(events.EventPath{})
 
-	factory := pipeline.NewFactory(def, def.Schema, pipeline.FactoryOptions{Logger: rt.logger})
+	factory := pipeline.NewFactory(def, def.Schema, pipeline.FactoryOptions{
+		Logger:       rt.logger,
+		RunEnv:       rt.env,
+		SecretLookup: rt.secretLookup(),
+	})
 	runCtx := factory.Prepare(runID, st, bus)
 
 	// Seed run linkage so crash recovery can resolve the workflow directly,
@@ -1207,6 +1239,66 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	rt.mu.Unlock()
 
 	return result
+}
+
+// secretLookup adapts the configured SecretProvider into the context-free
+// lookup function steps receive. Secrets are resolved lazily at execution
+// time; no request context is available (or needed) for host-backed stores.
+func (rt *WorkflowRuntime) secretLookup() func(key string) (any, bool) {
+	return func(key string) (any, bool) {
+		if rt.secrets == nil {
+			return nil, false
+		}
+		return rt.secrets.Get(context.Background(), key)
+	}
+}
+
+// validateRequirements checks a workflow's declared env/secret requirements
+// against what this runtime can provide. Required env keys must exist in the
+// configured Env layers; required secrets must be resolvable via the
+// configured SecretProvider. Returns an error naming every unsatisfied key.
+func (rt *WorkflowRuntime) validateRequirements(wf *pipeline.Workflow) error {
+	if len(wf.Requirements) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, req := range wf.Requirements {
+		if !req.Required {
+			continue
+		}
+		switch req.Kind {
+		case pipeline.ReqEnv:
+			if _, ok := rt.env[req.Key]; !ok {
+				missing = append(missing, fmt.Sprintf("env:%s", req.Key))
+			}
+		case pipeline.ReqSecret:
+			if rt.secrets == nil {
+				missing = append(missing, fmt.Sprintf("secret:%s (no secret provider configured)", req.Key))
+				continue
+			}
+			if !rt.secrets.Has(context.Background(), req.Key) {
+				missing = append(missing, fmt.Sprintf("secret:%s", req.Key))
+			}
+		}
+	}
+	if len(missing) > 0 {
+		return core.NewSystemError(core.ErrCodeValidation,
+			"workflow requirements not satisfied — missing: "+strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// ValidateWorkflowRequirements checks whether this runtime can satisfy the
+// workflow's declared env/secret requirements without registering it. Hosts
+// call this when saving workflow definitions to fail early with actionable
+// errors.
+func (rt *WorkflowRuntime) ValidateWorkflowRequirements(wf *pipeline.Workflow) error {
+	if wf == nil {
+		return core.NewSystemError(core.ErrCodeValidation, "workflow must not be nil")
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.validateRequirements(wf)
 }
 
 // newStore mints a brand-new run store. The store's ID() becomes the run

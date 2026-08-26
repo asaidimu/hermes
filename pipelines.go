@@ -25,9 +25,9 @@ type (
 	SubPipelineAddress = pipeline.SubPipelineAddress
 	PipelineCheckpoint = pipeline.PipelineCheckpoint
 
-	Store           = store.Store
-	MemoryStore     = store.MemoryStore
-	Mutator          = store.Mutator
+	Store       = store.Store
+	MemoryStore = store.MemoryStore
+	Mutator     = store.Mutator
 
 	PipelineEvent  = events.PipelineEvent
 	EventPath      = events.EventPath

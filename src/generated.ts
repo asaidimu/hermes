@@ -6,9 +6,9 @@ import * as _code from "../pkg/nodes/code/code";
 import * as _database from "../pkg/nodes/database/database";
 import * as _delay from "../pkg/nodes/delay/delay";
 import * as _for_each from "../pkg/nodes/for-each/foreach";
-import * as _gemini from "../pkg/nodes/gemini/gemini";
 import * as _http from "../pkg/nodes/http/http";
 import * as _if from "../pkg/nodes/if/if";
+import * as _pipeline_ref from "../pkg/nodes/pipeline-ref/pipeleref";
 import * as _query from "../pkg/nodes/query/query";
 import * as _switch from "../pkg/nodes/switch/switch";
 import * as _transformer from "../pkg/nodes/transformer/transformer";
@@ -35,9 +35,9 @@ export const NODE_DEFS: Record<string, NodeDef> = {
   "database": pick(_database),
   "delay": pick(_delay),
   "for-each": pick(_for_each),
-  "gemini": pick(_gemini),
   "http": pick(_http),
   "if": pick(_if),
+  "pipeline-ref": pick(_pipeline_ref),
   "query": pick(_query),
   "switch": pick(_switch),
   "transformer": pick(_transformer),

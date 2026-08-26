@@ -33,6 +33,39 @@ type Workflow struct {
 	Triggers  map[string]WorkflowTrigger
 	Pipelines map[string]PipelineDefinition
 	Services  []Service
+	// Requirements aggregates the env/secret keys declared by every node in
+	// this workflow (deduplicated by kind+key). The runtime validates these
+	// against what the host provides before a workflow may register or run.
+	Requirements []Requirement
+}
+
+// RequirementKind classifies an external capability a node needs at execution
+// time.
+type RequirementKind string
+
+const (
+	// ReqEnv declares a non-secret configuration key read from the runtime's
+	// environment layers (Options.Env).
+	ReqEnv RequirementKind = "env"
+	// ReqSecret declares a credential resolved at execution time through the
+	// host-supplied SecretProvider. Secret values must never persist to state,
+	// checkpoints, or events.
+	ReqSecret RequirementKind = "secret"
+)
+
+// Requirement declares an external capability needed by a node. Nodes embed
+// these in NodeDefinition.Requirements; the compiler aggregates them onto
+// Workflow.Requirements and the runtime validates them pre-registration.
+type Requirement struct {
+	// Kind selects where the value comes from at execution time.
+	Kind RequirementKind `json:"kind"`
+	// Key identifies the env layer entry or secret.
+	Key string `json:"key"`
+	// Required marks whether registration/run must fail when the key cannot
+	// be satisfied. Non-required entries are advisory (surfaced to hosts).
+	Required bool `json:"required,omitempty"`
+	// Description explains what the key is used for (editor/tooling UX).
+	Description string `json:"description,omitempty"`
 }
 
 // PipelineRegistry resolves a referenced pipeline id (used by pipeline-ref

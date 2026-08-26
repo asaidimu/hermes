@@ -131,6 +131,14 @@ func (s *MemoryStore) Clone() (Store, error) {
 	}, nil
 }
 
+// DeepCopyMap returns a deep copy of a state-shaped map: nested maps and
+// slices are cloned recursively so the copy shares no references with src.
+// Use it when handing state to consumers that must not observe later
+// mutations (routers, snapshots, result records).
+func DeepCopyMap(src map[string]any) map[string]any {
+	return deepCopyMap(src)
+}
+
 // deepCopyMap deep-copies map[string]any and []any values recursively,
 // leaving scalars untouched.
 func deepCopyMap(src map[string]any) map[string]any {

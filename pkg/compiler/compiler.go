@@ -394,6 +394,7 @@ func compileStages(
 	childrenOf map[string][]Node,
 	allEdges []Edge,
 	registry pipeline.PipelineRegistry,
+	requirements *[]pipeline.Requirement,
 ) ([]pipeline.Stage, error) {
 	flow := flowEdges(allEdges)
 	stages := make([]pipeline.Stage, 0, len(reached))
@@ -432,6 +433,11 @@ func compileStages(
 		// Validate node config against its schema at compile time.
 		if err := def.ValidateConfig(node.Config); err != nil {
 			return nil, fmt.Errorf("node %q (kind: %q): %w", id, node.Kind, err)
+		}
+
+		// Aggregate declared env/secret requirements for runtime pre-flight.
+		for _, req := range def.Requirements {
+			*requirements = appendRequirement(*requirements, req)
 		}
 
 		// ---- Pipeline reference -----------------------------------------
@@ -509,7 +515,7 @@ func compileStages(
 					id, node.Kind, def.BodyHandle)
 			}
 
-			bodyStages, err := compileStages(bodyReached, bodyOrderByID, byID, childrenOf, bodyEdges, registry)
+			bodyStages, err := compileStages(bodyReached, bodyOrderByID, byID, childrenOf, bodyEdges, registry, requirements)
 			if err != nil {
 				return nil, err
 			}
@@ -568,6 +574,7 @@ func Compile(nodes []Node, edges []Edge, registry pipeline.PipelineRegistry) (*p
 
 	workflowTriggers := map[string]pipeline.WorkflowTrigger{}
 	pipelines := map[string]pipeline.PipelineDefinition{}
+	var requirements []pipeline.Requirement
 
 	for _, triggerNode := range triggers {
 		def, hasDef := nodekit.Get(triggerNode.Kind)
@@ -583,7 +590,7 @@ func Compile(nodes []Node, edges []Edge, registry pipeline.PipelineRegistry) (*p
 		workflowTriggers[triggerNode.ID] = *trigger
 
 		reached, orderByID := bfsStages(triggerNode.ID, byID, edges)
-		stages, err := compileStages(reached, orderByID, byID, childrenOf, edges, registry)
+		stages, err := compileStages(reached, orderByID, byID, childrenOf, edges, registry, &requirements)
 		if err != nil {
 			return nil, err
 		}
@@ -600,10 +607,22 @@ func Compile(nodes []Node, edges []Edge, registry pipeline.PipelineRegistry) (*p
 	}
 
 	return &pipeline.Workflow{
-		ID:        uuid.NewString(),
-		Label:     "Flowforge workflow",
-		Triggers:  workflowTriggers,
-		Pipelines: pipelines,
-		Services:  services,
+		ID:           uuid.NewString(),
+		Label:        "Flowforge workflow",
+		Triggers:     workflowTriggers,
+		Pipelines:    pipelines,
+		Services:     services,
+		Requirements: requirements,
 	}, nil
+}
+
+// appendRequirement appends req unless an identical kind+key requirement is
+// already present.
+func appendRequirement(reqs []pipeline.Requirement, req pipeline.Requirement) []pipeline.Requirement {
+	for _, existing := range reqs {
+		if existing.Kind == req.Kind && existing.Key == req.Key {
+			return reqs
+		}
+	}
+	return append(reqs, req)
 }

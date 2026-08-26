@@ -17,7 +17,7 @@ func TestRegisteredKinds(t *testing.T) {
 	}
 
 	want := []string{
-		"arithmetic", "code", "database", "delay", "for-each", "gemini", "http",
+		"arithmetic", "code", "database", "delay", "for-each", "http",
 		"if", "pause", "pipeline-ref", "query", "switch", "transformer", "trigger", "try-catch", "while",
 	}
 	for _, kind := range want {

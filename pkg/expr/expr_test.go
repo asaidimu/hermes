@@ -53,7 +53,7 @@ func TestEvalValue(t *testing.T) {
 
 func TestEvalValueSecurity(t *testing.T) {
 	state := map[string]any{"value": "safe"}
-	
+
 	// Test cases that should be rejected due to code injection attempts
 	unsafeCases := []struct {
 		name string
@@ -80,7 +80,7 @@ func TestEvalValueSecurity(t *testing.T) {
 		{"unbalanced parentheses", `state.value) + (state.value`},
 		{"unbalanced brackets", `state.value] + [state.value`},
 	}
-	
+
 	for _, tc := range unsafeCases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := EvalValue(context.Background(), tc.expr, state)
@@ -89,7 +89,7 @@ func TestEvalValueSecurity(t *testing.T) {
 			}
 		})
 	}
-	
+
 	// Test cases that should be allowed (safe expressions)
 	safeCases := []struct {
 		name string
@@ -106,13 +106,13 @@ func TestEvalValueSecurity(t *testing.T) {
 		{"logical AND", `state.value && state.value`, "safe"},
 		{"logical OR", `state.missing || "default"`, "default"},
 	}
-	
+
 	for _, tc := range safeCases {
 		t.Run(tc.name, func(t *testing.T) {
 			stateWithExtra := map[string]any{
-				"value": "safe",
-				"count": float64(0),
-				"items": []any{"first"},
+				"value":  "safe",
+				"count":  float64(0),
+				"items":  []any{"first"},
 				"nested": map[string]any{"value": "nested"},
 			}
 			got, err := EvalValue(context.Background(), tc.expr, stateWithExtra)
@@ -131,7 +131,7 @@ func TestValidateExpression(t *testing.T) {
 	if err := ValidateExpression(""); err == nil {
 		t.Error("expected error for empty expression")
 	}
-	
+
 	// Test dangerous patterns
 	dangerous := []string{
 		`eval("alert(1)")`,
@@ -152,13 +152,13 @@ func TestValidateExpression(t *testing.T) {
 		`debugger`,
 		`with(state) { value }`,
 	}
-	
+
 	for _, d := range dangerous {
 		if err := ValidateExpression(d); err == nil {
 			t.Errorf("expected error for dangerous expression %q", d)
 		}
 	}
-	
+
 	// Test safe expressions
 	safe := []string{
 		`state.value`,
@@ -170,7 +170,7 @@ func TestValidateExpression(t *testing.T) {
 		`state.a && state.b`,
 		`state.a || state.b`,
 	}
-	
+
 	for _, s := range safe {
 		if err := ValidateExpression(s); err != nil {
 			t.Errorf("unexpected error for safe expression %q: %v", s, err)

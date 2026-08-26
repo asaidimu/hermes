@@ -54,11 +54,21 @@ graph (nodes+edges) → compiler → pipeline.PipelineDefinition
 | `pause` | pause-until-event via WatchService registration; onResume/onTimeout handles; any/all modes; timeout ms |
 | `try-catch` | bounded body execution; error capture to state (`SystemErrorJSON`); retry routing back into body |
 | `http` | GET/POST/etc.; headers/params arrays; body; responseType json/text; throwOnError (default true); timeoutMs (default 30s); output under `http_<nodeId>` or custom key; SSRF guard blocks private/loopback IP literals |
-| `gemini` | Google Gemini generateContent call: apiKey, model (default gemini-2.5-flash), prompt, systemInstruction, temperature, jsonMode; output under `gemini_response` or custom key |
 | `query` | STUB — requires database resource; returns "not yet implemented" (Phase 5 WIP) |
 | `pipeline-ref` | Invoke registered sub-workflow; own fresh state; `initialState` interpolation from parent; result merged under `resultKey`; compile-time config validation against target trigger |
 
-Node definitions carry: kind, label, description, ConfigSchema (anansi JSON), Handles (+ `HandlesJS` parity for the client), Run, Router/RouterFunc, BodyHandle, ValidateConfig.
+Node definitions carry: kind, label, description, ConfigSchema (anansi JSON), Handles (+ `HandlesJS` parity for the client), Run, Router/RouterFunc, BodyHandle, ValidateConfig, **Requirements**.
+
+### Node requirements (env/secrets)
+
+Nodes declare external capabilities via `NodeDefinition.Requirements []Requirement` (`Kind: env|secret`, `Key`, `Required`, `Description`):
+
+- The **compiler aggregates** them onto `Workflow.Requirements` (deduped by kind+key).
+- The **runtime validates before registration/run**: required env keys must exist in `Options.Env`; required secrets must satisfy `Options.Secrets.Has`. Unsatisfied → registration refused with a descriptive error listing missing keys. Hosts can pre-check via `rt.ValidateWorkflowRequirements(wf)` at definition-save time.
+- At execution, steps read values from context: `NodeRunContext.Env map[string]any` and `NodeRunContext.Secret(key)`. Secret values are function-resolved — they never persist into state, checkpoints, or events.
+- `SecretProvider` interface (`Get`/`Has`) is defined hermes-side; hosts (e.g. hestia) implement it against their credential store.
+
+Design rule: **configs carry references; context carries credentials.** Secrets must never appear in node configs, which persist verbatim inside workflow definitions.
 
 ## 5. Nodekit (`pkg/nodekit`)
 
@@ -152,10 +162,9 @@ REST surface (net/http stdlib mux, CORS enabled):
 ## Known MVP gaps / review focus
 
 1. **Query node stub** — needs database resource wiring (Phase 5).
-2. **Gemini apiKey in config** — secret handling should move to resources/env before production.
-3. **HTTP SSRF guard is regex-based** — DNS-rebinding and redirect-following not covered.
-4. **InMemorySchedulerReplace flake** — timing-sensitive scheduler test (passes solo; fails under `-count>1` sometimes).
-5. **Review @notes** — `@note #review-*` markers across the codebase track open P1–P3 findings (silent error discards, interface nits, concurrency comments).
-6. **Single-process scope** — memory timeline/scheduler/bus; persistence only covers run state, not timeline events or registry.
-7. **No auth/TLS** on the REST surface.
-8. **While-loop safety** relies on ctx cancellation; no iteration cap.
+2. **HTTP SSRF guard is regex-based** — DNS-rebinding and redirect-following not covered.
+3. **InMemorySchedulerReplace flake** — timing-sensitive scheduler test (passes solo; fails under `-count>1` sometimes).
+4. **Review @notes** — `@note #review-*` markers across the codebase track open P1–P3 findings (silent error discards, interface nits, concurrency comments).
+5. **Single-process scope** — memory timeline/scheduler/bus; persistence only covers run state, not timeline events or registry.
+6. **No auth/TLS** on the REST surface.
+7. **While-loop safety** relies on ctx cancellation; no iteration cap.

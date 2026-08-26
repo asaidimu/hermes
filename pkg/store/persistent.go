@@ -108,6 +108,15 @@ func (s *PersistentStore) typedView() (RunData, RunMetadata) {
 	return state, info
 }
 
+// @note #review-20260826-007 observation status=open priority=P3 tags=#review,#api : Update(nil) persists instead of no-op — asymmetric with MemoryStore
+// @author ox-alpha
+//
+// MemoryStore.Update(nil mutator) is a no-op; this implementation still calls
+// persist(), so a nil mutator triggers a database write (behaves like Flush).
+// That may be intended, but the asymmetry will surprise callers holding a
+// store.Store. Either document it on the Store interface or skip persist when
+// the mutator is nil.
+//
 // Update applies the mutator under lock and writes through to the collection.
 func (s *PersistentStore) Update(ctx context.Context, mutator Mutator) error {
 	s.mu.Lock()

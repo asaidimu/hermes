@@ -35,6 +35,8 @@ func ExecuteSubPipelines(
 	logger core.Logger,
 	subAddr *SubPipelineAddress,
 	resolver func(key string) (any, bool),
+	runEnv map[string]any,
+	secretLookup func(key string) (any, bool),
 ) ([]PipelineRunResult, error) {
 	if len(stage.Pipelines) == 0 {
 		return nil, nil
@@ -101,6 +103,8 @@ func ExecuteSubPipelines(
 			}
 
 			childFactory := NewFactory(childDef, childDef.Schema, FactoryOptions{
+				RunEnv:           runEnv,
+				SecretLookup:     secretLookup,
 				Logger:           logger,
 				ResourceResolver: resolver,
 			})

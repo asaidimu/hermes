@@ -19,6 +19,7 @@ type Logger interface {
 // Fixed by adding doc comment explaining NopLogger's purpose as the default
 // silent logger.
 type NopLogger struct{}
+
 func (NopLogger) Debug(msg string, keysAndValues ...any) {}
 func (NopLogger) Info(msg string, keysAndValues ...any)  {}
 func (NopLogger) Warn(msg string, keysAndValues ...any)  {}
@@ -33,6 +34,7 @@ func (n NopLogger) With(keysAndValues ...any) Logger     { return n }
 // Fixed by adding doc comment explaining the context key's purpose and
 // warning callers to use WithLogger/GetLogger instead of their own keys.
 type contextKey struct{}
+
 func WithLogger(ctx context.Context, logger Logger) context.Context {
 	return context.WithValue(ctx, contextKey{}, logger)
 }

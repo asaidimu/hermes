@@ -7,9 +7,9 @@ import (
 // Column names produced by the anansi tags below. Exported for tests and
 // observability tooling that inspects persisted rows.
 const (
-	StateColumn    = "state"
-	RunMetaColumn  = "metadata"
-	RunMetaKey     = "__run_meta__" // body key mirroring RunInfo in the flat in-memory view
+	StateColumn   = "state"
+	RunMetaColumn = "metadata"
+	RunMetaKey    = "__run_meta__" // body key mirroring RunInfo in the flat in-memory view
 )
 
 // RunMetadata carries run linkage — which workflow/trigger/pipeline owns this
@@ -35,9 +35,9 @@ type RunData map[string]any
 // document body); PersistentStore translates between that flat view and
 // this typed shape on load/persist.
 type PipelineState struct {
-	document.DocumentModel // system fields (_id_, _metadata_)
-	Data    RunData        `anansi:"state"`
-	RunInfo RunMetadata    `anansi:"metadata"` // application run linkage, distinct from reserved _metadata_
+	document.DocumentModel             // system fields (_id_, _metadata_)
+	Data                   RunData     `anansi:"state"`
+	RunInfo                RunMetadata `anansi:"metadata"` // application run linkage, distinct from reserved _metadata_
 }
 
 // RunInfoFromMap decodes a RunMetaKey body entry into RunMetadata.
