@@ -11,7 +11,26 @@ import (
 func runWith(t *testing.T, cfg map[string]any) (map[string]any, error) {
 	t.Helper()
 	state := map[string]any{}
-	mut, err := run(context.Background(), nodekit.NodeRunContext{Config: cfg})
+
+	// Build typed config from raw map (mirrors what Define wrapper does after coercion).
+	var typedCfg ArithmeticConfig
+	if v, ok := cfg["operation"].(string); ok {
+		typedCfg.Operation = v
+	}
+	if v, ok := cfg["left"]; ok {
+		typedCfg.Left = v
+	}
+	if v, ok := cfg["right"]; ok {
+		typedCfg.Right = v
+	}
+	if v, ok := cfg["key"].(string); ok {
+		typedCfg.Key = v
+	}
+
+	mut, err := run(context.Background(), &nodekit.TypedRunContext[ArithmeticConfig]{
+		NodeRunContext: nodekit.NodeRunContext{Config: cfg},
+		Config:         &typedCfg,
+	})
 	if err != nil {
 		return nil, err
 	}

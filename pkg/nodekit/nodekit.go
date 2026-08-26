@@ -125,21 +125,31 @@ type NodeDefinition struct {
 	ResourceEnd         NodeResourceCleanup                                                                                                       `json:"-"`
 	// validator is lazily compiled from ConfigSchema on first call to ValidateConfig.
 	validator *definition.DocumentValidator
+	// validateCustom runs optional node-author validation after schema validation.
+	// Set via Define[C] when the typed definition includes a ValidateConfig callback.
+	validateCustom func(map[string]any) error
 }
 
 // ValidateConfig validates a raw config map against this node's ConfigSchema.
 // Returns nil if valid or if no schema is defined. Returns an error describing
 // the first validation issue found.
 func (d *NodeDefinition) ValidateConfig(raw map[string]any) error {
-	if len(d.ConfigSchema) == 0 {
+	if len(d.ConfigSchema) == 0 && d.validateCustom == nil {
 		return nil
 	}
 	if err := d.ensureValidator(); err != nil {
 		return err
 	}
-	issues, valid := d.validator.Validate(raw)
-	if !valid && len(issues) > 0 {
-		return fmt.Errorf("config validation failed: %s", issues[0].Message)
+	if len(d.ConfigSchema) > 0 {
+		issues, valid := d.validator.Validate(raw)
+		if !valid && len(issues) > 0 {
+			return fmt.Errorf("config validation failed: %s", issues[0].Message)
+		}
+	}
+	if d.validateCustom != nil {
+		if err := d.validateCustom(raw); err != nil {
+			return err
+		}
 	}
 	return nil
 }

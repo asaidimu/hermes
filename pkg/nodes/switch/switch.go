@@ -8,25 +8,22 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodekit"
 )
 
-var Node = nodekit.NodeDefinition{
+type SwitchConfig struct {
+	Value         string `config:"value" anansi:"default=state.value"`
+	Cases         string `config:"cases" anansi:"default=[]"`
+	DefaultHandle string `config:"defaultHandle" anansi:"default=default"`
+}
+
+var Node = nodekit.Define(nodekit.TypedDefinition[SwitchConfig]{
 	Kind:        "switch",
 	Label:       "Switch",
 	Description: "Match a workflow state value against several static cases to branch paths.",
 	Type:        "executable",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "switch",
-		"fields": {
-			"value":         { "name": "value", "type": "string", "default": "state.value" },
-			"cases":         { "name": "cases", "type": "string", "default": "[]" },
-			"defaultHandle": { "name": "defaultHandle", "type": "string", "default": "default" }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *SwitchConfig) []nodekit.HandleSpec {
 		specs := []nodekit.HandleSpec{{Type: nodekit.HandleTarget, ID: "", Label: "in"}}
 		var parsed any
-		if raw, ok := config["cases"].(string); ok {
-			_ = json.Unmarshal([]byte(raw), &parsed)
+		if cfg.Cases != "" {
+			_ = json.Unmarshal([]byte(cfg.Cases), &parsed)
 		}
 		switch items := parsed.(type) {
 		case []any:
@@ -52,13 +49,13 @@ var Node = nodekit.NodeDefinition{
 			for match, label := range items {
 				specs = append(specs, nodekit.HandleSpec{
 					Type:  nodekit.HandleSource,
-					ID:    String(label),
+					ID:    stringLabel(label),
 					Label: match,
 				})
 			}
 		}
-		if def, ok := config["defaultHandle"].(string); ok && def != "" {
-			specs = append(specs, nodekit.HandleSpec{Type: nodekit.HandleSource, ID: def, Label: "default"})
+		if cfg.DefaultHandle != "" {
+			specs = append(specs, nodekit.HandleSpec{Type: nodekit.HandleSource, ID: cfg.DefaultHandle, Label: "default"})
 		}
 		return specs
 	},
@@ -84,19 +81,19 @@ var Node = nodekit.NodeDefinition{
   return specs;
 }`,
 	Router: router,
-}
+})
 
 // router mirrors the TS switch node: evaluates `value` as a JS expression and
 // matches String(evaluated) against the parsed cases, returning the matched case
 // id, the defaultHandle, or undefined-equivalent (empty) on error.
-func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
+func router(ctx context.Context, nCtx *nodekit.TypedRunContext[SwitchConfig]) (string, error) {
 	cfg := nCtx.Config
-	valueExpr, _ := cfg["value"].(string)
+	valueExpr := cfg.Value
 	if valueExpr == "" {
 		valueExpr = "state.value"
 	}
 	valueExpr = expr.StatePathExpr(valueExpr)
-	defaultHandle, _ := cfg["defaultHandle"].(string)
+	defaultHandle := cfg.DefaultHandle
 
 	evaluated, err := expr.EvalValue(ctx, valueExpr, nCtx.State)
 	if err != nil {
@@ -105,8 +102,8 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 	targetStr := expr.String(evaluated)
 
 	var parsed any
-	if raw, ok := cfg["cases"].(string); ok && raw != "" {
-		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	if cfg.Cases != "" {
+		if err := json.Unmarshal([]byte(cfg.Cases), &parsed); err != nil {
 			return defaultHandle, nil
 		}
 	}
@@ -126,14 +123,14 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 		}
 	case map[string]any:
 		if label, ok := items[targetStr]; ok {
-			return expr.String(label), nil
+			return stringLabel(label), nil
 		}
 	}
 
 	return defaultHandle, nil
 }
 
-func String(v any) string {
+func stringLabel(v any) string {
 	switch s := v.(type) {
 	case string:
 		return s

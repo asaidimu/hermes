@@ -2,7 +2,6 @@ package arithmetic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 
@@ -10,22 +9,19 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-var Node = nodekit.NodeDefinition{
+type ArithmeticConfig struct {
+	Operation string `config:"operation" anansi:"default=add"`
+	Left      any    `config:"left"`
+	Right     any    `config:"right"`
+	Key       string `config:"key"`
+}
+
+var Node = nodekit.Define(nodekit.TypedDefinition[ArithmeticConfig]{
 	Kind:        "arithmetic",
 	Label:       "Arithmetic",
 	Description: "Performs a mathematical operation on two values.",
 	Type:        "executable",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "arithmetic",
-		"fields": {
-			"operation": { "name": "operation", "type": "string", "default": "add" },
-			"left":      { "name": "left", "type": "string", "default": "" },
-			"right":     { "name": "right", "type": "string", "default": "" },
-			"key":       { "name": "key", "type": "string", "default": "", "required": true }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *ArithmeticConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: ""},
@@ -33,28 +29,26 @@ var Node = nodekit.NodeDefinition{
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
 	Run:       run,
-}
+})
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
+func run(ctx context.Context, nCtx *nodekit.TypedRunContext[ArithmeticConfig]) (store.Mutator, error) {
 	cfg := nCtx.Config
-	operation, _ := cfg["operation"].(string)
+	operation := cfg.Operation
 	if operation == "" {
 		operation = "add"
 	}
-	rawLeft := cfg["left"]
-	rawRight := cfg["right"]
-	key, _ := cfg["key"].(string)
+	rawLeft := cfg.Left
+	rawRight := cfg.Right
+	key := cfg.Key
 
 	if key == "" {
 		return nil, fmt.Errorf("Arithmetic node: 'key' is required (where to store the result).")
 	}
 
-	// Helper to resolve an operand: tries literal conversion first, then looks up state keys
 	resolve := func(raw any) (float64, bool) {
 		if num, ok := nodekit.Number(raw); ok {
 			return num, true
 		}
-		// Fallback: look up key in state if operand is a state field reference
 		if fieldKey, ok := raw.(string); ok && fieldKey != "" {
 			if docVal, ok := nodekit.Lookup(nCtx.State, fieldKey); ok {
 				return nodekit.Number(docVal)

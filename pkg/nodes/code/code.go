@@ -2,7 +2,6 @@ package code
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/asaidimu/hermes/pkg/expr"
@@ -10,23 +9,16 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-var Node = nodekit.NodeDefinition{
+type CodeConfig struct {
+	Code string `config:"code" anansi:"default=// Example: Transform text to uppercase\nreturn {\n  text: state.text?.toUpperCase()\n};"`
+}
+
+var Node = nodekit.Define(nodekit.TypedDefinition[CodeConfig]{
 	Kind:        "code",
 	Label:       "JavaScript Code",
 	Description: "Execute custom JS transformations on the workflow state.",
 	Type:        "executable",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "code",
-		"fields": {
-			"code": {
-				"name": "code",
-				"type": "string",
-				"default": "// Example: Transform text to uppercase\nreturn {\n  text: state.text?.toUpperCase()\n};"
-			}
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *CodeConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: ""},
@@ -34,10 +26,10 @@ var Node = nodekit.NodeDefinition{
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
 	Run:       run,
-}
+})
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
-	code, _ := nCtx.Config["code"].(string)
+func run(ctx context.Context, nCtx *nodekit.TypedRunContext[CodeConfig]) (store.Mutator, error) {
+	code := nCtx.Config.Code
 	if strings.TrimSpace(code) == "" {
 		return nil, nil
 	}

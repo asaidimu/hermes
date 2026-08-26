@@ -6,9 +6,12 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodes/code"
 	"github.com/asaidimu/hermes/pkg/nodes/database"
 	"github.com/asaidimu/hermes/pkg/nodes/delay"
+	"github.com/asaidimu/hermes/pkg/nodes/distribute"
 	"github.com/asaidimu/hermes/pkg/nodes/for-each"
+	"github.com/asaidimu/hermes/pkg/nodes/fork"
 	"github.com/asaidimu/hermes/pkg/nodes/http"
 	ifnode "github.com/asaidimu/hermes/pkg/nodes/if"
+	"github.com/asaidimu/hermes/pkg/nodes/join"
 	"github.com/asaidimu/hermes/pkg/nodes/pause"
 	"github.com/asaidimu/hermes/pkg/nodes/pipeline-ref"
 	"github.com/asaidimu/hermes/pkg/nodes/query"
@@ -24,9 +27,12 @@ func init() {
 	nodekit.Register(code.Node)
 	nodekit.Register(database.Node)
 	nodekit.Register(delay.Node)
+	nodekit.Register(distribute.Node)
 	nodekit.Register(foreach.Node)
+	nodekit.Register(fork.Node)
 	nodekit.Register(http.Node)
 	nodekit.Register(ifnode.Node)
+	nodekit.Register(join.Node)
 	nodekit.Register(pause.Node)
 	nodekit.Register(pipeleref.Node)
 	nodekit.Register(query.Node)

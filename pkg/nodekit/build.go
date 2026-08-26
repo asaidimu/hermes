@@ -278,3 +278,171 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 		},
 	}
 }
+
+// BuildForkStage creates a pipelines-mode stage from a fork node.
+// Each branch becomes a sub-pipeline. After all complete, PipelinesRouter
+// jumps to the join node.
+func BuildForkStage(
+	nodeID string,
+	def NodeDefinition,
+	order int,
+	branchStages map[string][]pipeline.Stage,
+	joinID string,
+) pipeline.Stage {
+	subPipelines := make([]pipeline.PipelineDefinition, 0, len(branchStages))
+	for handle, stages := range branchStages {
+		subPipelines = append(subPipelines, pipeline.PipelineDefinition{
+			ID:     nodeID + "__" + handle,
+			Label:  def.Label + " branch " + handle,
+			Stages: stages,
+		})
+	}
+
+	return pipeline.Stage{
+		ID:        nodeID,
+		Order:     order,
+		Label:     def.Label,
+		Pipelines: subPipelines,
+		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
+			if joinID == "" {
+				return pipeline.Advance(), nil
+			}
+			return pipeline.Jump(joinID), nil
+		},
+	}
+}
+
+// BuildDistributeStage compiles a distribute (parallel for-each) node into a
+// pipelines-mode stage. A single sub-pipeline contains:
+//   - a setup stage that runs the node's logic (captures items in state)
+//   - a pipelines stage with DynamicPipelines that spawns one child per array element
+//
+// Config keys:
+//   - itemsKey: state path to the array (default "items")
+//   - itemKey:  variable name injected into each child's state (default "item")
+func BuildDistributeStage(
+	nodeID string,
+	def NodeDefinition,
+	config map[string]any,
+	resources func() map[string]any,
+	resolveHandle func(string) string,
+	order int,
+	bodyStages []pipeline.Stage,
+) pipeline.Stage {
+	itemKey, _ := config["itemKey"].(string)
+	if itemKey == "" {
+		itemKey = "item"
+	}
+
+	// --- Setup stage: runs node logic, stores items for DynamicPipelines ---
+	setupStage := pipeline.Stage{
+		ID:    nodeID + "__setup",
+		Order: 0,
+		Label: def.Label + " (setup)",
+		Steps: map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)},
+		Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
+			if len(bodyStages) == 0 {
+				return nil, nil
+			}
+			return pipeline.Jump(bodyStages[0].ID), nil
+		},
+	}
+
+	// --- Pipelines stage: DynamicPipelines fans out N children --------------
+	pipelinesStage := pipeline.Stage{
+		ID:    nodeID + "__pipelines",
+		Order: 1,
+		Label: def.Label + " (distribute)",
+		DynamicPipelines: func(state map[string]any) []pipeline.PipelineDefinition {
+			// Read items from state (set by distribute node's Run).
+			key := "__$" + nodeID + "__items__"
+			var items []any
+			switch v := state[key].(type) {
+			case []any:
+				items = v
+			default:
+				return nil
+			}
+			if len(items) == 0 {
+				return nil
+			}
+
+			subPipelines := make([]pipeline.PipelineDefinition, 0, len(items))
+			for i, item := range items {
+				idx := i
+				val := item
+				itemVal := map[string]any{
+					"index": idx,
+					"value": val,
+				}
+
+				// Clone body stages so each child owns its copy.
+				cloned := make([]pipeline.Stage, len(bodyStages))
+				copy(cloned, bodyStages)
+
+				childStages := make([]pipeline.Stage, 0, len(cloned)+1)
+				// Inject the item before the body runs.
+				childStages = append(childStages, pipeline.Stage{
+					ID:    nodeID + "__item",
+					Order: 0,
+					Label: def.Label + " item",
+					Steps: map[string]pipeline.Step{
+						nodeID + "__inject": {
+							ID:    nodeID + "__inject",
+							Label: "inject item",
+							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+								return func(state map[string]any) error {
+									state[itemKey] = itemVal
+									return nil
+								}, nil
+							},
+						},
+					},
+					Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
+						if len(cloned) == 0 {
+							return nil, nil
+						}
+						return pipeline.Jump(cloned[0].ID), nil
+					},
+				})
+				childStages = append(childStages, cloned...)
+
+				subPipelines = append(subPipelines, pipeline.PipelineDefinition{
+					ID:     fmt.Sprintf("%s__%d", nodeID, idx),
+					Label:  fmt.Sprintf("%s item %d", def.Label, idx),
+					Stages: childStages,
+				})
+			}
+			return subPipelines
+		},
+		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
+			target := resolveHandle("done")
+			if target == "" {
+				return pipeline.Advance(), nil
+			}
+			return pipeline.Jump(target), nil
+		},
+	}
+
+	// Wrap setup + pipelines in a single sub-pipeline so the engine runs
+	// setup first, then enters pipelines mode for the fan-out.
+	subPipeline := pipeline.PipelineDefinition{
+		ID:     nodeID + "__distribute",
+		Label:  def.Label + " distribute (" + nodeID + ")",
+		Stages: []pipeline.Stage{setupStage, pipelinesStage},
+	}
+
+	return pipeline.Stage{
+		ID:        nodeID,
+		Order:     order,
+		Label:     def.Label,
+		Pipelines: []pipeline.PipelineDefinition{subPipeline},
+		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
+			target := resolveHandle("done")
+			if target == "" {
+				return pipeline.Advance(), nil
+			}
+			return pipeline.Jump(target), nil
+		},
+	}
+}

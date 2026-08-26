@@ -15,27 +15,29 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-var Node = nodekit.NodeDefinition{
+type HTTPParam struct {
+	Key   string `config:"key"`
+	Value string `config:"value"`
+}
+
+type HTTPConfig struct {
+	Method       string      `config:"method" anansi:"default=GET"`
+	URL          string      `config:"url"`
+	Key          string      `config:"key"`
+	Headers      []HTTPParam `config:"headers"`
+	Params       []HTTPParam `config:"params"`
+	Body         string      `config:"body"`
+	ResponseType string      `config:"responseType" anansi:"default=json"`
+	ThrowOnError bool        `config:"throwOnError" anansi:"default=true"`
+	TimeoutMs    float64     `config:"timeoutMs" anansi:"default=30000"`
+}
+
+var Node = nodekit.Define(nodekit.TypedDefinition[HTTPConfig]{
 	Kind:        "http",
 	Label:       "HTTP Request",
 	Description: "Execute a standard HTTP request to an external service or API.",
 	Type:        "executable",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "http",
-		"fields": {
-			"method":       { "name": "method", "type": "string", "default": "GET", "required": true },
-			"url":          { "name": "url", "type": "string", "default": "", "required": true },
-			"key":          { "name": "key", "type": "string", "default": "", "required": false },
-			"headers":      { "name": "headers", "type": "array", "default": [], "required": false },
-			"params":       { "name": "params", "type": "array", "default": [], "required": false },
-			"body":         { "name": "body", "type": "string", "default": "", "required": false },
-			"responseType": { "name": "responseType", "type": "string", "default": "json", "required": false },
-			"throwOnError": { "name": "throwOnError", "type": "boolean", "default": true, "required": false },
-			"timeoutMs":    { "name": "timeoutMs", "type": "number", "default": 30000, "required": false }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *HTTPConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: ""},
@@ -43,7 +45,7 @@ var Node = nodekit.NodeDefinition{
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"","kind":"executable"}]`,
 	Run:       run,
-}
+})
 
 // @note #review-20260826-004 observation status=open priority=P2 tags=#review,#security : SSRF guard is a host-literal regex — DNS rebinding and redirects bypass it
 // @author ox-alpha
@@ -57,28 +59,24 @@ var privateIPRegex = regexp.MustCompile(
 	`^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|::1|fe80|fc00|fd00)`,
 )
 
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
+func run(ctx context.Context, nCtx *nodekit.TypedRunContext[HTTPConfig]) (store.Mutator, error) {
 	cfg := nCtx.Config
-	method, _ := cfg["method"].(string)
+	method := cfg.Method
 	if method == "" {
 		method = "GET"
 	}
-	rawURL, _ := cfg["url"].(string)
-	customKey, _ := cfg["key"].(string)
-	responseType, _ := cfg["responseType"].(string)
+	rawURL := cfg.URL
+	responseType := cfg.ResponseType
 	if responseType == "" {
 		responseType = "json"
 	}
-	throwOnError := true
-	if b, ok := cfg["throwOnError"].(bool); ok {
-		throwOnError = b
-	}
-	timeoutMs := 30000.0
-	if f, ok := nodekit.Number(cfg["timeoutMs"]); ok {
-		timeoutMs = f
+	throwOnError := cfg.ThrowOnError
+	timeoutMs := cfg.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 30000
 	}
 
-	key := customKey
+	key := cfg.Key
 	if key == "" {
 		key = "http_" + nCtx.NodeID
 	}
@@ -87,41 +85,25 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error
 	}
 
 	processedHeaders := map[string]string{}
-	if headers, ok := cfg["headers"].([]any); ok {
-		for _, h := range headers {
-			m, ok := h.(map[string]any)
-			if !ok {
-				continue
-			}
-			k, _ := m["key"].(string)
-			if strings.TrimSpace(k) == "" {
-				continue
-			}
-			val, _ := m["value"].(string)
-			processedHeaders[strings.TrimSpace(k)] = val
+	for _, h := range cfg.Headers {
+		if strings.TrimSpace(h.Key) == "" {
+			continue
 		}
+		processedHeaders[strings.TrimSpace(h.Key)] = h.Value
 	}
 
 	urlObj, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP node: request failed - %v", err)
 	}
-	if params, ok := cfg["params"].([]any); ok {
-		q := urlObj.Query()
-		for _, p := range params {
-			m, ok := p.(map[string]any)
-			if !ok {
-				continue
-			}
-			k, _ := m["key"].(string)
-			if strings.TrimSpace(k) == "" {
-				continue
-			}
-			v, _ := m["value"].(string)
-			q.Add(strings.TrimSpace(k), v)
+	q := urlObj.Query()
+	for _, p := range cfg.Params {
+		if strings.TrimSpace(p.Key) == "" {
+			continue
 		}
-		urlObj.RawQuery = q.Encode()
+		q.Add(strings.TrimSpace(p.Key), p.Value)
 	}
+	urlObj.RawQuery = q.Encode()
 
 	if privateIPRegex.MatchString(urlObj.Hostname()) {
 		return nil, fmt.Errorf(
@@ -135,7 +117,7 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error
 		lowercasedHeaders[strings.ToLower(k)] = v
 	}
 
-	body, _ := cfg["body"].(string)
+	body := cfg.Body
 	if (method == "POST" || method == "PUT" || method == "PATCH") && body != "" {
 		if _, ok := lowercasedHeaders["content-type"]; !ok {
 			trimmed := strings.TrimSpace(body)

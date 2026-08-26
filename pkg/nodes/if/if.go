@@ -2,47 +2,28 @@ package ifnode
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/asaidimu/hermes/pkg/expr"
 	"github.com/asaidimu/hermes/pkg/nodekit"
 )
 
-var Node = nodekit.NodeDefinition{
+type IfConfig struct {
+	Mode        string `config:"mode" anansi:"default=simple"`
+	Key         string `config:"key" anansi:"default=state.value"`
+	Predicate   string `config:"predicate" anansi:"default==="`
+	Value       string `config:"value" anansi:"default=10"`
+	Conditions  any    `config:"conditions"`
+	Combinators any    `config:"combinators"`
+	Condition   any    `config:"condition"`
+}
+
+var Node = nodekit.Define(nodekit.TypedDefinition[IfConfig]{
 	Kind:        "if",
 	Label:       "If / Condition",
 	Description: "Branch to 'true' or 'false' output based on conditions with AND/OR combinators.",
 	Type:        "executable",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "if",
-		"fields": {
-			"mode":        { "name": "mode", "type": "string", "default": "simple" },
-			"key":         { "name": "key", "type": "string", "default": "state.value" },
-			"predicate":   { "name": "predicate", "type": "string", "default": "===" },
-			"value":       { "name": "value", "type": "string", "default": "10" },
-			"conditions":  { "name": "conditions", "type": "array" },
-			"combinators": { "name": "combinators", "type": "array" },
-			"condition": {
-				"name": "condition",
-				"type": "union",
-				"schema": [ { "id": "simpleCondition" }, { "id": "complexCondition" } ]
-			}
-		},
-		"schemas": {
-			"simpleCondition": {
-				"name": "simpleCondition",
-				"fields": {
-					"key":       { "name": "key", "type": "string", "required": true },
-					"predicate": { "name": "predicate", "type": "string", "required": true },
-					"value":     { "name": "value", "type": "string", "required": true }
-				}
-			},
-			"complexCondition": { "name": "complexCondition", "type": "string" }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *IfConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: "if", Label: "true"},
@@ -51,7 +32,7 @@ var Node = nodekit.NodeDefinition{
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"if","label":"true","kind":"executable"},{"type":"source","id":"else","label":"false","kind":"executable"}]`,
 	Router:    router,
-}
+})
 
 var operatorMap = map[string]string{
 	"equals":         "===",
@@ -91,26 +72,24 @@ func conditionEvalString(field, operator, value string) string {
 	}
 }
 
-func evalCondition(ctx context.Context, cond map[string]any, state map[string]any) (bool, error) {
+func evalConditionItem(ctx context.Context, cond map[string]any, state map[string]any) (bool, error) {
 	field, _ := cond["field"].(string)
 	operator, _ := cond["operator"].(string)
 	value, _ := cond["value"].(string)
 	return expr.EvalBody(ctx, conditionEvalString(field, operator, value), state)
 }
 
-// router mirrors the TS if node: evaluates the conditions array with
-// combinators (new path) or the legacy key/predicate/value / complex condition
-// paths, returning "if" / "else". Any evaluation error routes to "else".
-func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
+func router(ctx context.Context, nCtx *nodekit.TypedRunContext[IfConfig]) (string, error) {
 	cfg := nCtx.Config
 	state := nCtx.State
 
-	if conditions, ok := cfg["conditions"].([]any); ok && len(conditions) > 0 {
+	// New path: conditions array with combinators.
+	if conditions, ok := cfg.Conditions.([]any); ok && len(conditions) > 0 {
 		var combinators []any
-		if c, ok := cfg["combinators"].([]any); ok {
+		if c, ok := cfg.Combinators.([]any); ok {
 			combinators = c
 		}
-		result, err := evalCondition(ctx, asMap(conditions[0]), state)
+		result, err := evalConditionItem(ctx, asMap(conditions[0]), state)
 		if err != nil {
 			return "else", nil
 		}
@@ -121,7 +100,7 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 					combinator = s
 				}
 			}
-			condResult, err := evalCondition(ctx, asMap(conditions[i]), state)
+			condResult, err := evalConditionItem(ctx, asMap(conditions[i]), state)
 			if err != nil {
 				return "else", nil
 			}
@@ -137,7 +116,7 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 		return "else", nil
 	}
 
-	mode, _ := cfg["mode"].(string)
+	mode := cfg.Mode
 	if mode == "" {
 		mode = "simple"
 	}
@@ -149,15 +128,17 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 	return "if", nil
 }
 
-func evalLegacy(ctx context.Context, cfg map[string]any, state map[string]any, mode string) (bool, error) {
+func evalLegacy(ctx context.Context, cfg *IfConfig, state map[string]any, mode string) (bool, error) {
 	if mode == "simple" {
-		key, _ := cfg["key"].(string)
-		predicate, _ := cfg["predicate"].(string)
-		value, _ := cfg["value"].(string)
-		return expr.EvalBody(ctx, conditionEvalString(key, predicate, value), state)
+		return expr.EvalBody(ctx, conditionEvalString(cfg.Key, cfg.Predicate, cfg.Value), state)
 	}
-	condition, _ := cfg["condition"].(string)
-	return expr.EvalBody(ctx, condition, state)
+	// complex mode: condition is a raw JS expression
+	switch c := cfg.Condition.(type) {
+	case string:
+		return expr.EvalBody(ctx, c, state)
+	default:
+		return false, fmt.Errorf("invalid condition type")
+	}
 }
 
 func asMap(v any) map[string]any {

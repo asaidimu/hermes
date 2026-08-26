@@ -11,6 +11,67 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodekit"
 )
 
+func httpRun(ctx context.Context, nodeID string, config map[string]any) (func(map[string]any) error, error) {
+	var cfg HTTPConfig
+	if v, ok := config["method"].(string); ok {
+		cfg.Method = v
+	} else {
+		cfg.Method = "GET"
+	}
+	if v, ok := config["url"].(string); ok {
+		cfg.URL = v
+	}
+	if v, ok := config["key"].(string); ok {
+		cfg.Key = v
+	}
+	if v, ok := config["body"].(string); ok {
+		cfg.Body = v
+	}
+	if v, ok := config["responseType"].(string); ok {
+		cfg.ResponseType = v
+	} else {
+		cfg.ResponseType = "json"
+	}
+	if v, ok := config["throwOnError"].(bool); ok {
+		cfg.ThrowOnError = v
+	} else {
+		cfg.ThrowOnError = true // matches anansi default
+	}
+	if v, ok := config["timeoutMs"].(float64); ok {
+		cfg.TimeoutMs = v
+	} else {
+		cfg.TimeoutMs = 30000
+	}
+	if params, ok := config["params"].([]any); ok {
+		for _, p := range params {
+			if m, ok := p.(map[string]any); ok {
+				cfg.Params = append(cfg.Params, HTTPParam{
+					Key:   m["key"].(string),
+					Value: m["value"].(string),
+				})
+			}
+		}
+	}
+	if headers, ok := config["headers"].([]any); ok {
+		for _, h := range headers {
+			if m, ok := h.(map[string]any); ok {
+				cfg.Headers = append(cfg.Headers, HTTPParam{
+					Key:   m["key"].(string),
+					Value: m["value"].(string),
+				})
+			}
+		}
+	}
+	nCtx := &nodekit.TypedRunContext[HTTPConfig]{
+		NodeRunContext: nodekit.NodeRunContext{
+			NodeID: nodeID,
+			Config: config,
+		},
+		Config: &cfg,
+	}
+	return run(ctx, nCtx)
+}
+
 func TestSSRFBlock(t *testing.T) {
 	cases := []string{
 		"http://127.0.0.1:8000/x",
@@ -21,10 +82,7 @@ func TestSSRFBlock(t *testing.T) {
 		"http://[fc00:1234::1]/x",
 	}
 	for _, u := range cases {
-		_, err := run(context.Background(), nodekit.NodeRunContext{
-			NodeID: "http1",
-			Config: map[string]any{"url": u},
-		})
+		_, err := httpRun(context.Background(), "http1", map[string]any{"url": u})
 		if err == nil || !strings.Contains(err.Error(), "security block") {
 			t.Errorf("URL %s: want SSRF block, got %v", u, err)
 		}
@@ -38,18 +96,13 @@ func TestRunAgainstTestServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// httptest binds to 127.0.0.1; the SSRF guard blocks private IP literals, so
-	// route through "localhost" (hostname passes the guard, resolves to loopback).
 	localURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 
 	state := map[string]any{}
-	mut, err := run(context.Background(), nodekit.NodeRunContext{
-		NodeID: "http1",
-		Config: map[string]any{
-			"method": "GET",
-			"url":    localURL + "/api",
-			"params": []any{map[string]any{"key": "a", "value": "1"}},
-		},
+	mut, err := httpRun(context.Background(), "http1", map[string]any{
+		"method": "GET",
+		"url":    localURL + "/api",
+		"params": []any{map[string]any{"key": "a", "value": "1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,18 +137,17 @@ func TestCustomKeyAndThrowOnError(t *testing.T) {
 
 	localURL := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 
-	_, err := run(context.Background(), nodekit.NodeRunContext{
-		NodeID: "http1",
-		Config: map[string]any{"url": localURL, "key": "resp"},
-	})
+	_, err := httpRun(context.Background(), "http1", map[string]any{"url": localURL, "key": "resp"})
 	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
 		t.Errorf("throwOnError: want HTTP 400 error, got %v", err)
 	}
 
 	state := map[string]any{}
-	mut, err := run(context.Background(), nodekit.NodeRunContext{
-		NodeID: "http1",
-		Config: map[string]any{"url": localURL, "key": "resp", "throwOnError": false, "responseType": "text"},
+	mut, err := httpRun(context.Background(), "http1", map[string]any{
+		"url":          localURL,
+		"key":          "resp",
+		"throwOnError": false,
+		"responseType": "text",
 	})
 	if err != nil {
 		t.Fatal(err)

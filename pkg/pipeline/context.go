@@ -191,7 +191,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 
 		// A stage runs either steps or sub-pipelines (pipelines win, mirroring TS).
 		mode := "steps"
-		if len(stage.Pipelines) > 0 {
+		if len(stage.Pipelines) > 0 || stage.DynamicPipelines != nil {
 			mode = "pipelines"
 		}
 
@@ -230,8 +230,16 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			instruction, stageErr = router(runCtx, stateSnapshot(r.store), r.store)
 		} else {
 			// 3. Pipelines-mode stage: fork children, join, route.
-			subPipelineIDs := make([]string, 0, len(stage.Pipelines))
-			for _, sp := range stage.Pipelines {
+			// Resolve pipelines: use DynamicPipelines if set, else static Pipelines.
+			resolvedPipelines := stage.Pipelines
+			if stage.DynamicPipelines != nil {
+				resolvedPipelines = stage.DynamicPipelines(stateSnapshot(r.store))
+				// Patch the stage so ExecuteSubPipelines sees the resolved list.
+				stage.Pipelines = resolvedPipelines
+			}
+
+			subPipelineIDs := make([]string, 0, len(resolvedPipelines))
+			for _, sp := range resolvedPipelines {
 				subPipelineIDs = append(subPipelineIDs, sp.ID)
 			}
 			r.eventBus.Emit(ctx, "subpipeline:fork", events.PipelineEvent{
@@ -252,7 +260,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 
 			// subpipeline:join
 			joinResults := map[string]any{}
-			for i, sp := range stage.Pipelines {
+			for i, sp := range resolvedPipelines {
 				if i >= len(subResults) {
 					continue
 				}
@@ -293,10 +301,10 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			if stage.Config != nil {
 				if resultKey, ok := stage.Config["resultKey"].(string); ok && resultKey != "" {
 					for i, sRes := range subResults {
-						if i >= len(stage.Pipelines) {
+						if i >= len(resolvedPipelines) {
 							continue
 						}
-						pipelineID := stage.Pipelines[i].ID
+						pipelineID := resolvedPipelines[i].ID
 						var mergeVal any
 						if sRes.Status == "succeeded" && sRes.FinalState != nil {
 							// Merge child's final state
@@ -312,7 +320,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 
 						if mergeVal != nil {
 							key := resultKey
-							if len(stage.Pipelines) > 1 {
+							if len(resolvedPipelines) > 1 {
 								key = resultKey + ":" + pipelineID
 							}
 							// @note #review-20260825-001 issue status=open priority=P1 tags=#review,#error-handling : Discarded store update error in result merge

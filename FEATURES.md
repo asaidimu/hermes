@@ -25,6 +25,7 @@ graph (nodes+edges) → compiler → pipeline.PipelineDefinition
 - **Bounded nodes** (try-catch): body-handle edge compiles a `<id>__body` subpipeline with optional setup step; results routed by the node's pipelines-router.
 - **Pipeline-ref nodes**: referenced sub-workflows compile as nested `PipelineDefinition`s with `resultKey` result merging.
 - Compile-time config validation via anansi schema `ValidateConfig` (full validation, coerces defaults).
+- **Fork-join**: fork nodes compile to pipelines-mode stages with sub-pipelines per branch; compiler validates all branches converge at the same join node; branch stages excluded from flat stage list.
 - Compile errors for missing edges (e.g., bounded node without body edge), unknown kinds, unresolvable targets.
 
 ## 3. Pipeline engine (`pkg/pipeline`)
@@ -56,8 +57,26 @@ graph (nodes+edges) → compiler → pipeline.PipelineDefinition
 | `http` | GET/POST/etc.; headers/params arrays; body; responseType json/text; throwOnError (default true); timeoutMs (default 30s); output under `http_<nodeId>` or custom key; SSRF guard blocks private/loopback IP literals |
 | `query` | STUB — requires database resource; returns "not yet implemented" (Phase 5 WIP) |
 | `pipeline-ref` | Invoke registered sub-workflow; own fresh state; `initialState` interpolation from parent; result merged under `resultKey`; compile-time config validation against target trigger |
+| `fork` | Split execution into parallel branches (N source handles); each branch runs as a sub-pipeline; converges at a single Join node |
+| `join` | Synchronization point after Fork; 1 target, 1 source; waits for all fork branches to complete before advancing |
+| `distribute` | Parallel for-each: execute the body concurrently for each element in an array; each iteration gets its own sub-pipeline with the element injected; results merged under `resultKey` |
 
 Node definitions carry: kind, label, description, ConfigSchema (anansi JSON), Handles (+ `HandlesJS` parity for the client), Run, Router/RouterFunc, BodyHandle, ValidateConfig, **Requirements**.
+
+### Generic node configs (`pkg/nodekit/typed.go`)
+
+Node definitions are **generic over their configuration structs**. One struct per node kind — the struct IS the schema:
+
+- `Define[C any](TypedDefinition[C])` → erased `NodeDefinition` ready for `Register`.
+- **Schema derived once** at registration via `data.ExtractDTOSchemaDirectWithTag((*C)(nil), "config")` — no hand-written `ConfigSchema` JSON needed.
+- **Binding**: raw config map → `document.NewRecordView(map).BindToTag(&cfg, "config")` — anansi binder fills the struct.
+- **Run/Router/BodyHandle callbacks** receive `*TypedRunContext[C]` with typed `Config *C` — no more `cfg["method"].(string)` extraction.
+- Struct tags drive everything: `config:"fieldName"` for name resolution, `anansi:"required=true,default=GET"` for metadata.
+- `ValidateConfig func(*C) error` for custom validation beyond derived schema.
+- Handles callbacks receive `*C` — dynamic handles (switch/cases) read typed fields directly.
+- Zero node changes required: engine never sees `C`, only the erased `NodeDefinition`.
+
+Convention: `config:"fieldName"` for anansi binding + `anansi:"required,default,nullable,type,values"` for metadata. The struct replaces: hand-written ConfigSchema JSON, manual field extraction in Run/Router, ValidateConfig functions.
 
 ### Node requirements (env/secrets)
 
@@ -74,7 +93,8 @@ Design rule: **configs carry references; context carries credentials.** Secrets 
 
 - Registry (`Register`/`Get`/`Registry`) of node definitions.
 - **Config pipeline**: deep interpolation of `${state.path}` style expressions against live state per execution (loops see updated state), then anansi-schema coercion + defaults.
-- `BuildStep` / `BuildStage` / `BuildBoundedStage` / `BuildRouter` / `buildRouterFunc`: compile node defs into engine primitives.
+- `BuildStep` / `BuildStage` / `BuildBoundedStage` / `BuildDistributeStage` / `BuildRouter` / `buildRouterFunc`: compile node defs into engine primitives.
+- `DynamicPipelines func(state map[string]any) []PipelineDefinition`: stage field for runtime-generated sub-pipelines (used by distribute). If set, the engine calls it instead of using static `Pipelines`.
 - `PatchMutator` + `ApplyPatch`: flat dotted-key patches, ExpandPatch → MergeMaps (arrays replace, objects merge recursively, `nodekit.Delete` sentinel removes keys).
 - `Lookup(state, "a.b.c")`: dotted-path read.
 - Resource resolution: dependency edges → `resource:<sourceNodeId>` handles injected into NodeRunContext.

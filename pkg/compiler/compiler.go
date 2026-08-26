@@ -395,6 +395,8 @@ func compileStages(
 	allEdges []Edge,
 	registry pipeline.PipelineRegistry,
 	requirements *[]pipeline.Requirement,
+	forkBranches map[string]string,
+	joinTargets map[string]string,
 ) ([]pipeline.Stage, error) {
 	flow := flowEdges(allEdges)
 	stages := make([]pipeline.Stage, 0, len(reached))
@@ -419,6 +421,13 @@ func compileStages(
 		}
 
 		if node.Type != NodeExecutable {
+			continue
+		}
+
+		// Skip nodes that belong to a fork branch — they're compiled as
+		// sub-pipelines inside their parent fork stage.
+		if forkID, ok := forkBranches[id]; ok {
+			_ = forkID // available for error context if needed
 			continue
 		}
 
@@ -489,6 +498,29 @@ func compileStages(
 			continue
 		}
 
+		// ---- Fork node ---------------------------------------------------
+		if node.Kind == "fork" {
+			joinID := joinTargets[id]
+			branchStages := map[string][]pipeline.Stage{}
+			for _, e := range flow {
+				if e.Source == id && e.SourceHandle != "" {
+					branchReached, branchOrderByID, branchEdges := bfsBodyNodes(id, e.Target, byID, allEdges)
+					if len(branchReached) == 0 {
+						return nil, fmt.Errorf(
+							"Fork node %q branch %q is empty. Connect at least one node after the branch handle.",
+							id, e.SourceHandle)
+					}
+					bs, err := compileStages(branchReached, branchOrderByID, byID, childrenOf, branchEdges, registry, requirements, forkBranches, joinTargets)
+					if err != nil {
+						return nil, err
+					}
+					branchStages[e.SourceHandle] = bs
+				}
+			}
+			stages = append(stages, nodekit.BuildForkStage(id, def, order, branchStages, joinID))
+			continue
+		}
+
 		resources := buildResourcesFor(id, allEdges, byID)
 		resolveHandle := makeResolveHandle(id, flow, byID)
 
@@ -515,13 +547,19 @@ func compileStages(
 					id, node.Kind, def.BodyHandle)
 			}
 
-			bodyStages, err := compileStages(bodyReached, bodyOrderByID, byID, childrenOf, bodyEdges, registry, requirements)
+			bodyStages, err := compileStages(bodyReached, bodyOrderByID, byID, childrenOf, bodyEdges, registry, requirements, forkBranches, joinTargets)
 			if err != nil {
 				return nil, err
 			}
 
-			stages = append(stages, nodekit.BuildBoundedStage(
-				id, def, node.Config, staticResources(resources), resolveHandle, order, bodyStages))
+			// Distribute uses parallel sub-pipelines; other bounded nodes use sequential.
+			if def.Kind == "distribute" {
+				stages = append(stages, nodekit.BuildDistributeStage(
+					id, def, node.Config, staticResources(resources), resolveHandle, order, bodyStages))
+			} else {
+				stages = append(stages, nodekit.BuildBoundedStage(
+					id, def, node.Config, staticResources(resources), resolveHandle, order, bodyStages))
+			}
 			continue
 		}
 
@@ -590,7 +628,14 @@ func Compile(nodes []Node, edges []Edge, registry pipeline.PipelineRegistry) (*p
 		workflowTriggers[triggerNode.ID] = *trigger
 
 		reached, orderByID := bfsStages(triggerNode.ID, byID, edges)
-		stages, err := compileStages(reached, orderByID, byID, childrenOf, edges, registry, &requirements)
+
+		// Detect fork nodes and validate convergence at join.
+		forkBranches, joinTargets, err := detectForks(reached, byID, edges)
+		if err != nil {
+			return nil, err
+		}
+
+		stages, err := compileStages(reached, orderByID, byID, childrenOf, edges, registry, &requirements, forkBranches, joinTargets)
 		if err != nil {
 			return nil, err
 		}
@@ -625,4 +670,135 @@ func appendRequirement(reqs []pipeline.Requirement, req pipeline.Requirement) []
 		}
 	}
 	return append(reqs, req)
+}
+
+// detectForks scans the reached node set for fork nodes, traces each branch to
+// its terminal node, and validates that all branches converge at the same join
+// node (a node with kind "join"). Returns:
+//   - forkBranches: maps branchNodeID → forkNodeID (used by compileStages to skip)
+//   - joinTargets:  maps forkNodeID → joinNodeID   (used by BuildForkStage)
+func detectForks(reached []string, byID map[string]Node, allEdges []Edge) (forkBranches map[string]string, joinTargets map[string]string, err error) {
+	forkBranches = map[string]string{}
+	joinTargets = map[string]string{}
+	flow := flowEdges(allEdges)
+
+	for _, id := range reached {
+		node := byID[id]
+		if node.Kind != "fork" {
+			continue
+		}
+
+		// Collect branch edge targets.
+		type branchEnd struct {
+			handle     string
+			terminalID string
+		}
+		var branches []branchEnd
+		for _, e := range flow {
+			if e.Source == id && e.SourceHandle != "" {
+				terminal := traceToTerminal(e.Target, byID, flow)
+				branches = append(branches, branchEnd{handle: e.SourceHandle, terminalID: terminal})
+			}
+		}
+
+		if len(branches) == 0 {
+			err = fmt.Errorf("Fork node %q has no outgoing branch edges. Connect branch handles to downstream nodes.", id)
+			return
+		}
+
+		// Validate all branches terminate at the same join node.
+		var joinID string
+		for _, b := range branches {
+			terminalNode, ok := byID[b.terminalID]
+			if !ok {
+				err = fmt.Errorf("Fork node %q branch %q leads to unknown node %q.", id, b.handle, b.terminalID)
+				return
+			}
+			if terminalNode.Kind != "join" {
+				err = fmt.Errorf("Fork node %q branch %q must terminate at a Join node, but terminates at %q (kind: %q).",
+					id, b.handle, b.terminalID, terminalNode.Kind)
+				return
+			}
+			if joinID == "" {
+				joinID = b.terminalID
+			} else if joinID != b.terminalID {
+				err = fmt.Errorf("Fork node %q branches do not converge: branch %q ends at %q, but another branch ends at %q. All branches must terminate at the same Join node.",
+					id, b.handle, b.terminalID, joinID)
+				return
+			}
+		}
+
+		joinTargets[id] = joinID
+
+		// Mark all non-terminal branch nodes as fork branches (to skip from flat list).
+		for _, e := range flow {
+			if e.Source == id && e.SourceHandle != "" {
+				markBranchNodes(e.Target, id, byID, flow, forkBranches, joinID)
+			}
+		}
+	}
+
+	return
+}
+
+// traceToTerminal follows the single outgoing edge from a node until it
+// reaches a node with no outgoing flow edges (a terminal node).
+func traceToTerminal(startID string, byID map[string]Node, flow []Edge) string {
+	current := startID
+	seen := map[string]bool{}
+	for {
+		if seen[current] {
+			return current
+		}
+		seen[current] = true
+		node, ok := byID[current]
+		if !ok {
+			return current
+		}
+		// If this is a join node, it's the terminal.
+		if node.Kind == "join" {
+			return current
+		}
+		// Find the single outgoing flow edge.
+		var next string
+		for _, e := range flow {
+			if e.Source == current && e.Target != "" {
+				if next != "" {
+					// Multiple outgoing edges — this node is a branching point,
+					// not a simple pass-through. Return current as terminal.
+					return current
+				}
+				next = e.Target
+			}
+		}
+		if next == "" {
+			return current
+		}
+		current = next
+	}
+}
+
+// markBranchNodes recursively marks all nodes reachable from startID as
+// belonging to the given fork, stopping at the join node.
+func markBranchNodes(startID, forkID string, byID map[string]Node, flow []Edge, forkBranches map[string]string, joinID string) {
+	queue := []string{startID}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if id == joinID {
+			continue // don't mark the join node
+		}
+		if _, already := forkBranches[id]; already {
+			continue
+		}
+		if _, ok := byID[id]; !ok {
+			continue
+		}
+		forkBranches[id] = forkID
+		for _, e := range flow {
+			if e.Source == id && e.Target != "" {
+				queue = append(queue, e.Target)
+			}
+		}
+	}
 }

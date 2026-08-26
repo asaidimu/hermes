@@ -2,43 +2,23 @@ package while
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/asaidimu/hermes/pkg/expr"
 	"github.com/asaidimu/hermes/pkg/nodekit"
 )
 
-var Node = nodekit.NodeDefinition{
+type WhileConfig struct {
+	Mode      string `config:"mode" anansi:"default=simple"`
+	Condition any    `config:"condition"`
+}
+
+var Node = nodekit.Define(nodekit.TypedDefinition[WhileConfig]{
 	Kind:        "while",
 	Label:       "While Loop",
 	Description: "Repeatedly execute the 'do' branch as long as the condition remains true.",
 	Type:        "executable",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "while",
-		"fields": {
-			"mode":      { "name": "mode", "type": "string", "default": "simple", "required": true },
-			"condition": {
-				"name": "condition",
-				"type": "union",
-				"schema": [ { "id": "simpleCondition" }, { "id": "complexCondition" } ],
-				"required": true
-			}
-		},
-		"schemas": {
-			"simpleCondition": {
-				"name": "simpleCondition",
-				"fields": {
-					"key":       { "name": "key", "type": "string", "required": true },
-					"predicate": { "name": "predicate", "type": "string", "required": true },
-					"value":     { "name": "value", "type": "string", "required": true }
-				}
-			},
-			"complexCondition": { "name": "complexCondition", "type": "string" }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *WhileConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: "done", Label: "done"},
@@ -47,7 +27,7 @@ var Node = nodekit.NodeDefinition{
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"done","label":"done","kind":"executable"},{"type":"source","id":"do","label":"do","kind":"executable"}]`,
 	Router:    router,
-}
+})
 
 // @note #review-20260826-008 observation status=open priority=P3 tags=#review,#robustness : Loop safety relies solely on context cancellation — no iteration cap
 // @author ox-alpha
@@ -61,9 +41,9 @@ var Node = nodekit.NodeDefinition{
 // Router mirrors the TS while node: evaluates the simple predicate or the
 // complex condition body, returning "do" / "done". Any evaluation error routes
 // to "done".
-func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
+func router(ctx context.Context, nCtx *nodekit.TypedRunContext[WhileConfig]) (string, error) {
 	cfg := nCtx.Config
-	mode, _ := cfg["mode"].(string)
+	mode := cfg.Mode
 	if mode == "" {
 		mode = "simple"
 	}
@@ -71,16 +51,19 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 	var ok bool
 	var err error
 	if mode == "simple" {
-		condition, _ := cfg["condition"].(map[string]any)
+		condition, _ := cfg.Condition.(map[string]any)
 		if condition == nil {
-			condition = cfg
+			return "done", nil
 		}
 		key, _ := condition["key"].(string)
 		predicate, _ := condition["predicate"].(string)
 		value, _ := condition["value"].(string)
 		ok, err = expr.EvalBody(ctx, evalString(key, predicate, value), nCtx.State)
 	} else {
-		condition, _ := cfg["condition"].(string)
+		condition, _ := cfg.Condition.(string)
+		if condition == "" {
+			return "done", nil
+		}
 		ok, err = expr.EvalBody(ctx, condition, nCtx.State)
 	}
 	if err != nil || !ok {

@@ -17,7 +17,7 @@ func route(t *testing.T, cfg map[string]any, state map[string]any) string {
 }
 
 func TestSimplePredicate(t *testing.T) {
-	cfg := map[string]any{"mode": "simple", "key": "state.index", "predicate": "<", "value": "5"}
+	cfg := map[string]any{"mode": "simple", "condition": map[string]any{"key": "state.index", "predicate": "<", "value": "5"}}
 	if got := route(t, cfg, map[string]any{"index": 3}); got != "do" {
 		t.Errorf("in range: got %q", got)
 	}
@@ -46,7 +46,7 @@ func TestErrorFallsToDone(t *testing.T) {
 // Bare-key tests: field without state. prefix resolves via StatePathExpr.
 
 func TestBareKeySimple(t *testing.T) {
-	cfg := map[string]any{"mode": "simple", "key": "index", "predicate": "<", "value": "5"}
+	cfg := map[string]any{"mode": "simple", "condition": map[string]any{"key": "index", "predicate": "<", "value": "5"}}
 	if got := route(t, cfg, map[string]any{"index": 3}); got != "do" {
 		t.Errorf("bare key true: got %q", got)
 	}
@@ -56,7 +56,7 @@ func TestBareKeySimple(t *testing.T) {
 }
 
 func TestBareKeyNested(t *testing.T) {
-	cfg := map[string]any{"mode": "simple", "key": "loop.counter", "predicate": "<", "value": "3"}
+	cfg := map[string]any{"mode": "simple", "condition": map[string]any{"key": "loop.counter", "predicate": "<", "value": "3"}}
 	state := map[string]any{"loop": map[string]any{"counter": float64(1)}}
 	if got := route(t, cfg, state); got != "do" {
 		t.Errorf("nested bare key true: got %q", got)

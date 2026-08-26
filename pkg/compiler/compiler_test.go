@@ -581,3 +581,212 @@ func findStage(stages []pipeline.Stage, id string) *pipeline.Stage {
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// Fork-Join tests
+// ---------------------------------------------------------------------------
+
+func TestForkJoinCompiles(t *testing.T) {
+	// trigger → fork --(a)--> delay1 --(a)--> join → output
+	//                   \--(b)--> delay2 --(b)--> ↗
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{}),
+		execNode("fork-1", "fork", map[string]any{"branches": []any{"a", "b"}}),
+		execNode("delay-a", "delay", map[string]any{"ms": 10}),
+		execNode("delay-b", "delay", map[string]any{"ms": 20}),
+		execNode("join-1", "join", map[string]any{}),
+		execNode("out-1", "output", map[string]any{}),
+	}
+	edges := []compiler.Edge{
+		flowEdge("e1", "trigger-1", "fork-1", ""),
+		flowEdge("e2", "fork-1", "delay-a", "a"),
+		flowEdge("e3", "fork-1", "delay-b", "b"),
+		flowEdge("e4", "delay-a", "join-1", ""),
+		flowEdge("e5", "delay-b", "join-1", ""),
+		flowEdge("e6", "join-1", "out-1", ""),
+	}
+
+	wf, err := compiler.Compile(nodes, edges, nil)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	// Should have exactly one pipeline (from the trigger).
+	if len(wf.Pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(wf.Pipelines))
+	}
+
+	p := wf.Pipelines["trigger-1"]
+	// The fork node should be a stage with Pipelines (sub-pipelines).
+	var forkStage *pipeline.Stage
+	for i := range p.Stages {
+		if p.Stages[i].ID == "fork-1" {
+			forkStage = &p.Stages[i]
+			break
+		}
+	}
+	if forkStage == nil {
+		t.Fatal("fork-1 stage not found")
+	}
+	if len(forkStage.Pipelines) != 2 {
+		t.Errorf("fork stage should have 2 sub-pipelines, got %d", len(forkStage.Pipelines))
+	}
+	// Join should be a regular stage.
+	var joinFound bool
+	for _, s := range p.Stages {
+		if s.ID == "join-1" {
+			joinFound = true
+			break
+		}
+	}
+	if !joinFound {
+		t.Error("join-1 stage not found in flat stages")
+	}
+	// delay-a and delay-b should NOT be in flat stages (they're inside fork sub-pipelines).
+	for _, s := range p.Stages {
+		if s.ID == "delay-a" || s.ID == "delay-b" {
+			t.Errorf("branch node %q should not be in flat stages", s.ID)
+		}
+	}
+}
+
+func TestForkBranchesMustConverge(t *testing.T) {
+	// trigger → fork --(a)--> delay1 → out1  (branch a ends at out1, not join)
+	//                   \--(b)--> delay2 → join → out2
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{}),
+		execNode("fork-1", "fork", map[string]any{"branches": []any{"a", "b"}}),
+		execNode("delay-a", "delay", map[string]any{}),
+		execNode("delay-b", "delay", map[string]any{}),
+		execNode("out-a", "output", map[string]any{}),
+		execNode("join-1", "join", map[string]any{}),
+		execNode("out-2", "output", map[string]any{}),
+	}
+	edges := []compiler.Edge{
+		flowEdge("e1", "trigger-1", "fork-1", ""),
+		flowEdge("e2", "fork-1", "delay-a", "a"),
+		flowEdge("e3", "fork-1", "delay-b", "b"),
+		flowEdge("e4", "delay-a", "out-a", ""),
+		flowEdge("e5", "delay-b", "join-1", ""),
+		flowEdge("e6", "join-1", "out-2", ""),
+	}
+
+	_, err := compiler.Compile(nodes, edges, nil)
+	if err == nil {
+		t.Fatal("expected error for non-converging fork branches")
+	}
+	if !strings.Contains(err.Error(), "must terminate at a Join node") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestForkBranchesMustConvergeAtSameJoin(t *testing.T) {
+	// trigger → fork --(a)--> delay1 → join1 → out1
+	//                   \--(b)--> delay2 → join2 → out2
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{}),
+		execNode("fork-1", "fork", map[string]any{"branches": []any{"a", "b"}}),
+		execNode("delay-a", "delay", map[string]any{}),
+		execNode("delay-b", "delay", map[string]any{}),
+		execNode("join-a", "join", map[string]any{}),
+		execNode("join-b", "join", map[string]any{}),
+		execNode("out-a", "output", map[string]any{}),
+		execNode("out-b", "output", map[string]any{}),
+	}
+	edges := []compiler.Edge{
+		flowEdge("e1", "trigger-1", "fork-1", ""),
+		flowEdge("e2", "fork-1", "delay-a", "a"),
+		flowEdge("e3", "fork-1", "delay-b", "b"),
+		flowEdge("e4", "delay-a", "join-a", ""),
+		flowEdge("e5", "delay-b", "join-b", ""),
+		flowEdge("e6", "join-a", "out-a", ""),
+		flowEdge("e7", "join-b", "out-b", ""),
+	}
+
+	_, err := compiler.Compile(nodes, edges, nil)
+	if err == nil {
+		t.Fatal("expected error for fork branches converging at different joins")
+	}
+	if !strings.Contains(err.Error(), "do not converge") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Distribute (parallel for-each) tests
+// ---------------------------------------------------------------------------
+
+func TestDistributeCompiles(t *testing.T) {
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{}),
+		execNode("dist-1", "distribute", map[string]any{"itemsKey": "items", "itemKey": "item"}),
+		execNode("code-1", "code", map[string]any{"code": "state.result = state.item"}),
+		execNode("out-1", "output", map[string]any{}),
+	}
+	edges := []compiler.Edge{
+		flowEdge("e1", "trigger-1", "dist-1", ""),
+		flowEdge("e2", "dist-1", "code-1", "do"),
+		flowEdge("e3", "code-1", "dist-1", ""),
+		flowEdge("e4", "dist-1", "out-1", "done"),
+	}
+
+	wf, err := compiler.Compile(nodes, edges, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	if wf == nil {
+		t.Fatal("expected non-nil workflow")
+	}
+
+	p := wf.Pipelines["trigger-1"]
+	// The distribute node should be a stage with Pipelines.
+	var distStage *pipeline.Stage
+	for i := range p.Stages {
+		if p.Stages[i].ID == "dist-1" {
+			distStage = &p.Stages[i]
+			break
+		}
+	}
+	if distStage == nil {
+		t.Fatal("distribute stage not found")
+	}
+	if len(distStage.Pipelines) == 0 {
+		t.Fatal("distribute stage has no sub-pipelines")
+	}
+
+	// The sub-pipeline should contain setup + pipelines stages.
+	sub := distStage.Pipelines[0]
+	if len(sub.Stages) != 2 {
+		t.Errorf("expected 2 stages in distribute sub-pipeline (setup + pipelines), got %d", len(sub.Stages))
+	}
+	if sub.Stages[0].ID != "dist-1__setup" {
+		t.Errorf("first stage should be dist-1__setup, got %s", sub.Stages[0].ID)
+	}
+	if sub.Stages[1].ID != "dist-1__pipelines" {
+		t.Errorf("second stage should be dist-1__pipelines, got %s", sub.Stages[1].ID)
+	}
+	if sub.Stages[1].DynamicPipelines == nil {
+		t.Error("pipelines stage should have DynamicPipelines set")
+	}
+}
+
+func TestDistributeRequiresBody(t *testing.T) {
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{}),
+		execNode("dist-1", "distribute", map[string]any{"itemsKey": "items", "itemKey": "item"}),
+		execNode("out-1", "output", map[string]any{}),
+	}
+	edges := []compiler.Edge{
+		flowEdge("e1", "trigger-1", "dist-1", ""),
+		// No "do" edge — body is missing.
+		flowEdge("e2", "dist-1", "out-1", "done"),
+	}
+
+	_, err := compiler.Compile(nodes, edges, nil)
+	if err == nil {
+		t.Fatal("expected error for distribute with no body")
+	}
+	if !strings.Contains(err.Error(), "do") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

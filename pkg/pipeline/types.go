@@ -190,6 +190,11 @@ type Stage struct {
 	Pipelines       []PipelineDefinition
 	PipelinesRouter PipelineStageRouter
 	Config          map[string]any
+	// DynamicPipelines generates sub-pipelines at runtime from the current state.
+	// Used by distribute (parallel for-each): each array element becomes a
+	// sub-pipeline. If set, Pipelines is ignored and DynamicPipelines is called
+	// during execution to produce the sub-pipeline list.
+	DynamicPipelines func(state map[string]any) []PipelineDefinition
 }
 
 // PipelineDefinition declares the static DAG/pipeline structure.
