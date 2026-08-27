@@ -11,6 +11,13 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
+// @note #review-20260827-004 todo status=open priority=P2 tags=#review,#refactoring,#typesafety : Migrate try-catch node from untyped NodeDefinition to TypedDefinition[TryCatchConfig]
+// @author antigravity
+//
+// The try-catch node is an unmigrated refactoring artifact: it still declares an untyped
+// NodeDefinition with hand-written ConfigSchema JSON and untyped NodeRunContext callbacks.
+// It should be migrated to nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{...}) with
+// a typed ErrorKey struct field.
 var Node = nodekit.NodeDefinition{
 	Kind:        "try-catch",
 	Label:       "Try / Catch",

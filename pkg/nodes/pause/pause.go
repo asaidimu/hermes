@@ -11,6 +11,14 @@ import (
 	"github.com/asaidimu/hermes/pkg/watch"
 )
 
+// @note #review-20260827-003 todo status=open priority=P2 tags=#review,#refactoring,#typesafety : Migrate pause node from untyped NodeDefinition to TypedDefinition[PauseConfig]
+// @author antigravity
+//
+// The pause node is an unmigrated refactoring artifact: it still declares an untyped
+// NodeDefinition with hand-written ConfigSchema JSON and reads raw untyped config maps
+// with unchecked type assertions (e.g. nCtx.Config["timeout"].(float64)). It should be
+// migrated to nodekit.Define(nodekit.TypedDefinition[PauseConfig]{...}) with tagged struct
+// fields for waitForEvent, waitForEvents, mode, and timeout.
 var Node = nodekit.NodeDefinition{
 	Kind:        "pause",
 	Label:       "Pause",

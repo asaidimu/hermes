@@ -12,6 +12,16 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
+// @note #review-20260827-001 observation status=open priority=P1 tags=#review,#api,#typesafety : Dual RunContext types and field shadowing in TypedRunContext
+// @author antigravity
+//
+// TypedRunContext[C] embeds NodeRunContext while also declaring Config *C. In Go struct
+// embedding, TypedRunContext[C].Config shadows NodeRunContext.Config (map[string]any).
+// Node authors receive TypedRunContext, but the underlying engine still operates on
+// untyped NodeRunContext with map[string]any for Config, State, Results, and Errors.
+// TypedRunContext[C] should be the default RunContext[C any] across the entire nodekit
+// lifecycle rather than a wrapper over untyped legacy state bags.
+//
 // TypedRunContext[C] carries both typed config and general runtime context.
 // Node authors receive this from typed Run/Router/BodyHandle callbacks.
 type TypedRunContext[C any] struct {
@@ -56,6 +66,15 @@ type TypedDefinition[C any] struct {
 	ValidateConfig      func(*C) error
 }
 
+// @note #review-20260827-002 observation status=open priority=P2 tags=#review,#performance,#architecture : Type erasure and per-execution map-to-struct binding overhead in Define
+// @author antigravity
+//
+// Define[C] derives the schema at registration time but immediately erases type C into
+// an untyped NodeDefinition. On every single node execution, prepareNodeConfig coerces
+// raw map state and the wrapped callback calls bindFromMap (anansi record view -> struct)
+// afresh. If the engine executed typed steps natively, this per-execution reflection
+// and map-copying overhead would be eliminated.
+//
 // Define creates an erased NodeDefinition from a TypedDefinition[C].
 // Schema is derived once from C at registration time via ExtractDTOSchemaDirectWithTag.
 // The returned NodeDefinition is ready for Register — the engine never sees C.
