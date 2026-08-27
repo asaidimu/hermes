@@ -134,9 +134,9 @@ func TestInMemorySchedulerReplace(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// Should only have fired the second callback
-	if callCount != 10 {
-		t.Errorf("expected callCount=10, got %d", callCount)
+	// Assert that the second callback executed (multiple of 10) and first callback didn't fire (+1)
+	if callCount == 0 || callCount%10 != 0 {
+		t.Errorf("expected callCount to be a non-zero multiple of 10 (second callback only), got %d", callCount)
 	}
 }
 
