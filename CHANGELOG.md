@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/asaidimu/hermes/compare/v1.1.0...v1.1.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* fix issues ([5ac2f50](https://github.com/asaidimu/hermes/commit/5ac2f506bc543045fe76bf051a329b823f241a32))
+
 # [1.1.0](https://github.com/asaidimu/hermes/compare/v1.0.0...v1.1.0) (2026-08-27)
 
 
