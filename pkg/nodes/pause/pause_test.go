@@ -18,6 +18,7 @@ import (
 )
 
 func init() {
+	nodekit.Register(Node)
 	nodekit.Register(trigger.Node)
 	nodekit.Register(code.Node)
 }

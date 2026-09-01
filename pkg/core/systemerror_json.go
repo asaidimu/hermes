@@ -162,11 +162,18 @@ func SystemErrorJSON(err error) map[string]any {
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 		// @note #review-20260822-028 issue status=resolved priority=P3 tags=#review,#documentation : Stack field is always empty string
 		//
-		// Resolved: the "stack" key is now omitted entirely instead of
-		// always being sent as an empty string. go-anansi's SystemError has
-		// no captured stack to populate it with, so the empty placeholder
-		// was pure dead weight on the wire; consumers should treat a
-		// missing key the same as "no stack available."
+		// Resolved (differently than my first attempt): keep the "stack"
+		// key present at empty string, not omitted. My first pass removed
+		// it entirely to save wire bytes, reasoning go-anansi's
+		// SystemError has nothing to populate it with — but a runtime test
+		// (TestTimelineRecordsStepFailure) asserts the key is always
+		// present in a step:failure event's error object, regardless of
+		// content, meaning "stack" being present is itself part of this
+		// payload's contract for consumers (e.g. a frontend that
+		// destructures a fixed shape) — not "dead weight" to trim. Restored
+		// the always-present empty string; the original note's underlying
+		// point (there's no real stack captured) is still documented here.
+		"stack": "",
 	}
 	if issues != nil {
 		m["issues"] = issues
