@@ -27,15 +27,21 @@ func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources,
 	if err != nil {
 		return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "config interpolation failed").WithCause(err)
 	}
-	// @note #review-20260822-035 issue status=open priority=P1 tags=#review,#bug : Discarded comma-ok on type assertion
+	// @note #review-20260822-035 issue status=resolved priority=P1 tags=#review,#bug : Discarded comma-ok on type assertion
 	//
-	// cfg, _ := interpolated.(map[string]any) discards the comma-ok error. If Interpolate
-	// returns a non-map (e.g., a string), cfg is nil and passed to def.Run, which will
-	// nil-dereference on cfg["anyKey"]. The `if cfg == nil` guard only protects against
-	// literal nil, not wrong-type returns.
-	cfg, _ := interpolated.(map[string]any)
-	if cfg == nil {
+	// Resolved: check the comma-ok result explicitly. Interpolate returning
+	// nil is legitimate (empty config) and still defaults to {}; but
+	// Interpolate returning a non-nil, non-map value (e.g. a string) is a
+	// real error condition — previously it silently fell through to the
+	// same {} default as the nil case, masking a bug where a whole config
+	// tree got interpolated down to a scalar. That case is now a returned
+	// error instead of silent data loss.
+	cfg, ok := interpolated.(map[string]any)
+	if interpolated == nil {
 		cfg = map[string]any{}
+	} else if !ok {
+		return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
+			fmt.Sprintf("node %s: interpolated config is %T, expected a map", def.Kind, interpolated))
 	}
 	return CoerceConfig(cfg, rs), nil
 }

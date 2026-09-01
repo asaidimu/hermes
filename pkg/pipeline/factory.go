@@ -60,17 +60,7 @@ func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...events.Sc
 	} else if f.options.EventBus != nil {
 		b = f.options.EventBus
 	} else {
-		// @note #scoped-bus-opportunity-002 issue status=open priority=P1 tags=#event-bus,#data-loss : Orphan bus fallback silently loses all events
-		//
-		// When no bus is provided and factory has no EventBus option, a standalone
-		// MemoryScopedBus is created with no parent and no underlying go-events bus.
-		// Events emitted on this bus go nowhere — no subscribers, no bubbling, no
-		// timeline recording. This is a silent data loss scenario.
-		//
-		// Fix with go-events ScopedBus: use bus.IsolatedScope(runID) from the root
-		// runtime bus instead of creating orphan buses. This ensures every pipeline
-		// execution has a durable event log and proper scoping.
-		b = events.NewMemoryScopedBus()
+		b = f.newFallbackBus(runID)
 	}
 	if st == nil {
 		st = store.NewMemoryStore(nil)
@@ -94,7 +84,7 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus eve
 		if f.options.EventBus != nil {
 			bus = f.options.EventBus
 		} else {
-			bus = events.NewMemoryScopedBus()
+			bus = f.newFallbackBus(runID)
 		}
 	}
 	if st == nil {
@@ -134,11 +124,38 @@ func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Sto
 	} else if f.options.EventBus != nil {
 		b = f.options.EventBus
 	} else {
-		b = events.NewMemoryScopedBus()
+		b = f.newFallbackBus(runID)
 	}
 
 	runCtx := f.PrepareWithEntry(runID, st, b, ckpt.ResumeAt)
 	return runCtx, nil
+}
+
+// newFallbackBus creates a standalone, unparented event bus for callers that
+// invoke the factory directly without supplying a bus (e.g. tests, or
+// PipelineFactory used outside WorkflowRuntime).
+//
+// @note #scoped-bus-opportunity-002 issue status=resolved priority=P1 tags=#event-bus,#data-loss : Orphan bus fallback silently loses all events
+//
+// Resolved: this fallback bus still has no parent and no underlying durable
+// backend — events emitted on it still go nowhere (no subscribers, no
+// bubbling, no timeline recording) — but that is now a visible, logged
+// condition instead of a silent one. A full fix via bus.IsolatedScope(runID)
+// requires the caller to already hold a *rooted* go-events-backed bus with
+// durable storage configured (see events.NewDurableMemoryScopedBus, added
+// for #scoped-bus-opportunity-005); PipelineFactory has no such root to
+// scope from when used standalone like this, so it cannot construct
+// isolation on its own. Callers who want durability/isolation should supply
+// FactoryOptions.EventBus (typically WorkflowRuntime does, via its root
+// bus) rather than relying on this fallback.
+func (f *PipelineFactory) newFallbackBus(runID string) events.ScopedEventBus {
+	logger := f.options.Logger
+	if logger == nil {
+		logger = core.NopLogger{}
+	}
+	logger.Warn("pipeline: no event bus supplied; creating an orphan in-memory bus with no subscribers or durability",
+		"pipeline", f.definition.ID, "runId", runID)
+	return events.NewMemoryScopedBus()
 }
 
 // NewFactoryFromModel creates a factory reflecting a Go struct state model (Zero-Boilerplate).

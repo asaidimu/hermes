@@ -14,6 +14,7 @@ type InMemoryScheduler struct {
 }
 
 type jobState struct {
+	ctx      context.Context
 	cancel   context.CancelFunc
 	callback func(ctx context.Context)
 	timer    *time.Timer
@@ -32,15 +33,16 @@ func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx c
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// @note #review-20260822-052 issue status=open priority=P2 tags=#review,#bug : Context never propagated to callback
+	// @note #review-20260822-052 issue status=resolved priority=P2 tags=#review,#bug : Context never propagated to callback
 	//
-	// context.WithCancel(context.Background()) creates a context that is never propagated
-	// to the callback. The cancel is called in Cancel() and Shutdown(), but the callback
-	// at line 56 receives context.Background(), not the cancellable context. The context
-	// is unused — either pass it to the callback or remove it.
-	_, cancel := context.WithCancel(context.Background())
+	// Resolved: store the cancellable context on jobState and pass it to
+	// the callback (js.ctx) instead of a fresh context.Background() at fire
+	// time. Cancel()/Shutdown() calling js.cancel() now actually reaches
+	// the callback via ctx.Done() / ctx.Err(), instead of being pure dead
+	// code that only cancelled a context nothing observed.
+	ctx, cancel := context.WithCancel(context.Background())
 
-	js := &jobState{cancel: cancel, callback: callback}
+	js := &jobState{ctx: ctx, cancel: cancel, callback: callback}
 	s.jobs[id] = js
 
 	s.scheduleNextLocked(id, js, cron)
@@ -59,7 +61,7 @@ func (s *InMemoryScheduler) scheduleNextLocked(id string, js *jobState, cron str
 		if !ok || current != js {
 			return
 		}
-		js.callback(context.Background())
+		js.callback(js.ctx)
 		// @note #review-20260826-001 issue status=resolved priority=P1 tags=#review,#concurrency : Timer re-arm writes js.timer without holding s.mu
 		// @author ox-alpha
 		//

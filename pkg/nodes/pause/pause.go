@@ -2,7 +2,6 @@ package pause
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/asaidimu/hermes/pkg/nodekit"
@@ -11,31 +10,31 @@ import (
 	"github.com/asaidimu/hermes/pkg/watch"
 )
 
-// @note #review-20260827-003 todo status=open priority=P2 tags=#review,#refactoring,#typesafety : Migrate pause node from untyped NodeDefinition to TypedDefinition[PauseConfig]
+// PauseConfig is the typed configuration for the pause node.
+type PauseConfig struct {
+	WaitForEvent  string   `config:"waitForEvent"`
+	WaitForEvents []string `config:"waitForEvents"`
+	Mode          string   `config:"mode" anansi:"default=any"`
+	Timeout       float64  `config:"timeout" anansi:"default=0"`
+}
+
+// @note #review-20260827-003 todo status=resolved priority=P2 tags=#review,#refactoring,#typesafety : Migrate pause node from untyped NodeDefinition to TypedDefinition[PauseConfig]
 // @author antigravity
 //
-// The pause node is an unmigrated refactoring artifact: it still declares an untyped
-// NodeDefinition with hand-written ConfigSchema JSON and reads raw untyped config maps
-// with unchecked type assertions (e.g. nCtx.Config["timeout"].(float64)). It should be
-// migrated to nodekit.Define(nodekit.TypedDefinition[PauseConfig]{...}) with tagged struct
-// fields for waitForEvent, waitForEvents, mode, and timeout.
-var Node = nodekit.NodeDefinition{
+// Resolved: migrated to nodekit.Define(nodekit.TypedDefinition[PauseConfig]{...})
+// with a tagged PauseConfig struct (waitForEvent, waitForEvents, mode,
+// timeout). The hand-written ConfigSchema JSON is gone — schema is now
+// derived from PauseConfig's struct tags, same as every other migrated
+// node. Run and PipelinesRouterFunc now receive *nodekit.TypedRunContext
+// [PauseConfig] and read nCtx.Config.WaitForEvents / .WaitForEvent / .Mode
+// / .Timeout directly instead of unchecked map type assertions.
+var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 	Kind:        "pause",
 	Label:       "Pause",
 	Description: "Pause pipeline execution until specific event(s) arrive.",
 	Type:        "executable",
 	BodyHandle:  "do",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "pause",
-		"fields": {
-			"waitForEvent": { "name": "waitForEvent", "type": "string" },
-			"waitForEvents": { "name": "waitForEvents", "type": "array", "items": { "type": "string" } },
-			"mode": { "name": "mode", "type": "string", "default": "any", "enum": ["any", "all"] },
-			"timeout": { "name": "timeout", "type": "number", "default": 0 }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *PauseConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: "do", Label: "do"},
@@ -44,81 +43,94 @@ var Node = nodekit.NodeDefinition{
 		}
 	},
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"do","label":"do","kind":"executable"},{"type":"source","id":"onResume","label":"onResume","kind":"executable"},{"type":"source","id":"onTimeout","label":"onTimeout","kind":"executable"}]`,
-	Run: func(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
+	Run: func(ctx context.Context, nCtx *nodekit.TypedRunContext[PauseConfig]) (store.Mutator, error) {
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {
-			// @note #review-20260822-003 observation status=open priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
+			// @note #review-20260822-003 observation status=resolved priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
 			//
-			// When the WatchService is not available, this function returns nil without an error.
-			// This could make debugging difficult in production. Consider returning an error
-			// or logging a warning when the WatchService is unavailable.
+			// Resolved: log a warning instead of returning silently. Still
+			// returns (nil, nil) rather than a hard error — a pause node
+			// with no WatchService configured is a host-configuration gap,
+			// not a per-run failure, so we don't want to fail every run
+			// that happens to include a pause node when the host simply
+			// didn't wire watch support. The warning makes the gap visible
+			// in logs instead of vanishing silently.
+			if nCtx.Logger != nil {
+				nCtx.Logger.Warn("pause node: watch-service resource not available; pause will be a no-op", "nodeId", nCtx.NodeID)
+			}
 			return nil, nil
 		}
 		watchService, ok := wsRaw.(watch.WatchService)
 		if !ok {
+			if nCtx.Logger != nil {
+				nCtx.Logger.Warn("pause node: resource:watch-service is not a watch.WatchService; pause will be a no-op", "nodeId", nCtx.NodeID)
+			}
 			return nil, nil
 		}
 
-		// Build watch descriptor from config
-		var eventTypes []string
-		if eventsRaw, ok := nCtx.Config["waitForEvents"].([]any); ok {
-			for _, e := range eventsRaw {
-				if s, ok := e.(string); ok && s != "" {
-					eventTypes = append(eventTypes, s)
-				}
-			}
-		}
-		if len(eventTypes) == 0 {
-			if waitForEvent, _ := nCtx.Config["waitForEvent"].(string); waitForEvent != "" {
-				eventTypes = []string{waitForEvent}
-			}
+		// Build watch descriptor from typed config
+		eventTypes := nCtx.Config.WaitForEvents
+		if len(eventTypes) == 0 && nCtx.Config.WaitForEvent != "" {
+			eventTypes = []string{nCtx.Config.WaitForEvent}
 		}
 		if len(eventTypes) == 0 {
 			eventTypes = []string{"__pause__"}
 		}
 
-		mode, _ := nCtx.Config["mode"].(string)
-		timeoutMs, _ := nCtx.Config["timeout"].(float64)
-
 		// Register with WatchService (pre-pause buffering)
 		// This happens BEFORE the body executes, so callbacks are caught
-		watchService.Register(nCtx.NodeID, watch.WatchDescriptor{
+		if err := watchService.Register(nCtx.NodeID, watch.WatchDescriptor{
 			EventTypes: eventTypes,
-			Mode:       mode,
-			Timeout:    int64(timeoutMs),
-		})
+			Mode:       nCtx.Config.Mode,
+			Timeout:    int64(nCtx.Config.Timeout),
+		}); err != nil {
+			return nil, err
+		}
 
 		return nil, nil
 	},
 	// PipelinesRouterFunc is called after the body completes.
 	// It checks for buffered events and either resumes immediately or pauses.
-	PipelinesRouterFunc: func(ctx context.Context, nCtx nodekit.NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) {
+	PipelinesRouterFunc: func(ctx context.Context, nCtx *nodekit.TypedRunContext[PauseConfig], results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) {
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {
-			// @note #review-20260822-002 observation status=open priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
+			// @note #review-20260822-002 observation status=resolved priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
 			//
-			// When the WatchService is not available, this function returns nil without an error.
-			// This could make debugging difficult in production. Consider returning an error
-			// or logging a warning when the WatchService is unavailable.
+			// Resolved: log a warning (see the matching note in Run above
+			// for why this stays a no-op rather than a hard error).
+			if nCtx.Logger != nil {
+				nCtx.Logger.Warn("pause node: watch-service resource not available; skipping pause routing", "nodeId", nCtx.NodeID)
+			}
 			return nil, nil
 		}
 		watchService, ok := wsRaw.(watch.WatchService)
 		if !ok {
+			if nCtx.Logger != nil {
+				nCtx.Logger.Warn("pause node: resource:watch-service is not a watch.WatchService; skipping pause routing", "nodeId", nCtx.NodeID)
+			}
 			return nil, nil
 		}
 
 		// Check if there's a buffered event
-		if bufferedEvent := watchService.PeekBufferedEvent(nCtx.NodeID); bufferedEvent != nil {
+		if bufferedEvent, found := watchService.PeekBufferedEvent(nCtx.NodeID); found {
 			// Buffered event found - merge payload into state and route to onResume
 			for k, v := range bufferedEvent.Patch {
-				// @note #review-20260822-046 issue status=open priority=P1 tags=#review,#error-handling : Store update errors silently discarded
+				// @note #review-20260822-046 issue status=resolved priority=P1 tags=#review,#error-handling : Store update errors silently discarded
 				//
-				// _ = nCtx.Store.Update(ctx, store.SetValue(k, v)) discards the store update
-				// error. If the patch fails, the router still jumps to onResume with stale
-				// state. At minimum, log the error; ideally, propagate it.
-				_ = nCtx.Store.Update(ctx, store.SetValue(k, v))
+				// Resolved: log the error instead of silently discarding
+				// it. Still continues to onResume on failure rather than
+				// failing the stage outright — a store-update failure here
+				// means one patched field may be stale, which the pipeline
+				// author can now at least see in logs, versus previously
+				// having no signal at all. Failing the whole stage on a
+				// single patch-key error felt like too large a behavior
+				// change to make blind, without tests to confirm no
+				// pipeline relies on best-effort patching.
+				if err := nCtx.Store.Update(ctx, store.SetValue(k, v)); err != nil && nCtx.Logger != nil {
+					nCtx.Logger.Error("pause node: failed to apply resume patch key to store", "nodeId", nCtx.NodeID, "key", k, "error", err)
+				}
 			}
 			return pipeline.Jump("onResume"), nil
 		}
@@ -129,16 +141,12 @@ var Node = nodekit.NodeDefinition{
 		}
 
 		// No buffered event, no timeout - pause the pipeline
-		timeoutMs, _ := nCtx.Config["timeout"].(float64)
-		return pipeline.PauseForEvent("__pause__", time.Duration(timeoutMs)*time.Millisecond), nil
+		return pipeline.PauseForEvent("__pause__", time.Duration(nCtx.Config.Timeout)*time.Millisecond), nil
 	},
-}
+})
 
-func init() {
-	// @note #review-20260822-045 issue status=open priority=P1 tags=#review,#bug : Double registration of pause node
-	//
-	// nodes.go registers pause.Node on line 31, and pause.go also registers itself in its
-	// own init() on line 125. Since Register overwrites by kind, this is a harmless race
-	// but signals confusion about ownership. Remove the init() in pause.go.
-	nodekit.Register(Node)
-}
+// @note #review-20260822-045 issue status=resolved priority=P1 tags=#review,#bug : Double registration of pause node
+//
+// Resolved: removed the init() that duplicated the registration nodes.go
+// already performs. Node ownership is now single: nodes.go's registry-wiring
+// init is the only place pause.Node gets registered.

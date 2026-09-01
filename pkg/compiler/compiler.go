@@ -509,19 +509,19 @@ func compileStages(
 			pipelineID, _ := node.Config["pipelineId"].(string)
 			pipelineID = strings.TrimSpace(pipelineID)
 			if pipelineID == "" {
-				// @note #review-20260825-003 issue status=open priority=P2 tags=#review,#style : Error string ends with period
+				// @note #review-20260825-003 issue status=resolved priority=P2 tags=#review,#style : Error string ends with period
 				//
-				// Go convention: error strings should not end with punctuation.
-				// Change to: fmt.Errorf("pipeline-ref node %s has no pipelineId configured", id)
-				return nil, fmt.Errorf("pipeline-ref node %s has no pipelineId configured.", id)
+				// Resolved: dropped the trailing period per Go convention.
+				return nil, fmt.Errorf("pipeline-ref node %s has no pipelineId configured", id)
 			}
 			referencedDef, ok := registry.Resolve(pipelineID)
 			if !ok || referencedDef == nil {
-				// @note #review-20260825-004 issue status=open priority=P2 tags=#review,#style : Error string ends with period
+				// @note #review-20260825-004 issue status=resolved priority=P2 tags=#review,#style : Error string ends with period
 				//
-				// Go convention: error strings should not end with punctuation.
+				// Resolved: dropped the trailing period and lowercased the
+				// leading word per Go convention.
 				return nil, fmt.Errorf(
-					"Pipeline %q not found in registry (node %s). Ensure the pipeline is compiled and registered before running this workflow.",
+					"pipeline %q not found in registry (node %s): ensure the pipeline is compiled and registered before running this workflow",
 					pipelineID, id)
 			}
 			stageCfg := map[string]any{}

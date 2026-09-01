@@ -8,41 +8,74 @@ import (
 // status/action triple used in the serialized JSON shape.
 func systemErrorMeta(code string) (category string, httpStatus int, action string) {
 	switch code {
-	// @note #review-20260822-026 issue status=open priority=P2 tags=#review,#naming : INTERNAL_ERROR code not defined in errors.go constants
+	// @note #review-20260822-026 issue status=resolved priority=P2 tags=#review,#naming : INTERNAL_ERROR code not defined in errors.go constants
 	//
-	// The systemErrorMeta switch uses "INTERNAL_ERROR" as a case, but errors.go defines
-	// ErrCodeExecutionFailed = "EXECUTION_FAILED", not "INTERNAL_ERROR". If a SystemError
-	// is created with ErrCodeExecutionFailed, it falls to the default branch and maps to
-	// system/500/internal anyway — but this is accidental, not intentional. The code
-	// constants and the meta mapping are inconsistent.
-	case "INTERNAL_ERROR":
+	// Resolved: added ErrCodeInternal = "INTERNAL_ERROR" to errors.go and
+	// switched the two direct string literals in trycatch.go to use it, so
+	// the meta mapping and the code constants agree by name, not by accident.
+	case ErrCodeInternal:
 		return "system", 500, "internal"
 	case "VALIDATION_FAILED", "BAD_REQUEST", "VALIDATION_ERROR":
 		return "validation", 400, "validate"
 	case "RESOURCE_NOT_FOUND", "NOT_FOUND":
 		return "not_found", 404, "find"
-	// @note #review-20260822-024 issue status=open priority=P2 tags=#review,#bug : UNAUTHORIZED conflated with PERMISSION_DENIED (401 vs 403)
+	// @note #review-20260822-024 issue status=resolved priority=P2 tags=#review,#bug : UNAUTHORIZED conflated with PERMISSION_DENIED (401 vs 403)
 	//
-	// UNAUTHORIZED maps to httpStatus 403 and action "authorize". In HTTP semantics, 401
-	// means "not authenticated" (no credentials) and 403 means "not authorized"
-	// (insufficient permissions). These are distinct failure modes with different client
-	// recovery strategies. Map UNAUTHORIZED to 401 and action "authenticate", or split
-	// into separate cases.
-	case "PERMISSION_DENIED", "UNAUTHORIZED":
+	// Resolved: split UNAUTHORIZED into its own case mapped to 401/authenticate
+	// (no credentials presented), keeping PERMISSION_DENIED at 403/authorize
+	// (credentials present but insufficient permissions), matching standard
+	// HTTP semantics so clients can tell the two failure modes apart.
+	case "UNAUTHORIZED":
+		return "auth", 401, "authenticate"
+	case "PERMISSION_DENIED":
 		return "auth", 403, "authorize"
 	case "RESOURCE_LOCKED", "CONFLICT":
 		return "conflict", 409, "lock"
-	// @note #review-20260822-025 issue status=open priority=P2 tags=#review,#naming : HTTP status 499 is non-standard
+	// @note #review-20260822-025 issue status=wontfix priority=P2 tags=#review,#naming : HTTP status 499 is non-standard
 	//
-	// 499 is an nginx invention for "client closed connection." It is not part of the HTTP
-	// specification and will confuse clients, monitoring tools, and API documentation
-	// generators. Use 499 only if you control the client, otherwise map ABORTED/CANCELLED
-	// to 408 (Request Timeout) or 409 (Conflict), or document the custom status code
-	// prominently.
+	// Considered remapping to 408/409, but pkg/server/server.go already
+	// writes a raw 499 directly for the client-disconnect case, so 499 is
+	// this codebase's established (if nginx-borrowed) convention for "the
+	// client went away / operation was aborted," not an isolated accident.
+	// Remapping only this call site would create an inconsistency with the
+	// server's own direct usage rather than remove one. Documenting it here
+	// instead: 499 is intentional and non-standard, keep client/monitoring
+	// tooling aware of it.
 	case "ABORTED", "CANCELLED":
 		return "aborted", 499, "abort"
 	default:
 		return "system", 500, "internal"
+	}
+}
+
+// IssueJSON is the typed shape of one entry in SystemErrorJSON's "issues"
+// array. Building the slice through this struct (instead of ad-hoc
+// map[string]any literals) gives compile-time field-name safety; it's
+// converted to map[string]any only at the point of assembly into the
+// untyped JSON payload.
+//
+// @note #review-20260822-029 issue status=resolved priority=P3 tags=#review,#documentation : Issues slice is untyped []any
+//
+// Resolved: introduced this struct so the per-issue fields are populated
+// through named, typed struct fields instead of hand-typed map keys. The
+// outer payload is still map[string]any (matching the TS toJSON() shape and
+// every other field in SystemErrorJSON), so this only removes the typo risk
+// on the issues entries specifically, not the whole function's output type.
+type IssueJSON struct {
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Path     string `json:"path"`
+	Index    *int   `json:"index"`
+	Severity string `json:"severity"`
+}
+
+func (i IssueJSON) toMap() map[string]any {
+	return map[string]any{
+		"code":     i.Code,
+		"message":  i.Message,
+		"path":     i.Path,
+		"index":    i.Index,
+		"severity": i.Severity,
 	}
 }
 
@@ -66,20 +99,14 @@ func SystemErrorJSON(err error) map[string]any {
 	var issues []any
 	if len(se.Issues) > 0 {
 		issues = make([]any, 0, len(se.Issues))
-		// @note #review-20260822-029 issue status=open priority=P3 tags=#review,#documentation : Issues slice is untyped []any
-		//
-		// The issues variable is []any containing map[string]any elements with keys "code",
-		// "message", "path", "index", "severity". There is no compile-time guarantee these
-		// keys are correct or consistently spelled. A dedicated IssueJSON struct would provide
-		// type safety and IDE autocomplete.
 		for _, iss := range se.Issues {
-			issues = append(issues, map[string]any{
-				"code":     iss.Code,
-				"message":  iss.Message,
-				"path":     iss.Path,
-				"index":    iss.Index,
-				"severity": iss.Severity,
-			})
+			issues = append(issues, IssueJSON{
+				Code:     iss.Code,
+				Message:  iss.Message,
+				Path:     iss.Path,
+				Index:    iss.Index,
+				Severity: iss.Severity,
+			}.toMap())
 		}
 	}
 
@@ -122,21 +149,24 @@ func SystemErrorJSON(err error) map[string]any {
 		"path":       se.Path,
 		"trace":      trace,
 		"action":     action,
-		// @note #review-20260822-027 issue status=open priority=P2 tags=#review,#bug : Timestamp uses serialization time, not error creation time
+		// @note #review-20260822-027 issue status=wontfix priority=P2 tags=#review,#bug : Timestamp uses serialization time, not error creation time
 		//
-		// time.Now().UTC().Format(time.RFC3339) captures the time when SystemErrorJSON is
-		// called, not when the error was originally created. For debugging, the error's
-		// creation time is far more useful. If SystemError has a Timestamp field, use it;
-		// otherwise the serialization time may differ from the actual error time by seconds
-		// or minutes, making log correlation unreliable.
+		// go-anansi's common.SystemError (checked directly against the
+		// upstream source) has no Timestamp/CreatedAt field to fall back to
+		// — Path, Operation, Message, Code, Severity, Issues, Cause only.
+		// Capturing a true creation-time timestamp would require adding a
+		// field to that external type or wrapping every construction site
+		// across this codebase, both bigger changes than this function.
+		// Left as serialization-time and documented here so callers know
+		// not to treat it as authoritative for log correlation.
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		// @note #review-20260822-028 issue status=open priority=P3 tags=#review,#documentation : Stack field is always empty string
+		// @note #review-20260822-028 issue status=resolved priority=P3 tags=#review,#documentation : Stack field is always empty string
 		//
-		// The serialized JSON always includes `"stack": ""` as an empty string. This is dead
-		// data that wastes wire bytes and confuses consumers who expect a stack trace. Either
-		// populate it with a real stack (using runtime.Callers) or omit the key entirely when
-		// empty.
-		"stack": "",
+		// Resolved: the "stack" key is now omitted entirely instead of
+		// always being sent as an empty string. go-anansi's SystemError has
+		// no captured stack to populate it with, so the empty placeholder
+		// was pure dead weight on the wire; consumers should treat a
+		// missing key the same as "no stack available."
 	}
 	if issues != nil {
 		m["issues"] = issues

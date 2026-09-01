@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -19,11 +20,20 @@ func CronDelay(expr string) time.Duration {
 	if strings.HasPrefix(expr, "@every ") {
 		d, err := time.ParseDuration(expr[7:])
 		if err != nil {
-			// @note #review-20260822-053 issue status=open priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
+			// @note #review-20260822-053 issue status=resolved priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
 			//
-			// CronDelay returns time.Hour as a fallback when @every parse fails. This
-			// silently masks invalid cron expressions. Consider logging the error or
-			// returning a sentinel.
+			// Resolved: log the error before falling back. Kept the
+			// time.Hour fallback and CronDelay's `time.Duration`-only
+			// signature unchanged — CronDelay is called from
+			// scheduleNextLocked's recursive re-arm path on every single
+			// tick of every running job, and from existing tests as
+			// `d := CronDelay(...)`; changing the signature to return an
+			// error would touch every call site and every test assertion
+			// for a change that doesn't change runtime behavior (the
+			// fallback still has to be *some* duration either way). Logging
+			// closes the "silently masks" half of the note without that
+			// wider, unverifiable change.
+			slog.Warn("scheduler: invalid @every duration in cron expression, falling back to hourly", "expr", expr, "error", err)
 			return time.Hour
 		}
 		return d
@@ -40,6 +50,7 @@ func CronDelay(expr string) time.Duration {
 	// Standard 5-field cron
 	c, err := parseCron(expr)
 	if err != nil {
+		slog.Warn("scheduler: invalid cron expression, falling back to hourly", "expr", expr, "error", err)
 		return time.Hour // fallback
 	}
 	next := c.Next(time.Now())

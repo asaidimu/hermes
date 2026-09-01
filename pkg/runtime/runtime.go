@@ -280,17 +280,24 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	}
 	rt.bus = opts.Bus
 	if rt.bus == nil {
-		// @note #scoped-bus-opportunity-005 issue status=open priority=P2 tags=#event-bus,#durability : Durable event backend designed but never wired
+		// @note #scoped-bus-opportunity-005 issue status=resolved priority=P2 tags=#event-bus,#durability : Durable event backend designed but never wired
 		//
-		// NewMemoryScopedBus accepts an optional go-events SimpleEventBus for
-		// durable Pebble LSM event sourcing (designed in the spec). However,
-		// the runtime never passes one — the underlying field is always nil.
-		// All events are purely in-memory and lost on restart.
+		// Resolved: the durable backend is now real and wireable — see
+		// events.NewDurableEventBus / events.WithDurableBackend in
+		// pkg/events/durable.go. Deliberately left opt-in rather than
+		// made-default here: a caller who hasn't configured storage
+		// shouldn't suddenly get Pebble files written to an implicit
+		// directory. To get a durable, replayable event log, construct one
+		// explicitly and pass it in via Options.Bus:
 		//
-		// Fix with go-events ScopedBus: create a root EventBus with Pebble-backed
-		// Config, then use bus.Scope() for per-run and per-workflow isolation.
-		// This gives durable event logs, checkpoint recovery, and compaction
-		// out of the box.
+		//   bus, closeBus, err := events.WithDurableBackend(events.DurableBusConfig{
+		//       Durable: true, BaseDir: "/var/lib/hermes", BusKey: "runtime",
+		//   })
+		//   rt := runtime.New(runtime.Options{Bus: bus, ...})
+		//   defer closeBus()
+		//
+		// Leaving Options.Bus unset keeps today's behavior: a purely
+		// in-memory bus with no underlying go-events backend at all.
 		rt.bus = events.NewMemoryScopedBus()
 	}
 	rt.watchService = NewWatchService(rt.bus, func(runID string, patch map[string]any) {
@@ -393,16 +400,23 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 		// Schedule cron-based recurring triggers.
 		if trigger.Cron != "" {
 			scheduleID := wf.ID + ":" + triggerID
-			// @note #review-20260822-040 issue status=open priority=P1 tags=#review,#error-handling : Discarded Schedule error
+			// @note #review-20260822-040 issue status=resolved priority=P1 tags=#review,#error-handling : Discarded Schedule error
 			//
-			// The error from rt.scheduler.Schedule is silently discarded. If scheduling fails
-			// (e.g., invalid cron expression), the trigger will never fire and the failure
-			// will be invisible to the caller.
-			rt.scheduler.Schedule(scheduleID, trigger.Cron, func(ctx context.Context) {
+			// Resolved: propagate the error. Register already returns
+			// error and is called at workflow-registration time (not from
+			// a hot path), so failing registration outright when a cron
+			// trigger can't be scheduled (e.g. invalid cron expression) is
+			// the correct behavior — silently registering a workflow whose
+			// trigger will never fire is strictly worse than failing loud
+			// at registration.
+			if err := rt.scheduler.Schedule(scheduleID, trigger.Cron, func(ctx context.Context) {
 				rt.bus.Emit(context.Background(), trigger.Event, events.PipelineEvent{
 					Payload: map[string]any{},
 				})
-			})
+			}); err != nil {
+				return core.NewSystemError(core.ErrCodeValidation,
+					"failed to schedule cron trigger "+triggerID+" for workflow "+wf.ID).WithCause(err)
+			}
 		}
 	}
 
@@ -666,11 +680,13 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 			}
 
 			// Register with WatchService (pre-pause buffering)
-			rt.watchService.Register(runID, watch.WatchDescriptor{
+			if err := rt.watchService.Register(runID, watch.WatchDescriptor{
 				EventTypes: eventTypes,
 				Mode:       result.WaitMode,
 				Timeout:    timeoutMs,
-			})
+			}); err != nil {
+				rt.logger.Error("spawnRun: failed to register watch for paused run", "runId", runID, "error", err)
+			}
 
 			rt.mu.Lock()
 			rt.paused[runID] = &pausedRun{
@@ -783,12 +799,19 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// data is accessible without overwriting previous payloads.
 	if payload != nil {
 		for key, val := range payload {
-			// @note #review-20260822-048 issue status=open priority=P2 tags=#review,#error-handling : Store update errors discarded when folding resume payload
+			// @note #review-20260822-048 issue status=resolved priority=P2 tags=#review,#error-handling : Store update errors discarded when folding resume payload
 			//
-			// _ = st.Update(...) discards the error when folding the resume event payload
-			// into state. If the store rejects the update, the resumed pipeline will run
-			// with incomplete state.
-			_ = st.Update(context.Background(), store.SetValue(key, val))
+			// Resolved: log the error instead of silently discarding it.
+			// Continuing the loop on failure (rather than aborting the
+			// resume) matches the same "best-effort but now visible" choice
+			// made for the sibling issue in pause.go's PipelinesRouterFunc
+			// (review-20260822-046) — failing the whole resume because one
+			// payload key couldn't be written felt like too large a
+			// behavior change to make blind, without tests to confirm nothing
+			// relies on partial-success resume semantics.
+			if err := st.Update(context.Background(), store.SetValue(key, val)); err != nil {
+				rt.logger.Error("resume: failed to fold event payload key into state", "runId", runID, "key", key, "error", err)
+			}
 		}
 	}
 
@@ -797,17 +820,19 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		_ = st.Update(context.Background(), store.SetValue("__resume_reason__", ckpt.ResumeReason))
 	}
 
-	bus := rt.bus.Scope(events.EventPath{})
-	// @note #scoped-bus-opportunity-003 issue status=open priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
+	pdef := record.workflow.Pipelines[paused.pipelineID]
+	// @note #scoped-bus-opportunity-003 issue status=resolved priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
 	//
-	// Per-run buses are scoped with an empty EventPath{}. The path is only used
-	// for metadata decoration (populated into PipelineEvent.Path for the frontend
-	// timeline) — it does NOT filter or route events. All runs share the same
-	// flat namespace on the root bus.
-	//
-	// Fix with go-events ScopedBus: use bus.Scope("run:"+runID) instead of
-	// bus.Scope(EventPath{}). This gives actual topic isolation — each run's
-	// events are prefixed with its runID, preventing cross-run interference.
+	// Resolved: scope the per-run bus with a real ["pipeline", pipelineID, runID]
+	// path node instead of an empty EventPath{}. This does not add topic-level
+	// routing isolation (MemoryScopedBus still dispatches through its own
+	// synchronous handlers map, bubbling to parent — see the note on
+	// scoped-bus-opportunity-001 for why a wholesale ScopedBus swap isn't
+	// safe here), but it does give every event a real, inspectable Path
+	// identifying which run produced it, instead of an empty placeholder —
+	// which is what PipelineEvent.Path is actually consumed for (the
+	// frontend timeline).
+	bus := rt.bus.Scope(events.EventPath{}.Append("pipeline", runID, pdef.Label))
 	factory := pipeline.NewFactory(record.workflow.Pipelines[paused.pipelineID], record.workflow.Pipelines[paused.pipelineID].Schema, pipeline.FactoryOptions{
 		Logger:       rt.logger,
 		RunEnv:       rt.env,
@@ -1103,7 +1128,13 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 
 	// The run's bus scopes under the root bus so all pipeline events bubble to
 	// the runtime bus (external subscribers and timeline recorder see them).
-	bus := rt.bus.Scope(events.EventPath{})
+	// @note #scoped-bus-opportunity-003 issue status=resolved priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
+	//
+	// Resolved: see the matching note in Resume() above — scope with a real
+	// ["pipeline", runID, label] path node instead of an empty EventPath{},
+	// so PipelineEvent.Path (consumed by the frontend timeline) identifies
+	// the run that produced each event.
+	bus := rt.bus.Scope(events.EventPath{}.Append("pipeline", runID, def.Label))
 
 	factory := pipeline.NewFactory(def, def.Schema, pipeline.FactoryOptions{
 		Logger:       rt.logger,
@@ -1116,24 +1147,31 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	// plus the trigger event metadata. Payload keys become top-level state
 	// fields so configs can address them with the standardized dotted path
 	// (e.g. `status`, `userId`).
-	// @note #review-20260822-047 issue status=open priority=P2 tags=#review,#error-handling : Store update errors discarded when seeding trigger metadata
+	// @note #review-20260822-047 issue status=resolved priority=P2 tags=#review,#error-handling : Store update errors discarded when seeding trigger metadata
 	//
-	// _ = st.Update(...) discards the error when seeding trigger event metadata. If the
-	// store rejects the update (e.g., validation error, key collision), state will be
-	// missing critical trigger data.
-	_ = st.Update(context.Background(), store.SetValue(store.RunMetaKey, map[string]any{
+	// Resolved: log each discarded error instead of ignoring it, matching
+	// the same best-effort-but-now-visible choice used for the other
+	// discarded-store-update notes in this file (review-20260822-048) and
+	// pkg/pipeline/context.go (review-20260822-033, review-20260825-001).
+	if err := st.Update(context.Background(), store.SetValue(store.RunMetaKey, map[string]any{
 		"workflowId": wf.ID,
 		"triggerId":  triggerID,
 		"pipelineId": def.ID,
-	}))
-	_ = st.Update(context.Background(), store.SetValue("__trigger_event__", map[string]any{
+	})); err != nil {
+		rt.logger.Error("trigger: failed to seed run metadata", "runId", runID, "workflowId", wf.ID, "error", err)
+	}
+	if err := st.Update(context.Background(), store.SetValue("__trigger_event__", map[string]any{
 		"type":      evt.Type,
 		"payload":   evt.Payload,
 		"timestamp": evt.Timestamp,
-	}))
+	})); err != nil {
+		rt.logger.Error("trigger: failed to seed trigger event metadata", "runId", runID, "workflowId", wf.ID, "error", err)
+	}
 	if evt.Payload != nil {
 		for key, val := range evt.Payload {
-			_ = st.Update(context.Background(), store.SetValue(key, val))
+			if err := st.Update(context.Background(), store.SetValue(key, val)); err != nil {
+				rt.logger.Error("trigger: failed to seed trigger payload key into state", "runId", runID, "key", key, "error", err)
+			}
 		}
 	}
 

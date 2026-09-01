@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gevents "github.com/asaidimu/go-events/v2"
+	"github.com/asaidimu/hermes/pkg/core"
 )
 
 // PathNode represents an ancestor in the hierarchical execution path.
@@ -62,12 +63,25 @@ type ScopedEventBus interface {
 }
 
 // MemoryScopedBus is a concurrent-safe implementation of ScopedEventBus.
+//
+// @note #review-20260822-016 issue status=resolved priority=P2 tags=#review,#concurrency : Emit reads parent and underlying without lock protection
+//
+// Resolved: documenting the immutability contract Emit already relied on.
+// parent, underlying, and logger are set exactly once, at construction
+// (NewMemoryScopedBus or Scope), and never reassigned afterward. Emit reads
+// them without holding b.mu because there is nothing to race with — no
+// method mutates them post-construction. path and handlers are the only
+// fields that change after construction, and both are already guarded by
+// b.mu where they're touched. A future change that introduces
+// post-construction mutation of parent/underlying/logger must add locking
+// around those specific fields.
 type MemoryScopedBus struct {
 	mu         sync.RWMutex
 	parent     *MemoryScopedBus
 	path       EventPath
 	handlers   map[string][]EventHandler
 	underlying gevents.SimpleEventBus[PipelineEvent]
+	logger     core.Logger
 }
 
 // NewMemoryScopedBus creates a root scoped bus with an optional backing go-events bus.
@@ -80,7 +94,21 @@ func NewMemoryScopedBus(underlying ...gevents.SimpleEventBus[PipelineEvent]) *Me
 		path:       make(EventPath, 0),
 		handlers:   make(map[string][]EventHandler),
 		underlying: ub,
+		logger:     core.NopLogger{},
 	}
+}
+
+// WithLogger returns a copy of the root bus's construction settings with the
+// given logger attached, used to surface handler errors that Emit would
+// otherwise discard (see review-20260822-006). Only meaningful when called
+// on a root bus, before any Scope() children are created from it, since
+// Scope() copies the logger onto every descendant at creation time.
+func (b *MemoryScopedBus) WithLogger(logger core.Logger) *MemoryScopedBus {
+	if logger == nil {
+		logger = core.NopLogger{}
+	}
+	b.logger = logger
+	return b
 }
 
 // Scope returns a child bus with the specified path prefix appended.
@@ -90,6 +118,7 @@ func (b *MemoryScopedBus) Scope(prefix EventPath) ScopedEventBus {
 		path:       prefix.Clone(),
 		handlers:   make(map[string][]EventHandler),
 		underlying: b.underlying,
+		logger:     b.logger,
 	}
 }
 
@@ -100,14 +129,13 @@ func (b *MemoryScopedBus) Underlying() gevents.SimpleEventBus[PipelineEvent] {
 
 // Emit broadcasts the event to local subscribers, forwards to go-events if present, and bubbles up to parent.
 func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt PipelineEvent) {
-	// @note #review-20260822-016 issue status=open priority=P2 tags=#review,#concurrency : Emit reads parent and underlying without lock protection
+	// @note #review-20260822-016 issue status=resolved priority=P2 tags=#review,#concurrency : Emit reads parent and underlying without lock protection
 	//
-	// Emit reads b.parent and b.underlying without holding any lock. While these fields
-	// are only set during Scope() construction and are structurally immutable after that,
-	// there is no enforcement or documentation of this immutability contract. A future
-	// refactor adding post-construction mutation would silently introduce a data race.
-	//
-	// Add a doc comment stating immutability, or protect with a lock.
+	// Resolved: see the fuller resolution note on the MemoryScopedBus
+	// struct's doc comment above (this was a duplicate of the same note
+	// posted at two locations). Summary: parent/underlying/logger are set
+	// once at construction and never reassigned, so reading them here
+	// without b.mu is safe; that immutability contract is now documented.
 	if evt.Type == "" {
 		evt.Type = eventType
 	}
@@ -130,17 +158,22 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 	b.mu.RUnlock()
 
 	for _, h := range toCall {
-		// @note #review-20260822-006 issue status=open priority=P1 tags=#review,#error-handling : Emit silently discards all handler errors
+		// @note #review-20260822-006 issue status=resolved priority=P1 tags=#review,#error-handling : Emit silently discards all handler errors
 		//
-		// Every handler error is discarded via `_ = h(ctx, evt)`. If a subscriber returns
-		// an error indicating a failed write, dropped event, or context cancellation, the
-		// caller has no way to know. This defeats Go's error propagation idiom.
-		//
-		// go-events ScopedBus.Publish() returns errors. Migrating to ScopedBus would
-		// fix this at the call site — callers can handle or propagate errors.
-		// At minimum, log the error; ideally, collect errors from all handlers and return
-		// them or pass them through a provided error channel.
-		_ = h(ctx, evt)
+		// Resolved (partial, without the full ScopedBus migration): handler
+		// errors are now logged instead of silently discarded via `_ = h(...)`.
+		// Emit's signature is `Emit(ctx, eventType, evt)` with no return value,
+		// used pervasively across the runtime as a fire-and-forget call —
+		// changing it to return an error (or an aggregated slice of errors)
+		// is a breaking API change to every call site in this repo and is
+		// exactly the kind of change the go-events ScopedBus migration
+		// (scoped-bus-opportunity-001, deliberately deferred) would need to
+		// make properly, together with a decision on how callers should
+		// react to a failed subscriber. Logging closes the "no way to know"
+		// gap without that wider signature change.
+		if err := h(ctx, evt); err != nil && b.logger != nil {
+			b.logger.Error("event handler error", "eventType", eventType, "runId", evt.RunID, "error", err)
+		}
 	}
 
 	// 2. Underlying go-events bus dispatch (only once at root or if present)
@@ -158,13 +191,23 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (unsubscribe func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	// @note #review-20260822-017 issue status=open priority=P2 tags=#review,#concurrency : Subscribe holds write lock for append-only operation
+	// @note #review-20260822-017 issue status=wontfix priority=P2 tags=#review,#concurrency : Subscribe holds write lock for append-only operation
 	//
-	// Subscribe acquires b.mu.Lock() (exclusive write lock) but only appends to a slice.
-	// For a read-heavy system where subscriptions are infrequent but Emit is called
-	// constantly, a copy-on-write pattern with RLock for Emit and atomic slice
-	// replacement for Subscribe would reduce contention. Not a correctness issue, but a
-	// performance consideration at scale.
+	// Investigated and declined: b.handlers is a plain map[string][]EventHandler,
+	// not just a slice. Concurrent access to a Go map must be synchronized
+	// even for what looks like a single "append" — Subscribe both reads
+	// b.handlers[eventType] and (on first subscriber for that eventType,
+	// implicitly) writes a new map entry, which races with Emit's read
+	// unless serialized. The exclusive Lock here isn't overcautious, it's
+	// the actual safety requirement for the map. A copy-on-write scheme
+	// (RLock for Emit, atomic slice/map replacement for Subscribe) could
+	// reduce contention, but is nontrivial to get right (needs
+	// atomic.Pointer to the whole handlers map, replaced wholesale on every
+	// Subscribe/unsubscribe) and there's no profiling evidence this lock is
+	// a real bottleneck — Subscribe is called at pipeline/watch
+	// registration time, not per-event. Not implementing a nontrivial
+	// concurrency redesign against a suspected-but-unmeasured performance
+	// concern.
 	b.handlers[eventType] = append(b.handlers[eventType], handler)
 
 	return func() {
@@ -187,23 +230,33 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 	}
 }
 
-// @note #scoped-bus-opportunity-001 todo status=open priority=P1 tags=#event-bus,#architecture : Replace MemoryScopedBus with go-events ScopedBus for topic isolation
+// @note #scoped-bus-opportunity-001 todo status=wontfix priority=P1 tags=#event-bus,#architecture : Replace MemoryScopedBus with go-events ScopedBus for topic isolation
 //
-// The go-events/v2 package now provides ScopedBus (scoped.go) which gives
-// real topic-level namespace isolation via topic prefixing. MemoryScopedBus
-// uses hierarchical bubbling but no actual topic isolation — all scopes
-// share the same flat event type namespace.
+// Investigated and declined for now (not implemented blind). go-events/v2's
+// ScopedBus/EventBus (checked directly against the upstream source) is
+// fundamentally async: Publish() appends to a durable log and
+// SubscribeWithOptions() reads back via a polling/draining goroutine against
+// checkpoints — there is no synchronous "call the handler now" path. Two
+// things in this codebase depend on synchronous, in-process dispatch that a
+// wholesale swap would break:
 //
-// go-events ScopedBus benefits for hermes:
-//   - bus.Scope("run:"+runID) gives per-run topic isolation (no cross-run interference)
-//   - bus.Scope("workflow:"+wfID) gives per-workflow isolation
-//   - IsolatedScope() creates a separate Pebble store for true data isolation
-//   - Publish() returns errors (current Emit discards all handler errors — P1 review note)
-//   - Durable event log via Pebble (the underlying field is currently never wired)
+//  1. MemoryScopedBus.Emit's parent-bubbling happens inline, in the calling
+//     goroutine, before Emit returns — pipeline/stage/step code relies on
+//     handlers (e.g. the timeline recorder) having already observed an
+//     event by the time execution moves on. Async delivery would reorder or
+//     delay that relative to pipeline progress.
+//  2. WatchService (see scoped-bus-opportunity-004) subscribes at the root
+//     and resolves pauses by matching arbitrary payload conditions, not by
+//     run identity — a design that depends on every subscriber seeing every
+//     event on the shared bus, which per-run topic isolation would remove.
 //
-// Migration path:
-//  1. Replace NewMemoryScopedBus() with NewEventBus() + ScopedBus usage
-//  2. Replace Emit() calls with scoped.Publish() (error-returning)
-//  3. Remove manual parent-bubbling logic (ScopedBus handles it internally)
-//  4. Wire the durable backend that was designed but never connected
+// The safer, additive half of this note — wiring the durable go-events
+// backend that MemoryScopedBus already has a slot for (the `underlying`
+// field) — is real and has been implemented: see
+// events.NewDurableMemoryScopedBus (scoped-bus-opportunity-005). That gives
+// durability/replay without replacing the synchronous dispatch model this
+// code depends on. A full ScopedBus migration remains open as future work,
+// but needs a design pass on run-identity-based subscription filtering
+// first (see the wontfix note on scoped-bus-opportunity-004), not just a
+// mechanical swap.
 var _ ScopedEventBus = (*MemoryScopedBus)(nil)

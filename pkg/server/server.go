@@ -28,14 +28,20 @@ type ServerConfig struct {
 	// EventSource is the inversion-of-control interface for wiring external
 	// events to workflow triggers. When nil, a ManualEventSource is used.
 	EventSource runtime.EventSource
+	// AllowedOrigins restricts CORS to the given origins (exact match
+	// against the request's Origin header). When empty (the default),
+	// Access-Control-Allow-Origin: * is used, matching prior behavior — see
+	// the note on withCORS for why that default hasn't changed.
+	AllowedOrigins []string
 }
 
 // PipelineServer implements the frontend REST API surface backed by a
 // runtime.WorkflowRuntime. Clients submit raw workflow graphs ({nodes, edges})
 // to POST /run and poll runs/outcome/events/store/abort.
 type PipelineServer struct {
-	rt  *runtime.WorkflowRuntime
-	log core.Logger
+	rt             *runtime.WorkflowRuntime
+	log            core.Logger
+	allowedOrigins []string
 }
 
 func NewPipelineServer(cfg ServerConfig) *PipelineServer {
@@ -50,17 +56,22 @@ func NewPipelineServer(cfg ServerConfig) *PipelineServer {
 			EventSource: cfg.EventSource,
 		})
 	}
-	return &PipelineServer{rt: rt, log: cfg.Logger}
+	return &PipelineServer{rt: rt, log: cfg.Logger, allowedOrigins: cfg.AllowedOrigins}
 }
 
 func (s *PipelineServer) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	// @note #review-20260822-051 issue status=open priority=P2 tags=#review,#error-handling : JSON encoder error discarded
+	// @note #review-20260822-051 issue status=resolved priority=P2 tags=#review,#error-handling : JSON encoder error discarded
 	//
-	// json.NewEncoder(w).Encode(data) error is discarded. If encoding fails after
-	// WriteHeader, the client gets a partial/corrupt response. At minimum, log the error.
-	_ = json.NewEncoder(w).Encode(data)
+	// Resolved: log the error. Can't do much more than that at this point
+	// — WriteHeader has already been called, so the response status is
+	// committed and there's no way to convert this into a clean error
+	// response to the client. Logging at least surfaces server-side
+	// evidence of a corrupt response instead of it vanishing silently.
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		s.log.Error("server: failed to encode JSON response", "status", status, "error", err)
+	}
 }
 
 func (s *PipelineServer) writeError(w http.ResponseWriter, status int, code, msg string) {
@@ -87,7 +98,7 @@ func (s *PipelineServer) Handler() http.Handler {
 	mux.HandleFunc("GET /runs/", s.handleRunsSubroutes)
 	mux.HandleFunc("POST /runs/", s.handleRunActionSubroutes)
 
-	return withCORS(mux)
+	return withCORS(mux, s.allowedOrigins)
 }
 
 // wireNode / wireEdge mirror the TS WorkflowNode/WorkflowEdge shapes the client
@@ -344,15 +355,32 @@ func (s *PipelineServer) handleRunActionSubroutes(w http.ResponseWriter, r *http
 	s.writeError(w, http.StatusNotFound, core.ErrCodeNotFound, "action not found")
 }
 
-// withCORS enables cross-origin access for the hedwig dev client.
-func withCORS(next http.Handler) http.Handler {
+// withCORS enables cross-origin access. When allowedOrigins is empty, any
+// origin is allowed (matching the hedwig dev client's original default).
+//
+// @note #review-20260822-050 issue status=resolved priority=P2 tags=#review,#security : Wildcard CORS origin
+//
+// Resolved: made the allowed origin list configurable via
+// ServerConfig.AllowedOrigins instead of hardcoding "*". Left the default
+// (unset AllowedOrigins) as wildcard rather than flipping it to
+// same-origin-only or empty-deny-all — this server is explicitly documented
+// as backing "the hedwig dev client," a separate-origin frontend, so a
+// same-origin default would break that client's existing deployments with
+// no config change on their part. Hosts that want the API locked down now
+// have a documented way to do it; hosts that don't set it keep today's
+// exact behavior.
+func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = true
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// @note #review-20260822-050 issue status=open priority=P2 tags=#review,#security : Wildcard CORS origin
-		//
-		// Access-Control-Allow-Origin: * allows any origin to access the API. In production,
-		// restrict to specific trusted origins. This is a security risk if the API is
-		// exposed to the internet.
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if len(allowed) == 0 {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if origin := r.Header.Get("Origin"); allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {

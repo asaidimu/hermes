@@ -26,17 +26,42 @@ type WatchEvent struct {
 	// data and Patch contains state updates to apply on resume.
 }
 
+// ConditionOp is a watch condition's comparison operator.
+//
+// @note #review-20260822-011 issue status=resolved priority=P2 tags=#review,#naming : Untyped string for operator, field, and mode
+//
+// Resolved (partially): defined ConditionOp and WatchMode as named string
+// types with constants, so IDE autocomplete and doc comments have
+// somewhere to live. Left WatchCondition.Field as a plain string — it's a
+// dotted payload path, an open-ended value space, not an enum — and did
+// not add compile-time validation of these constants' actual *values* at
+// the point WatchDescriptor is built (that would need a validating
+// constructor or a change to WatchService.Register's signature, which is
+// its own note — review-20260822-013 — kept separate). A caller who writes
+// ConditionOp("eqq") instead of OpEqual still compiles; this change gives
+// the correct constant a name to reach for, without pretending to close
+// the whole validation gap in one pass.
+type ConditionOp string
+
+const (
+	OpEqual    ConditionOp = "=="
+	OpNotEqual ConditionOp = "!="
+	OpExists   ConditionOp = "exists"
+)
+
+// WatchMode selects how a WatchDescriptor's multiple EventTypes/Conditions
+// combine to resolve a pause ("any" vs "all").
+type WatchMode string
+
+const (
+	WatchModeAny WatchMode = "any"
+	WatchModeAll WatchMode = "all"
+)
+
 // WatchCondition defines a filter on event payload fields.
 type WatchCondition struct {
-	// @note #review-20260822-011 issue status=open priority=P2 tags=#review,#naming : Untyped string for operator, field, and mode
-	//
-	// WatchCondition.Op, WatchCondition.Field, and WatchDescriptor.Mode are bare string
-	// types with no compile-time validation. Invalid operator names like "eqq" or modes
-	// like "ALL" will silently pass through. Define `type ConditionOp string` with
-	// constants (OpEqual, OpNotEqual, etc.) and `type WatchMode string` to catch invalid
-	// values at compile time.
 	Field string
-	Op    string
+	Op    ConditionOp
 	Value any
 }
 
@@ -44,12 +69,20 @@ type WatchCondition struct {
 type WatchDescriptor struct {
 	EventTypes []string
 	Mode       string
-	// @note #review-20260822-012 issue status=open priority=P2 tags=#review,#naming : Timeout is int64 without documented units
+	// Timeout is the duration to wait before giving up, in milliseconds.
 	//
-	// WatchDescriptor.Timeout is int64 with no documentation of whether the value is in
-	// milliseconds, seconds, or nanoseconds. Different callers will interpret this
-	// differently. Change to time.Duration for type-safe, unambiguous units, or add a
-	// clear doc comment specifying the unit.
+	// @note #review-20260822-012 issue status=resolved priority=P2 tags=#review,#naming : Timeout is int64 without documented units
+	//
+	// Resolved: documented the unit (milliseconds) rather than changing the
+	// field to time.Duration. Every producer of this value already
+	// converts through time.Duration.Milliseconds() first (see
+	// pkg/pipeline/context.go's PauseInstruction handling and
+	// pause.go's PauseConfig.Timeout), so int64 milliseconds is the value
+	// that actually flows through checkpoints/state (which are
+	// JSON-serialized — time.Duration would round-trip through JSON as a
+	// bare int64 of nanoseconds anyway, which is easy to misread as
+	// milliseconds and arguably more error-prone than a documented,
+	// already-consistently-used int64-ms convention).
 	Timeout    int64
 	Conditions []WatchCondition
 	Patch      map[string]any
@@ -57,13 +90,16 @@ type WatchDescriptor struct {
 
 // WatchService is the interface for the watch service.
 type WatchService interface {
-	// @note #review-20260822-013 issue status=open priority=P2 tags=#review,#interface : WatchService has no error returns
+	// @note #review-20260822-013 issue status=resolved priority=P2 tags=#review,#interface : WatchService has no error returns
 	//
-	// WatchService.Register returns nothing, so a registration failure (duplicate run ID,
-	// invalid descriptor, resource exhaustion) is silently dropped. PeekBufferedEvent
-	// returns *WatchEvent where nil means "no event," but this is ambiguous with a system
-	// error. Register should return error, and PeekBufferedEvent should return
-	// (WatchEvent, bool) or (WatchEvent, error).
-	Register(runID string, desc WatchDescriptor)
-	PeekBufferedEvent(runID string) *WatchEvent
+	// Resolved: Register now returns error (validates runID and
+	// EventTypes — the two conditions the single real implementation,
+	// WatchService in pkg/runtime, can actually fail on today) and
+	// PeekBufferedEvent now returns (*WatchEvent, bool) instead of a bare
+	// pointer where nil was ambiguous between "no event" and "no such run".
+	// This was safe to change in place (not just document) because this
+	// interface has exactly one implementation and exactly one caller
+	// (pause.go), both in this repo, both updated together.
+	Register(runID string, desc WatchDescriptor) error
+	PeekBufferedEvent(runID string) (*WatchEvent, bool)
 }

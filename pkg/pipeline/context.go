@@ -29,10 +29,14 @@ type RunContextImpl struct {
 	// immediate use and never persist to state.
 	secretLookup func(key string) (any, bool)
 
-	abortChan chan struct{}
-	abortErr  error
-	aborted   bool
-	paused    bool
+	abortErr error
+	aborted  bool
+	paused   bool
+	// cancelRun is set by Run() to the cancel func of its derived,
+	// abort-aware context. Abort() calls it directly instead of relying on
+	// a background goroutine bridging an abort channel to cancel() (see the
+	// note on review-20260822-055 in Run for why).
+	cancelRun context.CancelFunc
 
 	// resourceResolver resolves run-scoped resource artifact keys ("resource:<id>")
 	// into initialized handles. The runtime (pkg/runtime) injects it per run so
@@ -59,7 +63,6 @@ func NewRunContext(
 		eventBus:     bus,
 		logger:       logger,
 		entryAddress: entryAddr,
-		abortChan:    make(chan struct{}),
 	}
 }
 
@@ -82,13 +85,19 @@ func (r *RunContextImpl) ResolveResource(key string) (any, bool) {
 }
 
 func (r *RunContextImpl) Write(mutator store.Mutator) {
-	// @note #review-20260822-033 issue status=open priority=P1 tags=#review,#error-handling : Write discards store update error
+	// @note #review-20260822-033 issue status=resolved priority=P1 tags=#review,#error-handling : Write discards store update error
 	//
-	// The error from r.store.Update is discarded with `_ =`. If the store update fails
-	// (e.g., validation error, key collision), the pipeline continues with stale state.
-	// This defeats Go's error propagation idiom. At minimum, log the error; ideally,
-	// propagate it or return it to the caller.
-	_ = r.store.Update(context.Background(), mutator)
+	// Resolved: log the error instead of discarding it. Write's signature
+	// (no return value) is part of the PipelineContext interface used
+	// pervasively by node implementations as a fire-and-forget call;
+	// changing it to return an error would ripple across every node in the
+	// repo, which isn't safe to do blind in this environment (no working
+	// compiler to catch every call site). Logging closes the "pipeline
+	// continues with stale state and nobody finds out" gap without that
+	// wider, riskier signature change.
+	if err := r.store.Update(context.Background(), mutator); err != nil && r.logger != nil {
+		r.logger.Error("pipeline: store update failed", "runId", r.runID, "pipelineId", r.definition.ID, "error", err)
+	}
 }
 
 func (r *RunContextImpl) On(eventType string, handler events.EventHandler) func() {
@@ -104,7 +113,9 @@ func (r *RunContextImpl) Abort(err error) {
 			err = core.NewSystemError(core.ErrCodeAbort, "pipeline execution aborted")
 		}
 		r.abortErr = err
-		close(r.abortChan)
+		if r.cancelRun != nil {
+			r.cancelRun()
+		}
 	}
 }
 
@@ -120,21 +131,24 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 	// (e.g. delay) observe aborts via ctx.Done() instead of only between stages.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// @note #review-20260822-055 issue status=open priority=P1 tags=#review,#performance,#memory-leak : Goroutine leak on normal path
+	// @note #review-20260822-055 issue status=resolved priority=P1 tags=#review,#performance,#memory-leak : Goroutine leak on normal path
 	//
-	// A goroutine is spawned per Run call to bridge abortChan -> cancel(). On the normal
-	// (non-aborted) path, this goroutine blocks on select until runCtx.Done() fires. The
-	// defer cancel() ensures the context is cancelled, so the goroutine will eventually
-	// drain — but there is a brief window where the goroutine outlives the Run return. If
-	// Run is called in a tight loop, these goroutines accumulate transiently. Consider
-	// using context.AfterFunc (Go 1.21+) instead of a dedicated goroutine.
-	go func() {
-		select {
-		case <-r.abortChan:
-			cancel()
-		case <-runCtx.Done():
-		}
-	}()
+	// Resolved: removed the dedicated bridging goroutine entirely, rather
+	// than swapping it for context.AfterFunc (which still needs something
+	// to bridge Abort's signal into a context in the first place — it
+	// doesn't take a channel). Abort() now holds a direct reference to this
+	// run's cancel func (r.cancelRun, set below under r.mu) and calls it
+	// itself under lock; there is no longer a channel or a goroutine
+	// watching one; Abort() called before Run() starts is now handled by
+	// checking r.aborted immediately after registering cancelRun, instead
+	// of relying on a goroutine that hadn't started its select yet.
+	r.mu.Lock()
+	alreadyAborted := r.aborted
+	r.cancelRun = cancel
+	r.mu.Unlock()
+	if alreadyAborted {
+		cancel()
+	}
 
 	pipePath := events.EventPath{
 		{Kind: "pipeline", ID: r.definition.ID, Label: r.definition.Label},
@@ -325,13 +339,17 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 							if len(resolvedPipelines) > 1 {
 								key = resultKey + ":" + pipelineID
 							}
-							// @note #review-20260825-001 issue status=open priority=P1 tags=#review,#error-handling : Discarded store update error in result merge
+							// @note #review-20260825-001 issue status=resolved priority=P1 tags=#review,#error-handling : Discarded store update error in result merge
 							//
-							// The error from r.store.Update is discarded with `_ =`. If the store
-							// update fails (e.g., document corruption, write conflict), the parent
-							// silently loses the child's result with no indication. At minimum,
-							// log the error; ideally, return it or fail the stage.
-							_ = r.store.Update(ctx, store.SetValue(key, mergeVal))
+							// Resolved: log the error instead of discarding it.
+							// Continuing rather than failing the stage on a
+							// single merge-key failure matches the same
+							// best-effort-but-now-visible choice made for the
+							// sibling notes in this file (review-20260822-033)
+							// and pause.go (review-20260822-046).
+							if err := r.store.Update(ctx, store.SetValue(key, mergeVal)); err != nil && r.logger != nil {
+								r.logger.Error("pipeline: failed to merge sub-pipeline result into state", "runId", r.runID, "pipelineId", pipelineID, "key", key, "error", err)
+							}
 						}
 					}
 				}

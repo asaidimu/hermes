@@ -71,20 +71,33 @@ func (r *PipelineRegistry) Register(run *ActiveRun) error {
 	return nil
 }
 
-// Get returns the ActiveRun for a given runID.
+// Get returns a copy of the ActiveRun for a given runID.
+//
+// @note #review-20260822-043 issue status=resolved priority=P1 tags=#review,#concurrency : Get returns mutable internal state pointer
+//
+// Resolved: return a shallow copy of the registry's internal ActiveRun
+// instead of the live pointer. RunContext and Store are still shared (they
+// are meant to be — the actual live execution context and its store), but
+// the ActiveRun struct's own bookkeeping fields (Status, PausedAt,
+// ExpiresAt, timer) are now decoupled: a caller mutating the returned
+// value's Status can no longer race with MarkPaused/FastPathResume/the
+// expiration timer's callback, which all operate on the registry's own
+// r.runs[runID] entry under r.mu, not on whatever a past Get() caller is
+// holding.
 func (r *PipelineRegistry) Get(runID string) (*ActiveRun, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	run, ok := r.runs[runID]
-	// @note #review-20260822-043 issue status=open priority=P1 tags=#review,#concurrency : Get returns mutable internal state pointer
-	//
-	// Get returns a pointer to the internal ActiveRun under RLock. After RUnlock, the
-	// caller holds a reference to mutable internal state. If Deregister or MarkPaused is
-	// called concurrently, the caller's ActiveRun may be modified or its timer stopped.
-	//
-	// Fix by returning a copy of ActiveRun, or by documenting that the caller must not
-	// mutate the returned value.
-	return run, ok
+	return copyActiveRun(run), ok
+}
+
+// copyActiveRun returns a shallow copy of run, or nil if run is nil.
+func copyActiveRun(run *ActiveRun) *ActiveRun {
+	if run == nil {
+		return nil
+	}
+	cp := *run
+	return &cp
 }
 
 // Deregister removes a run from the registry and stops any expiration timers.
@@ -165,14 +178,15 @@ func (r *PipelineRegistry) FastPathResume(ctx context.Context, runID string) (*A
 	return run, nil
 }
 
-// List returns all active runs.
+// List returns copies of all active runs (see the note on Get for why these
+// are copies rather than live pointers into the registry's internal map).
 func (r *PipelineRegistry) List() []*ActiveRun {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	list := make([]*ActiveRun, 0, len(r.runs))
 	for _, run := range r.runs {
-		list = append(list, run)
+		list = append(list, copyActiveRun(run))
 	}
 	return list
 }

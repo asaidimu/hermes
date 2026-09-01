@@ -93,16 +93,17 @@ func TestInMemorySchedulerShutdown(t *testing.T) {
 	}
 }
 
-// @note #review-20260826-009 issue status=open priority=P2 tags=#review,#testing,#flaky : TestInMemorySchedulerReplace asserts exact tick counts against wall-clock sleeps
+// @note #review-20260826-009 issue status=resolved priority=P2 tags=#review,#testing,#flaky : TestInMemorySchedulerReplace asserts exact tick counts against wall-clock sleeps
 // @author ox-alpha
 //
-// The test sleeps 200ms and requires callCount to be EXACTLY 10 (one firing
-// of a 100ms cron). Under CI load the timer can straddle the window and fire
-// twice (observed: got 20), or the replaced job's already-armed timer can
-// sneak one firing in. This makes `-race`/CI runs red non-deterministically.
-// Fix directions: inject a fake clock into InMemoryScheduler, or assert
-// callCount is a positive multiple of 10, or widen the window and use
-// tolerance. Until then this blocks clean -race gate runs.
+// Resolved: the assertion below already checks `callCount == 0 ||
+// callCount%10 != 0` — a tolerant "non-zero multiple of 10" check, not the
+// exact-count assertion this note originally described. That's exactly one
+// of the note's own suggested fix directions. Marking resolved to match
+// what's actually in the test; the wall-clock sleep itself is unchanged
+// (still 200ms against a 100ms cron), so this remains sensitive to extreme
+// CI scheduling delays, but no longer flakes on the double-fire case the
+// note called out.
 func TestInMemorySchedulerReplace(t *testing.T) {
 	s := New()
 	defer s.Shutdown(context.Background())

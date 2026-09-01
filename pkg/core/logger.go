@@ -39,17 +39,29 @@ func WithLogger(ctx context.Context, logger Logger) context.Context {
 	return context.WithValue(ctx, contextKey{}, logger)
 }
 
-// GetLogger retrieves the logger from the context.
-// @note #review-20260822-032 issue status=open priority=P2 tags=#review,#naming : GetLogger uses anti-pattern Get prefix
+// LoggerFromContext retrieves the logger from the context, or NopLogger if
+// none was set via WithLogger.
 //
-// GetLogger violates Go naming conventions where Get prefixes are considered Java-style.
-// Idiomatic Go prefers LoggerFromContext(ctx) or LoggerFrom(ctx). This is a minor style
-// issue but affects consistency with the Go standard library (ctx.Value pattern).
-func GetLogger(ctx context.Context) Logger {
+// @note #review-20260822-032 issue status=resolved priority=P2 tags=#review,#naming : GetLogger uses anti-pattern Get prefix
+//
+// Resolved: added LoggerFromContext as the idiomatic name (matching the Go
+// stdlib's ctx.Value convention, e.g. httptest.ContextFrom-style helpers).
+// GetLogger is kept as a deprecated thin alias rather than removed/renamed
+// in place — it's an exported function on a package other code may already
+// depend on, and this repo has no way to verify all callers (internal or
+// external) without a working build in this environment.
+func LoggerFromContext(ctx context.Context) Logger {
 	if ctx != nil {
 		if l, ok := ctx.Value(contextKey{}).(Logger); ok && l != nil {
 			return l
 		}
 	}
 	return NopLogger{}
+}
+
+// GetLogger retrieves the logger from the context.
+//
+// Deprecated: use LoggerFromContext instead. Kept for backward compatibility.
+func GetLogger(ctx context.Context) Logger {
+	return LoggerFromContext(ctx)
 }

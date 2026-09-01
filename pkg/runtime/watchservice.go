@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/watch"
 )
@@ -40,7 +41,14 @@ func NewWatchService(bus events.ScopedEventBus, resumeCallback func(runID string
 }
 
 // Register creates a watch registration for the given run.
-func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) {
+func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) error {
+	if runID == "" {
+		return core.NewSystemError(core.ErrCodeValidation, "watch: runID must not be empty")
+	}
+	if len(desc.EventTypes) == 0 {
+		return core.NewSystemError(core.ErrCodeValidation, "watch: descriptor must specify at least one event type")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -68,6 +76,7 @@ func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) {
 
 		s.acquireBusSubscriptionLocked(eventType)
 	}
+	return nil
 }
 
 // OnRunPaused returns buffered event or nil if run should wait.
@@ -125,23 +134,23 @@ func (s *WatchService) OnRunEnded(runID string) {
 
 // PeekBufferedEvent checks if there's a buffered event without marking the run as parked.
 // This is used by bounded pause nodes to check for events before deciding to pause.
-func (s *WatchService) PeekBufferedEvent(runID string) *watch.WatchEvent {
+func (s *WatchService) PeekBufferedEvent(runID string) (*watch.WatchEvent, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	runMap, ok := s.registrations[runID]
 	if !ok {
-		return nil
+		return nil, false
 	}
 
 	for _, reg := range runMap {
 		if len(reg.queue) > 0 {
 			event := &reg.queue[0]
-			return event
+			return event, true
 		}
 	}
 
-	return nil
+	return nil, false
 }
 
 // onEvent is called when a bus event arrives for a watched event type.
@@ -210,7 +219,7 @@ func (s *WatchService) onEvent(eventType string, payload map[string]any) {
 func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, payload map[string]any) bool {
 	for _, cond := range conditions {
 		value := getField(payload, cond.Field)
-		if cond.Op == "exists" {
+		if cond.Op == watch.OpExists {
 			if value == nil {
 				return false
 			}
@@ -219,21 +228,28 @@ func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, pay
 		if value == nil {
 			return false
 		}
-		// @note #review-20260822-001 observation status=open priority=P2 tags=#review,#design : Limited comparison operators
+		// @note #review-20260822-001 observation status=resolved priority=P2 tags=#review,#design : Limited comparison operators
 		//
-		// Only == and != operators are implemented. Other operators (>, >=, <, <=)
-		// silently return false. This may be intentional for simplicity, but should
-		// be documented or extended if needed.
+		// Resolved: extended to support >, >=, <, <= for numeric values
+		// (via compareNumeric below), rather than leaving them to silently
+		// return false. Non-numeric operands with a relational operator
+		// still return false (there's no sensible ordering to fall back to
+		// for e.g. two unrelated maps), same as an unknown operator would.
 		// @note #review-20260822-044 issue status=resolved priority=P1 tags=#review,#bug : Unknown operator returns true
 		//
 		// Resolved: Added default: return false to reject unknown comparison operators.
 		switch cond.Op {
-		case "==":
+		case watch.OpEqual:
 			if value != cond.Value {
 				return false
 			}
-		case "!=":
+		case watch.OpNotEqual:
 			if value == cond.Value {
+				return false
+			}
+		case ">", ">=", "<", "<=":
+			ok, cmpOK := compareNumeric(value, cond.Value, string(cond.Op))
+			if !cmpOK || !ok {
 				return false
 			}
 		default:
@@ -241,6 +257,47 @@ func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, pay
 		}
 	}
 	return true
+}
+
+// compareNumeric compares a and b numerically using op ("> " | ">=" | "<" | "<=").
+// The second return value is false when either operand isn't a numeric type
+// (int, int32, int64, float32, float64), in which case the comparison result
+// is meaningless and the caller should treat the condition as unmet.
+func compareNumeric(a, b any, op string) (result bool, ok bool) {
+	af, aok := toFloat64(a)
+	bf, bok := toFloat64(b)
+	if !aok || !bok {
+		return false, false
+	}
+	switch op {
+	case ">":
+		return af > bf, true
+	case ">=":
+		return af >= bf, true
+	case "<":
+		return af < bf, true
+	case "<=":
+		return af <= bf, true
+	default:
+		return false, false
+	}
+}
+
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
 }
 
 func (s *WatchService) startTimeoutLocked(runID string, timeoutMs int64) {
@@ -288,16 +345,25 @@ func (s *WatchService) acquireBusSubscriptionLocked(eventType string) {
 	if _, ok := s.busSubs[eventType]; ok {
 		return
 	}
-	// @note #scoped-bus-opportunity-004 issue status=open priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
+	// @note #scoped-bus-opportunity-004 issue status=wontfix priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
 	//
-	// The WatchService subscribes to the root runtime bus for all watched event
-	// types. When a watched event arrives, it fans out to ALL runs waiting for
-	// that event type via the byEventType reverse index, then each run's onEvent
-	// handler manually checks if the event belongs to it.
-	//
-	// With go-events ScopedBus, the WatchService could subscribe to per-run
-	// scoped buses (bus.Scope("run:"+runID)) instead of the root bus. This
-	// eliminates manual runID filtering and reduces unnecessary fan-out.
+	// Investigated and declined: this is not actually filtering "by runID" —
+	// checked onEvent/evaluateConditions directly, and neither ever compares
+	// the incoming event's RunID against the waiting run. That's
+	// intentional, not an oversight. The events WatchService cares about are
+	// external business signals (e.g. "order.approved") published by
+	// callers via the public rt.Bus() who have no idea what a "runID" is —
+	// they publish once, broadcast, and each waiting run's
+	// WatchDescriptor.Conditions (matched against payload, not run
+	// identity) decides whether it's the one waiting for it. Subscribing on
+	// per-run scoped buses instead of the root would mean a run's watch
+	// could only ever see events published *into that run's own scope* —
+	// which nothing does, since external callers publish globally. That
+	// would silently break every resume-on-external-event pause, not just
+	// reduce fan-out. If per-run subscription scoping is wanted later, it
+	// needs a companion change so external Dispatch-style calls can target
+	// a specific run's scope (or a set of scopes) — a real design decision,
+	// not a mechanical Subscribe-call swap.
 	unsubscribe := s.bus.Subscribe(eventType, func(ctx context.Context, evt events.PipelineEvent) error {
 		s.onEvent(eventType, evt.Payload)
 		return nil

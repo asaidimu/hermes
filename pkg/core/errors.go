@@ -19,6 +19,7 @@ const (
 	ErrCodeValidation      = "VALIDATION_ERROR"
 	ErrCodeConflict        = "CONFLICT"
 	ErrCodeAbort           = "ABORTED"
+	ErrCodeInternal        = "INTERNAL_ERROR"
 )
 
 // Standard Predefined Errors
@@ -33,14 +34,15 @@ var (
 )
 
 // NewSystemError creates a new SystemError using go-anansi's constructor.
-func NewSystemError(code string, message ...string) *SystemError {
-	// @note #review-20260822-022 issue status=open priority=P3 tags=#review,#naming : Variadic string for single message is awkward
+func NewSystemError(code string, message string) *SystemError {
+	// @note #review-20260822-022 issue status=resolved priority=P3 tags=#review,#naming : Variadic string for single message is awkward
 	//
-	// NewSystemError accepts variadic `message ...string` but callers must remember to
-	// pass at most one message. Passing multiple strings produces an unpredictable joined
-	// message or ignores extras. A single named `message string` parameter would be clearer
-	// and catch misuse at compile time.
-	return common.NewSystemError(code, message...)
+	// Resolved: replaced the variadic `message ...string` with a single named
+	// `message string` parameter. All call sites in this repo already passed
+	// exactly one message, so this is not a breaking change here and now
+	// catches accidental multi-arg calls at compile time instead of silently
+	// joining or dropping extras.
+	return common.NewSystemError(code, message)
 }
 
 // SystemErrorFrom converts an arbitrary error to a SystemError.
@@ -54,11 +56,16 @@ func CauseMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	// @note #review-20260822-023 issue status=open priority=P3 tags=#review,#documentation : Cycle-detection logic undocumented
+	// @note #review-20260822-023 issue status=resolved priority=P3 tags=#review,#documentation : Cycle-detection logic undocumented
 	//
-	// CauseMessage includes a `seen` map for cycle detection but has no comment explaining
-	// why cycles are possible in the error chain. Future maintainers may wonder why a
-	// simple loop is insufficient.
+	// Resolved: documented below why cycle detection is needed here.
+	//
+	// `seen` guards against infinite loops in the error chain. SystemError.Cause
+	// and the generic Unwrap() path are both populated by callers, and nothing
+	// prevents an error being wrapped so that unwrapping it eventually returns
+	// to an error already seen (e.g. a Cause accidentally set to an ancestor,
+	// or a third-party Unwrap implementation with a bug). Without this guard
+	// such a cycle would hang the walk forever instead of failing safely.
 	seen := make(map[error]bool)
 	for {
 		if seen[err] {

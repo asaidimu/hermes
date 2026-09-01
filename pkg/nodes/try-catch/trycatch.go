@@ -2,7 +2,6 @@ package trycatch
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -11,27 +10,27 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// @note #review-20260827-004 todo status=open priority=P2 tags=#review,#refactoring,#typesafety : Migrate try-catch node from untyped NodeDefinition to TypedDefinition[TryCatchConfig]
+// TryCatchConfig is the typed configuration for the try-catch node.
+type TryCatchConfig struct {
+	ErrorKey string `config:"errorKey" anansi:"default=error,required=true"`
+}
+
+// @note #review-20260827-004 todo status=resolved priority=P2 tags=#review,#refactoring,#typesafety : Migrate try-catch node from untyped NodeDefinition to TypedDefinition[TryCatchConfig]
 // @author antigravity
 //
-// The try-catch node is an unmigrated refactoring artifact: it still declares an untyped
-// NodeDefinition with hand-written ConfigSchema JSON and untyped NodeRunContext callbacks.
-// It should be migrated to nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{...}) with
-// a typed ErrorKey struct field.
-var Node = nodekit.NodeDefinition{
+// Resolved: migrated to nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{...})
+// with a tagged TryCatchConfig struct (errorKey, default "error", required).
+// The hand-written ConfigSchema JSON is gone — schema is now derived from
+// TryCatchConfig's struct tags. run/router now receive
+// *nodekit.TypedRunContext[TryCatchConfig] and read nCtx.Config.ErrorKey
+// directly instead of an unchecked map type assertion.
+var Node = nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{
 	Kind:        "try-catch",
 	Label:       "Try / Catch",
 	Description: "Execute a sub-flow and catch any errors it raises.",
 	Type:        "executable",
 	BodyHandle:  "try",
-	ConfigSchema: json.RawMessage(`{
-		"version": "1.0.0",
-		"name": "try-catch",
-		"fields": {
-			"errorKey": { "name": "errorKey", "type": "string", "default": "error", "required": true }
-		}
-	}`),
-	Handles: func(config map[string]any) []nodekit.HandleSpec {
+	Handles: func(cfg *TryCatchConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
 			{Type: nodekit.HandleTarget, ID: ""},
 			{Type: nodekit.HandleSource, ID: "done", Label: "done"},
@@ -42,14 +41,14 @@ var Node = nodekit.NodeDefinition{
 	HandlesJS: `() => [{"type":"target","id":"","kind":"executable"},{"type":"source","id":"done","label":"done","kind":"executable"},{"type":"source","id":"catch","label":"catch","kind":"executable"},{"type":"source","id":"try","label":"try","kind":"executable"}]`,
 	Run:       run,
 	Router:    router,
-}
+})
 
 // run mirrors the TS try-catch run: aggregates any errors seen by the step into
 // a single SystemError JSON written at errorKey. The engine only surfaces errors
 // to routers (buildStep does not pass errors), so this is effectively a no-op
 // during normal execution — kept for parity.
-func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error) {
-	errorKey, _ := nCtx.Config["errorKey"].(string)
+func run(ctx context.Context, nCtx *nodekit.TypedRunContext[TryCatchConfig]) (store.Mutator, error) {
+	errorKey := nCtx.Config.ErrorKey
 	if errorKey == "" {
 		errorKey = "error"
 	}
@@ -64,8 +63,8 @@ func run(ctx context.Context, nCtx nodekit.NodeRunContext) (store.Mutator, error
 // router mirrors the TS try-catch router: when the sub-pipeline produced errors
 // it writes the aggregated SystemError JSON at errorKey (via the store) and
 // routes to "catch"; otherwise routes to "done".
-func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
-	errorKey, _ := nCtx.Config["errorKey"].(string)
+func router(ctx context.Context, nCtx *nodekit.TypedRunContext[TryCatchConfig]) (string, error) {
+	errorKey := nCtx.Config.ErrorKey
 	if errorKey == "" {
 		errorKey = "error"
 	}
@@ -82,9 +81,9 @@ func router(ctx context.Context, nCtx nodekit.NodeRunContext) (string, error) {
 	return "catch", nil
 }
 
-func filterErrors(errors map[string]any) []any {
-	out := make([]any, 0, len(errors))
-	for _, e := range errors {
+func filterErrors(errs map[string]any) []any {
+	out := make([]any, 0, len(errs))
+	for _, e := range errs {
 		if e != nil {
 			out = append(out, e)
 		}
@@ -101,9 +100,9 @@ func buildFinalError(nodeID string, errorList []any) *core.SystemError {
 		if e, ok := errorList[0].(error); ok {
 			cause = e
 		} else {
-			cause = core.NewSystemError("INTERNAL_ERROR", fmt.Sprintf("%v", errorList[0]))
+			cause = core.NewSystemError(core.ErrCodeInternal, fmt.Sprintf("%v", errorList[0]))
 		}
-		return core.NewSystemError("INTERNAL_ERROR",
+		return core.NewSystemError(core.ErrCodeInternal,
 			"Try-Catch node \""+nodeID+"\": execution failed.").
 			WithCause(cause)
 	}
@@ -113,7 +112,7 @@ func buildFinalError(nodeID string, errorList []any) *core.SystemError {
 			errs = append(errs, err)
 		}
 	}
-	return core.NewSystemError("INTERNAL_ERROR",
+	return core.NewSystemError(core.ErrCodeInternal,
 		"Try-Catch node \""+nodeID+"\": parallel tracks in sub-pipeline failed.").
 		WithCause(errors.Join(errs...))
 }

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/asaidimu/hermes/pkg/core"
@@ -50,18 +51,22 @@ func ExecuteSubPipelines(
 		}
 	}
 
-	// @note #review-20260825-002 issue status=open priority=P2 tags=#review,#concurrency : Shared initialState across concurrent goroutines
+	// @note #review-20260825-002 issue status=resolved priority=P2 tags=#review,#concurrency : Shared initialState across concurrent goroutines
 	//
-	// The initialState map is extracted once and shared across all child goroutines
-	// that call NewFreshStore(initialState). If any child mutates the map (e.g., via
-	// a code node), other children see the mutation. This is unlikely since
-	// NewFreshStore copies the map into a document, but the map itself is not
-	// deep-copied before being passed. Consider deep-copying initialState per
-	// child if mutation is possible.
+	// Resolved: each child now gets its own deep copy of initialState
+	// (deepCopyJSONValue below) instead of the same shared map. Confirmed
+	// this was a real, not just theoretical, gap: store.NewFreshStore ->
+	// NewMemoryStore -> newState only shallow-copies the top-level map —
+	// nested maps/slices inside initialState (which, coming from stage
+	// config, are typically JSON-shaped and often nested) were shared by
+	// reference across every child goroutine. A JSON round-trip is used for
+	// the deep copy rather than a hand-rolled recursive copier, since
+	// initialState's value space is already constrained to what JSON can
+	// represent (it comes from parsed stage config), making round-tripping
+	// both correct and simple.
 
 	results := make([]PipelineRunResult, len(stage.Pipelines))
 	var mu sync.Mutex
-
 	var wg sync.WaitGroup
 	for idx, def := range stage.Pipelines {
 		childIdx := idx
@@ -86,7 +91,7 @@ func ExecuteSubPipelines(
 			var childStore store.Store
 			var err error
 			if initialState != nil {
-				childStore = store.NewFreshStore(initialState)
+				childStore = store.NewFreshStore(deepCopyJSONMap(initialState))
 			} else {
 				childStore, err = parentStore.Clone()
 				if err != nil {
@@ -139,4 +144,30 @@ func ExecuteSubPipelines(
 		return results, err
 	}
 	return results, nil
+}
+
+// deepCopyJSONMap returns a deep copy of m via a JSON encode/decode
+// round-trip. Used to give each concurrent sub-pipeline child its own
+// independent copy of stage-config-derived initial state (see
+// review-20260825-002); safe because m's value space is already
+// JSON-compatible (it comes from parsed stage config: maps, slices,
+// strings, numbers, bools, nil).
+func deepCopyJSONMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		// Fall back to the original map; a failed round-trip on
+		// JSON-derived data would indicate a deeper bug (e.g. a
+		// non-serializable value smuggled into stage config), and losing
+		// isolation is preferable to losing the child's initial state
+		// entirely.
+		return m
+	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return m
+	}
+	return out
 }
