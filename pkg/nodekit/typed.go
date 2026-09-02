@@ -64,6 +64,12 @@ type TypedDefinition[C any] struct {
 	ResourceInit        func(context.Context, *TypedRunContext[C]) (any, error)
 	ResourceEnd         func(context.Context, *TypedRunContext[C], any) error
 	ValidateConfig      func(*C) error
+	// Effect classifies this node kind for event-sourced replay purposes
+	// (see effect.go). Required: Define propagates it unchanged onto the
+	// erased NodeDefinition, and Register panics if it's left unset. Every
+	// node kind must decide EffectPure or EffectSideEffecting explicitly —
+	// there is no safe default.
+	Effect Effect
 }
 
 // @note #review-20260827-002 observation status=open priority=P2 tags=#review,#performance,#architecture : Type erasure and per-execution map-to-struct binding overhead in Define
@@ -96,6 +102,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		BodyHandle:   def.BodyHandle,
 		HandlesJS:    def.HandlesJS,
 		ConfigSchema: schemaJSON,
+		Effect:       def.Effect,
 	}
 
 	// Wrap Handles: bind raw map → *C, call typed callback.

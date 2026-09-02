@@ -123,6 +123,10 @@ type NodeDefinition struct {
 	PipelinesRouterFunc func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) `json:"-"`
 	ResourceInit        NodeResourceInit                                                                                                          `json:"-"`
 	ResourceEnd         NodeResourceCleanup                                                                                                       `json:"-"`
+	// Effect classifies this node kind for event-sourced replay purposes
+	// (see effect.go). Required: Register panics if this is left as the
+	// zero value (EffectUnspecified) — there is no safe default.
+	Effect Effect `json:"effect"`
 	// validator is lazily compiled from ConfigSchema on first call to ValidateConfig.
 	validator *definition.DocumentValidator
 	// validateCustom runs optional node-author validation after schema validation.
@@ -188,7 +192,19 @@ var (
 )
 
 // Register registers a node type definition.
+//
+// Panics if def.Effect is not an explicit, valid classification
+// (EffectPure or EffectSideEffecting) — see effect.go. This is a
+// programmer error, caught at registration time (during package init, for
+// every built-in node), not a runtime condition to recover from: a node
+// whose replay-safety classification was never decided must never make it
+// into a running registry silently.
 func Register(def NodeDefinition) {
+	if !def.Effect.Valid() {
+		panic(fmt.Sprintf(
+			"nodekit.Register(%q): Effect must be explicitly set to EffectPure or EffectSideEffecting (got %s) — see pkg/nodekit/effect.go",
+			def.Kind, def.Effect))
+	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	nodeTypes[def.Kind] = def

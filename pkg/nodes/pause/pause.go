@@ -30,6 +30,7 @@ type PauseConfig struct {
 // / .Timeout directly instead of unchecked map type assertions.
 var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 	Kind:        "pause",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "Pause",
 	Description: "Pause pipeline execution until specific event(s) arrive.",
 	Type:        "executable",

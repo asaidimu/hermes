@@ -29,9 +29,10 @@ func init() {
 	// A node that reads env + secret from context and records whether the
 	// secret leaked into state.
 	nodekit.Register(nodekit.NodeDefinition{
-		Kind:  "req-test",
-		Label: "Requirement Test",
-		Type:  "executable",
+		Kind:   "req-test",
+		Effect: nodekit.EffectPure,
+		Label:  "Requirement Test",
+		Type:   "executable",
 		ConfigSchema: mustRawSchema(`{
 			"version": "1.0.0",
 			"name": "req-test",

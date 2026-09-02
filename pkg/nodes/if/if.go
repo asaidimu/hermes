@@ -20,6 +20,7 @@ type IfConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[IfConfig]{
 	Kind:        "if",
+	Effect:      nodekit.EffectPure,
 	Label:       "If / Condition",
 	Description: "Branch to 'true' or 'false' output based on conditions with AND/OR combinators.",
 	Type:        "executable",

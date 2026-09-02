@@ -18,6 +18,7 @@ type QueryConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[QueryConfig]{
 	Kind:        "query",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "Database Query",
 	Description: "Execute a query against a database service collection.",
 	Type:        "executable",

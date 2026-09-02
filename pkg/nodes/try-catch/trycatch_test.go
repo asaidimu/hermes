@@ -29,7 +29,7 @@ func TestRouterCatchWithErrorsWritesStore(t *testing.T) {
 		NodeID: "tc1",
 		Config: map[string]any{"errorKey": "error"},
 		Errors: map[string]any{
-			"nodeA": core.NewSystemError("INTERNAL_ERROR", "boom"),
+			"nodeA": core.NewSystemError(core.ErrCodeInternal, "boom"),
 		},
 		Store: st,
 	})
@@ -55,8 +55,8 @@ func TestRouterMultipleErrorsAggregates(t *testing.T) {
 		NodeID: "tc1",
 		Config: map[string]any{"errorKey": "error"},
 		Errors: map[string]any{
-			"a": core.NewSystemError("INTERNAL_ERROR", "e1"),
-			"b": core.NewSystemError("INTERNAL_ERROR", "e2"),
+			"a": core.NewSystemError(core.ErrCodeInternal, "e1"),
+			"b": core.NewSystemError(core.ErrCodeInternal, "e2"),
 		},
 		Store: store.NewMemoryStore(nil),
 	})

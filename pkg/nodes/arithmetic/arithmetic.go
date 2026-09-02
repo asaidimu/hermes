@@ -18,6 +18,7 @@ type ArithmeticConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[ArithmeticConfig]{
 	Kind:        "arithmetic",
+	Effect:      nodekit.EffectPure,
 	Label:       "Arithmetic",
 	Description: "Performs a mathematical operation on two values.",
 	Type:        "executable",

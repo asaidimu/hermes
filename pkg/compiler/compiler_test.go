@@ -16,7 +16,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func init() {
-	nodekit.Register(nodekit.NodeDefinition{Kind: "output", Label: "Output", Type: "executable"})
+	nodekit.Register(nodekit.NodeDefinition{Kind: "output", Label: "Output", Type: "executable", Effect: nodekit.EffectPure})
 }
 
 // ---------------------------------------------------------------------------

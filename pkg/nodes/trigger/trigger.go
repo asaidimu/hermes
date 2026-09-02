@@ -17,6 +17,7 @@ type TriggerConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[TriggerConfig]{
 	Kind:        "trigger",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "Trigger",
 	Description: "Starts the state machine workflow with injectables/initial state context.",
 	Type:        "executable",

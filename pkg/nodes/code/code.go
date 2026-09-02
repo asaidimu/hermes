@@ -15,6 +15,7 @@ type CodeConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[CodeConfig]{
 	Kind:        "code",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "JavaScript Code",
 	Description: "Execute custom JS transformations on the workflow state.",
 	Type:        "executable",

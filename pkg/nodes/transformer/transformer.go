@@ -11,6 +11,7 @@ import (
 
 var Node = nodekit.NodeDefinition{
 	Kind:        "transformer",
+	Effect:      nodekit.EffectPure,
 	Label:       "Transformer",
 	Description: "Manipulate workflow state by applying transformation rules.",
 	Type:        "executable",

@@ -57,6 +57,7 @@ type HTTPConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[HTTPConfig]{
 	Kind:        "http",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "HTTP Request",
 	Description: "Execute a standard HTTP request to an external service or API.",
 	Type:        "executable",
