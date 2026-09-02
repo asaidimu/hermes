@@ -15,6 +15,7 @@ type WhileConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[WhileConfig]{
 	Kind:        "while",
+	Effect:      nodekit.EffectPure,
 	Label:       "While Loop",
 	Description: "Repeatedly execute the 'do' branch as long as the condition remains true.",
 	Type:        "executable",

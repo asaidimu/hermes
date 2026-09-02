@@ -26,6 +26,7 @@ type TryCatchConfig struct {
 // directly instead of an unchecked map type assertion.
 var Node = nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{
 	Kind:        "try-catch",
+	Effect:      nodekit.EffectPure,
 	Label:       "Try / Catch",
 	Description: "Execute a sub-flow and catch any errors it raises.",
 	Type:        "executable",

@@ -16,6 +16,7 @@ type SwitchConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[SwitchConfig]{
 	Kind:        "switch",
+	Effect:      nodekit.EffectPure,
 	Label:       "Switch",
 	Description: "Match a workflow state value against several static cases to branch paths.",
 	Type:        "executable",

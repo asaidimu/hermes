@@ -11,6 +11,7 @@ type ForkConfig struct{}
 
 var Node = nodekit.Define(nodekit.TypedDefinition[ForkConfig]{
 	Kind:        "fork",
+	Effect:      nodekit.EffectPure,
 	Label:       "Fork",
 	Description: "Split execution into parallel branches. Multiple edges from the \"do\" handle each become a concurrent sub-pipeline. All branches must converge at the same Join node.",
 	Type:        "executable",

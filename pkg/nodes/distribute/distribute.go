@@ -14,6 +14,7 @@ type DistributeConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[DistributeConfig]{
 	Kind:        "distribute",
+	Effect:      nodekit.EffectPure,
 	Label:       "Distribute (Parallel For-Each)",
 	Description: "Execute the body concurrently for each element in an array. Each iteration gets its own sub-pipeline with the element injected.",
 	Type:        "executable",

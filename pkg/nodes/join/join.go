@@ -11,6 +11,7 @@ type JoinConfig struct{}
 
 var Node = nodekit.Define(nodekit.TypedDefinition[JoinConfig]{
 	Kind:        "join",
+	Effect:      nodekit.EffectPure,
 	Label:       "Join",
 	Description: "Synchronization point: waits for all parallel branches from a Fork to complete before proceeding.",
 	Type:        "executable",

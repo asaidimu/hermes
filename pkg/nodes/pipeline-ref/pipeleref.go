@@ -19,6 +19,7 @@ import (
 
 var Node = nodekit.NodeDefinition{
 	Kind:        "pipeline-ref",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "Pipeline Reference",
 	Description: "Invoke a registered sub-pipeline with fresh state and optional result merging.",
 	Type:        "executable",

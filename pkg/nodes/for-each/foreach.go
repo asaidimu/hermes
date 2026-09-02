@@ -10,6 +10,7 @@ import (
 
 var Node = nodekit.NodeDefinition{
 	Kind:        "for-each",
+	Effect:      nodekit.EffectPure,
 	Label:       "For Each / Iterator",
 	Description: "Iterate over an array or object collection step-by-step.",
 	Type:        "executable",

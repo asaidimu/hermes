@@ -16,6 +16,7 @@ type DelayConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[DelayConfig]{
 	Kind:        "delay",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "Delay",
 	Description: "Wait for a given number of milliseconds, or until a cron schedule fires.",
 	Type:        "executable",

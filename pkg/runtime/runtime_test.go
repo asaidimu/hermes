@@ -172,6 +172,7 @@ func TestTimelineRecordsStepFailure(t *testing.T) {
 	// "test-generic-error" node.
 	nodekit.Register(nodekit.NodeDefinition{
 		Kind:         "test-generic-error",
+		Effect:       nodekit.EffectPure,
 		Label:        "Test Generic Error",
 		ConfigSchema: json.RawMessage(emptySchema),
 		Type:         "executable",
@@ -235,6 +236,7 @@ func TestResourceResolverInjection(t *testing.T) {
 	// Resource node kind: initializes a handle at run scope.
 	nodekit.Register(nodekit.NodeDefinition{
 		Kind:         "dbref",
+		Effect:       nodekit.EffectPure,
 		Label:        "DB Ref",
 		ConfigSchema: json.RawMessage(emptySchema),
 		Type:         "resource",
@@ -252,6 +254,7 @@ func TestResourceResolverInjection(t *testing.T) {
 	// Consumer node: references the resource via interpolation.
 	nodekit.Register(nodekit.NodeDefinition{
 		Kind:         "consumer",
+		Effect:       nodekit.EffectPure,
 		Label:        "Consumer",
 		ConfigSchema: json.RawMessage(`{"version":"1.0.0","name":"consumer","fields":{"conn":{"name":"conn","type":"string","required":true}}}`),
 		Type:         "executable",
@@ -304,6 +307,7 @@ func TestResourceResolverInjection(t *testing.T) {
 func TestResourceLifecycleEvents(t *testing.T) {
 	nodekit.Register(nodekit.NodeDefinition{
 		Kind:         "liferes",
+		Effect:       nodekit.EffectPure,
 		Label:        "Life Res",
 		ConfigSchema: json.RawMessage(emptySchema),
 		Type:         "resource",
@@ -319,6 +323,7 @@ func TestResourceLifecycleEvents(t *testing.T) {
 	})
 	nodekit.Register(nodekit.NodeDefinition{
 		Kind:         "liferes-consumer",
+		Effect:       nodekit.EffectPure,
 		Label:        "Life Res Consumer",
 		ConfigSchema: json.RawMessage(emptySchema),
 		Type:         "executable",

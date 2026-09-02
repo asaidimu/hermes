@@ -10,6 +10,7 @@ type DatabaseConfig struct {
 
 var Node = nodekit.Define(nodekit.TypedDefinition[DatabaseConfig]{
 	Kind:        "database",
+	Effect:      nodekit.EffectSideEffecting,
 	Label:       "Database Service",
 	Description: "Provides a database instance to workflow nodes via the artifact container.",
 	Type:        "resource",
