@@ -127,7 +127,7 @@ func TestStepReadsEnvAndSecret(t *testing.T) {
 		Bus:      events.NewMemoryScopedBus(),
 		Env:      map[string]any{"REQ_TEST_ENV": "prod-value"},
 		Secrets:  &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
-		Timeline: nil,
+		ActionLog: nil,
 	})
 
 	rn, re := reqTestNodes()

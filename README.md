@@ -35,8 +35,8 @@ The project is deliberately **polyglot**. Every built-in node kind lives in its 
 - **Event-Driven Runtime**: A bus-driven orchestrator dispatches external events to registered workflows, supports per-workflow concurrency modes (`transient`, `serialized`, `exclusive`, `loop`), and resumes paused runs on matching events via a pre-buffering watch service.
 - **Scheduling**: Pluggable cron scheduler (`"30 * * * *"`, `"@every 5m"`, `"@daily"`) plus one-shot delays, backed by an in-memory implementation.
 - **Built-in Node Catalog**: 15 production-ready kinds including sandboxed JavaScript (`code`, powered by goja), HTTP requests, Gemini AI prompts, control flow (`if`/`switch`/`while`/`for-each`/`try-catch`/`pause`/`delay`), transforms, queries, and resource nodes.
-- **Frontend Wire Parity REST Server**: `/registry`, `/handles.js`, `/run`, `/compile`, `/runs/:id/events`, `/runs/:id/store`, and more — exact JSON contracts for the UI canvas, inspector panels, and timeline slider.
-- **Embeddable Facade**: Import the root `pipelines` package for a clean, dependency-light API — no HTTP server required.
+- **Canvas Wire Format**: `compiler.DecodeWireGraph` / `compiler.CompileWire` translate canvas JSON documents (`{nodes, edges}`) into compiled workflows — no HTTP layer required.
+- **Embeddable Facade**: Import the root `pipelines` package for a clean, dependency-light API.
 
 ---
 
@@ -66,26 +66,22 @@ go get github.com/asaidimu/hermes
 ```
 
 ### Configuration
-No environment variables are required — the runtime defaults to in-memory stores, an isolated event bus, and a memory timeline store. Typical configuration points:
+No environment variables are required — the runtime defaults to in-memory stores, an isolated event bus, and an in-memory action log. Typical configuration points:
 
 | Concern | Mechanism |
 | :--- | :--- |
-| Event bus / store factory / timeline | `runtime.Options{Bus, StoreFactory, Timeline}` |
+| Event bus / store factory / action log | `runtime.Options{Bus, StoreFactory, ActionLog}` |
 | Cron scheduling | `runtime.Options.Scheduler` (defaults to `scheduler.InMemoryScheduler`) |
 | External trigger wiring | `runtime.Options.EventSource` (defaults to a manual source) |
-| HTTP port | Set by your `http.ListenAndServe` call (example uses `3001`) |
 | Gemini API key | Passed per-node via the node `config.apiKey` field |
 
-> The example server registers all node kinds via a blank import of `pkg/nodes`. Any program that builds workflows must do the same (see [Troubleshooting](#troubleshooting--faq)).
+> Programs that build workflows must register all node kinds via a blank import of `pkg/nodes` (see [Troubleshooting](#troubleshooting--faq)).
 
 ### Verification
 ```bash
-# Compile everything and boot the example REST server
+# Compile everything and run the suite
 go build ./...
-go run ./examples/server &
-
-# Quick check — list the registered node catalog
-curl http://localhost:3001/registry | head -c 400
+go test ./...
 ```
 
 ---
@@ -137,50 +133,70 @@ func main() {
 }
 ```
 
-Serve the same capability over REST:
+Run a canvas JSON document directly against the embedded runtime:
 
-```bash
-curl -X POST http://localhost:3001/run \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "nodes": [
-      { "id": "n1", "type": "executable",
-        "data": { "kind": "trigger", "config": { "initialState": { "count": 0 } } },
-        "position": { "x": 0, "y": 0 } },
-      { "id": "n2", "type": "executable",
-        "data": { "kind": "code",
-                  "config": { "code": "return { count: state.count + 1 };" } },
-        "position": { "x": 120, "y": 0 } }
-    ],
-    "edges": [
-      { "id": "e1", "source": "n1", "target": "n2", "data": { "role": "flow" } }
-    ]
-  }'
-# => {"runId":"<uuid>"}
+```go
+package main
 
-curl http://localhost:3001/runs/<runId>/outcome
-# => {"ok":true,"status":"succeeded","executedNodeIds":["n1","n2"]}
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/asaidimu/hermes/pkg/compiler"
+	"github.com/asaidimu/hermes/pkg/nodes" // registers all node kinds
+	"github.com/asaidimu/hermes/pkg/runtime"
+)
+
+var canvasDoc = []byte(`{
+  "nodes": [
+    { "id": "n1", "type": "executable",
+      "data": { "kind": "trigger", "config": { "initialState": { "count": 0 } } },
+      "position": { "x": 0, "y": 0 } },
+    { "id": "n2", "type": "executable",
+      "data": { "kind": "code",
+                "config": { "code": "return { count: state.count + 1 };" } },
+      "position": { "x": 120, "y": 0 } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "n1", "target": "n2", "data": { "role": "flow" } }
+  ]
+}`)
+
+func main() {
+	rt := runtime.NewWorkflowRuntime(runtime.Options{})
+
+	nodes, edges, err := compiler.DecodeWireGraph(canvasDoc)
+	if err != nil {
+		panic(err)
+	}
+	result, err := rt.Run(context.Background(), nodes, edges,
+		runtime.RunOptions{Timeout: 10 * time.Second})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("status: %s\n", result.Status) // status: succeeded
+
+	// Every step/stage/lifecycle event is in the unified action log.
+	evs, _ := rt.GetEvents(context.Background(), result.RunID, 0, 0)
+	fmt.Printf("events: %d\n", len(evs))
+}
 ```
 
-### CLI Reference / API Documentation
+### Go API Reference
 
-#### REST Endpoints
+#### Runtime & Observability
 
-| Method | Route | Request Body | Response Body / Status | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/registry` | – | `map[kind]NodeDefinition` | Registered visual node descriptors (catalog + defaults) |
-| `GET` | `/handles.js` | – | `application/javascript` | Evaluatable handle functions for UI canvas ports |
-| `POST` | `/run` | `{"nodes":[...],"edges":[...]}` | `{"runId":"uuid"}` | Compile DAG + trigger run |
-| `POST` | `/compile` | `{"nodes":[...],"edges":[...]}` | Compiled workflow JSON | Compiles visual graph without running |
-| `POST` | `/register` | `{"workflow": {...}}` | `{"ok":true}` | Registers a compiled workflow for triggers/events |
-| `POST` | `/deregister` | `{"workflowId":"id"}` | `{"ok":true}` | Removes a workflow from the runtime |
-| `POST` | `/events` | `{"type":"...","payload":{...}}` | `{"ok":true}` | Dispatches an external trigger event |
-| `GET` | `/runs` | – | `[]RunTimelineMeta` | Lists all execution runs |
-| `GET` | `/runs/:runId` | – | `RunTimelineMeta` | Run metadata (404 if unknown) |
-| `GET` | `/runs/:runId/outcome` | – | `RunOutcome` | Settlement status (`success`/`failed`/`paused`) |
-| `GET` | `/runs/:runId/events` | – | `[]TimelineEvent` | Chronological event log for timeline playback |
-| `GET` | `/runs/:runId/store` | – | `map[string]any` | Live Anansi document JSON state of the run |
-| `POST` | `/runs/:runId/abort` | – | `{"ok":true}` | Cancels a run via context signal |
+| Symbol | Purpose |
+| :--- | :--- |
+| `compiler.DecodeWireGraph(doc)` | Canvas JSON → `([]Node, []Edge)` |
+| `compiler.CompileWire(doc, registry)` | Canvas JSON → compiled `*pipeline.Workflow` |
+| `compiler.WorkflowView(wf)` | Compiled workflow metadata as JSON-compatible maps |
+| `rt.Run(ctx, nodes, edges, opts)` | Compile + register + execute; returns `RunResult` |
+| `rt.GetEvents(ctx, runID, from, to)` | Action-log entries projected onto timeline wire shapes |
+| `rt.ListRuns(ctx)` / `rt.GetRunMeta(ctx, runID)` | Run history from the unified log |
+| `rt.Resume(runID, payload)` | Resume a paused run (event-sourced recovery when configured) |
 
 #### Built-in Node Catalog
 
@@ -208,16 +224,17 @@ curl http://localhost:3001/runs/<runId>/outcome
 | :--- | :--- |
 | `pipeline.PipelineDefinition / Stage / Step` | Pipeline structure; steps carry `Action(ctx, PipelineContext, doc) (DocumentMutator, error)` |
 | `pipeline.RoutingInstruction` | `Advance()`, `Terminate()`, `Jump(id)`, `JumpTo(addr)`, `Pause(id, timeout)` |
-| `store.Store` / `NewMemoryStore` | Document persistence with `Read`/`Update`/`Transaction`/`ExportJSON` |
+| `store.Store` / `NewMemoryStore` | Document persistence with `Read`/`Update`/`ExportJSON` |
 | `events.ScopedEventBus` | Hierarchical pipeline → stage → step event fan-out (`PipelineEvent`) |
-| `timeline.TimelineStore / Recorder / Player` | Chronological recording, snapshotting, and seek playback |
+| `actionlog.Store` | Unified append-only log keyed by `(runID, rerunIndex)`; source of truth for recovery and history |
+| `timeline.TimelineEvent` | Frontend wire projection derived from log entries |
 | `registry.PipelineRegistry` | Thread-safe run tracking with pause-expiration timers |
 | `compiler.Compile(nodes, edges)` | Graph → compiled workflow (trigger-bound pipelines + resources) |
 
 ### Common Use Cases
 
 1. **API orchestration backend**: Embed the runtime in a Go service, register workflows compiled from user-drawn graphs, dispatch webhook payloads with `rt.Invoke(workflowID, triggerID, evt)`, and expose results through your own handlers.
-2. **Visual builder preview & debugging**: Point a frontend canvas at the REST server — pull `GET /registry` + `GET /handles.js` to render ports, `POST /run` to execute, then drive the timeline slider from `GET /runs/:id/events` while inspecting intermediate state via `GET /runs/:id/store`.
+2. **Visual builder preview & debugging**: Decode a frontend canvas with `compiler.DecodeWireGraph`, execute via `rt.Run`, then drive inspection from `rt.GetEvents` (unified log) while reading intermediate state via the run store.
 3. **Scheduled data pipelines**: Register a workflow whose trigger is bound to a cron schedule (`"@daily"`); combine `http`, `gemini`, and `database` nodes to fetch, enrich, and persist data on recurring intervals, using `pause` + event watches for human-in-the-loop gates.
 
 ---
@@ -226,11 +243,12 @@ curl http://localhost:3001/runs/<runId>/outcome
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│  Frontend (Hedwig canvas) ──REST──▶ pkg/server ──▶ pkg/runtime    │
+│  Frontend (Hedwig canvas JSON) ──▶ compiler.DecodeWireGraph ──▶  │
+│                                    compiler.Compile ──▶ runtime   │
 │                                                        │          │
 │  Embedded Go consumers ────────▶ pipelines.go facade ──┤          │
 │                                                        ▼          │
-│              pkg/compiler ──▶ Workflow (pipelines + services)     │
+│              Workflow (trigger-bound pipelines + services)        │
 │                                                        │          │
 │                     pkg/pipeline (RSP engine: stages, steps,      │
 │                     routers, checkpoints, subpipelines)           │
@@ -238,6 +256,9 @@ curl http://localhost:3001/runs/<runId>/outcome
 │                 pkg/store (Anansi      pkg/events (scoped bus,    │
 │                 documents, atomic      hierarchical paths)        │
 │                 stage commits)               │                    │
+│                 pkg/actionlog (unified append-only log:           │
+│                 recovery + observability, keyed by                │
+│                 runID + rerunIndex)                               │
 │                                              ▼                    │
 │                          pkg/timeline (recorder, snapshots,       │
 │                          player)   pkg/scheduler   pkg/watch     │
@@ -249,19 +270,18 @@ curl http://localhost:3001/runs/<runId>/outcome
 - **Document Store (`pkg/store`)**: Wraps Anansi `*document.Document` behind a transactional interface; the in-memory implementation pools documents for low-allocation steady-state performance.
 - **Event System (`pkg/events`)**: `ScopedEventBus` with ancestor-aware `EventPath`s (`pipeline → stage → step`) so every emitted `PipelineEvent` carries full execution ancestry; supports child-to-parent bubbling.
 - **Compiler (`pkg/compiler`)**: Turns a flat `{nodes, edges}` graph into a compiled workflow — trigger-bound pipelines, container scoping (`parentId` nesting), edge roles (`flow`, `dependency`, `placeholder`), and run-scoped resource services.
-- **Runtime (`pkg/runtime`)**: Bus-driven orchestrator. Dispatches trigger events, spawns per-run stores, enforces per-workflow concurrency modes, records timelines, tracks outcomes, parks/resumes paused runs (single- or multi-event waits, any/all semantics), and integrates the scheduler.
+- **Runtime (`pkg/runtime`)**: Bus-driven orchestrator. Dispatches trigger events, spawns per-run stores, enforces per-workflow concurrency modes, records the unified action log, tracks outcomes, parks/resumes paused runs (single- or multi-event waits, any/all semantics), and integrates the scheduler.
 - **Node Kit & Catalog (`pkg/nodekit`, `pkg/nodes/*`): Shared registration types (`NodeDefinition`, `HandleSpec`, runners/routers/resource hooks). Each kind's package registers itself via `init()`; the `pkg/nodes` aggregator pulls them all in. Every kind also declares a TypeScript twin consumed by the npm build.
-- **Timeline Engine (`pkg/timeline`)**: Channel-buffered recorder with monotonic sequence numbers, periodic document snapshots, and a player supporting snapshot-restore + delta-replay seeking.
+- **Observability Log (`pkg/actionlog`)**: Append-only log keyed by `(runID, rerunIndex)` recording every step/stage/lifecycle event with state deltas. Source of truth for crash recovery (via `pkg/replay`) and run history; `pkg/timeline` holds only the frontend wire projection.
 - **Registry (`pkg/registry`)**: Thread-safe tracking of active runs with `time.AfterFunc` pause-expiration timers and expiry hooks powering two-tier resumption.
 - **Scheduler (`pkg/scheduler`)**: Pluggable cron/delay interface with an in-memory reference implementation suitable for single-process deployments.
 - **Watch Service (`pkg/watch`, `pkg/runtime/watchservice.go`)**: Registers event watchers on behalf of `pause` nodes, buffers events arriving before the pause settles, and resolves waits by payload conditions.
-- **HTTP Server (`pkg/server`)**: CORS-enabled REST adapter with complete frontend wire parity, backed by whichever runtime you inject.
 - **Expression Sandbox (`pkg/expr`)**: goja-based JavaScript evaluation used by the `code` node and expression handling.
 - **JS Package (`src/`, `scripts/build.ts`)**: Canonical wire types (`WorkflowNode`, `WorkflowEdge`, `PipelineEvent`, `RunOutcome`…), serialization helpers (`buildHandlesJS`, `buildRegistryJSON`), and the aggregated exports `NODE_DEFS`, `HANDLES`, `CATALOG`.
 
 ### Extension Points
 - **Custom nodes**: Implement a `nodekit.NodeDefinition` (runner, optional router/router-func, resource init/cleanup, handles) and call `nodekit.Register(def)` — typically from a new `pkg/nodes/<kind>/` package imported by the aggregator. Add the `.ts` twin so it appears in `CATALOG`/`HANDLES`.
-- **Pluggable infrastructure**: Inject alternative `events.ScopedEventBus`, `store.StoreFactory` (e.g., SQLite/disk-backed Anansi collections), `timeline.TimelineStore` (e.g., durable Pebble LSM logs), `scheduler.Scheduler`, and `runtime.EventSource` implementations through `runtime.Options`.
+- **Pluggable infrastructure**: Inject alternative `events.ScopedEventBus`, `store.StoreFactory` (e.g., SQLite/disk-backed Anansi collections), `actionlog.Store` (e.g., durable collections), `scheduler.Scheduler`, and `runtime.EventSource` implementations through `runtime.Options`.
 - **Generic state models**: `pipelines.NewFactoryFromModel[T]` derives factories reflecting arbitrary Go struct state schemas with zero boilerplate.
 - **Routing policies**: Bounded nodes can supply `PipelinesRouterFunc` to inspect subpipeline results and decide follow-up instructions (used by `pause` to resume immediately on buffered events).
 - **JS aggregation**: `scripts/build.ts` auto-discovers every `pkg/nodes/*/*.ts` definition — dropping a new file in a node directory is enough for it to ship in the npm package.
@@ -272,9 +292,8 @@ curl http://localhost:3001/runs/<runId>/outcome
 
 ### Available Scripts
 - `go build ./...`: Compiles the entire Go workspace.
-- `go test ./...`: Runs all unit, integration, and end-to-end wire-parity tests.
+- `go test ./...`: Runs all unit and integration tests.
 - `go test -race ./...`: Concurrency validation under the race detector.
-- `go run ./examples/server`: Boots the REST server on `:3001` with all nodes registered.
 - `bun run build`: Aggregates per-kind TS defs into `src/generated.ts`, bundles `dist/index.mjs` + `dist/index.cjs`, and emits declarations.
 - `bun run typecheck`: Type-checks the TypeScript sources with `tsc --noEmit`.
 
@@ -285,7 +304,7 @@ Releases are automated with `semantic-release` (conventional commits → changel
 go test -race ./...
 bun run typecheck   # when touching TS sources
 ```
-The suite covers the core engine (`tests/pipeline_test.go`), subpipelines, pause/resume, timeline behavior (`tests/timeline_test.go`), event wire contracts (`tests/eventwire_test.go`), end-to-end HTTP parity (`tests/frontend_api_test.go`), and handle parity between Go and TS definitions (`pkg/nodekit/handles_parity_test.go`). CI runs tests and a build on every push/PR to `main`.
+The suite covers the core engine (`tests/pipeline_test.go`), subpipelines, pause/resume, unified-log recording and state derivation (`tests/unified_log_test.go`), the wire translation layer (`pkg/compiler/wire_test.go`), if-node routing on a user workflow graph (`tests/if_node_repro_test.go`), and handle parity between Go and TS definitions (`pkg/nodekit/handles_parity_test.go`). CI runs tests and a build on every push/PR to `main`.
 
 ### Contributing Guidelines
 1. Fork the project repository.
@@ -307,18 +326,15 @@ When adding a node kind, include both `<kind>.go` and `<kind>.ts` in its package
 - **Issue**: `src/generated.ts` missing after cloning  
   **Solution**: It is intentionally gitignored and regenerated by `bun run build`; never edit it by hand.
 
-- **Issue**: Example server fails to bind `:3001`  
-  **Solution**: The port is hardcoded in `examples/server/main.go` — change `port := 3001`, or front it with your own `http.Server` using `server.NewPipelineServer(...).Handler()`.
-
-- **Issue**: A run never leaves `paused` status  
-  **Solution**: Paused runs wait for a watched event (`POST /events` or `rt.Resume(runID, payload)`) or expire per the pause timeout; verify the event type and payload conditions match the `pause` node's watch descriptor.
+- **Issue**: A run never leaves `paused` status
+  **Solution**: Paused runs wait for a watched event (`rt.Resume(runID, payload)` or an event-source dispatch) or expire per the pause timeout; verify the event type and payload conditions match the `pause` node's watch descriptor.
 
 ### FAQ
-- **Q**: Can I embed the engine without the HTTP layer?  
-  **A**: Yes — the core has zero mandatory server dependencies. Use the root `pipelines` facade (`pkg/pipeline`, `pkg/store`, `pkg/events`, `pkg/timeline`, `pkg/registry`) or the higher-level `runtime.WorkflowRuntime` directly; `pkg/server` is purely optional.
+- **Q**: How do frontend canvases reach the engine?
+  **A**: Through `compiler.DecodeWireGraph` / `compiler.CompileWire`, which translate canvas JSON (`{nodes, edges}`) into compiled workflows — no HTTP layer involved.
 
-- **Q**: Where does workflow state live?  
-  **A**: In an Anansi `*document.Document` created per run. Steps mutate it through `DocumentMutator` functions applied atomically at stage boundaries; `GET /runs/:id/store` exports it as JSON.
+- **Q**: Where does workflow state live?
+  **A**: In an Anansi `*document.Document` created per run. Steps mutate it through `DocumentMutator` functions applied atomically at stage boundaries; `rt.Store(runID)` exports it as JSON.
 
 - **Q**: Is user-supplied JavaScript safe to execute?  
   **A**: The `code` node evaluates scripts inside a sandboxed goja VM (no host I/O), rather than spawning processes.

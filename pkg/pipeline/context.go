@@ -2,11 +2,13 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -21,6 +23,14 @@ type RunContextImpl struct {
 	eventBus     events.ScopedEventBus
 	logger       core.Logger
 	entryAddress *EntryAddress
+
+	// actionLog records every significant event during execution for
+	// event-sourced recovery and observability.
+	actionLog actionlog.Store
+
+	// rerunIndex identifies which attempt of this run is executing.
+	// Stamped on every log entry so retries get separate audit trails.
+	rerunIndex int
 
 	// runEnv holds the host's environment layers exposed to steps via the
 	// PipelineContext. Non-secret configuration only.
@@ -70,6 +80,15 @@ func (r *RunContextImpl) ID() string                      { return r.runID }
 func (r *RunContextImpl) PipelineID() string              { return r.definition.ID }
 func (r *RunContextImpl) Store() store.Store              { return r.store }
 func (r *RunContextImpl) EventBus() events.ScopedEventBus { return r.eventBus }
+
+// ActionLog returns the run's action log store. Nil-safe — returns a NopLog
+// if no log was configured, so callers never need a nil check.
+func (r *RunContextImpl) ActionLog() actionlog.Store {
+	if r.actionLog != nil {
+		return r.actionLog
+	}
+	return actionlog.NopLog{}
+}
 
 // SetResourceResolver attaches a run-scoped resource resolver to this context.
 // It is propagated to child pipelines created during subpipeline execution.
@@ -164,6 +183,16 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		},
 	})
 
+	r.appendLog(ctx, actionlog.Entry{
+		RunID: r.runID,
+		Kind:  actionlog.KindPipelineStarted,
+		Type:  "pipeline:start",
+		Payload: mustMarshal(map[string]any{
+			"pipelineId": r.definition.ID,
+			"label":      r.definition.Label,
+		}),
+	})
+
 	startTime := time.Now()
 
 	// Locate start stage
@@ -224,13 +253,25 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			},
 		})
 
+		r.appendLog(ctx, actionlog.Entry{
+			RunID:   r.runID,
+			Kind:    actionlog.KindStageStarted,
+			Type:    "stage:start",
+			StageID: stage.ID,
+			Payload: mustMarshal(map[string]any{
+				"stageId":    stage.ID,
+				"stageLabel": stage.Label,
+				"mode":       mode,
+			}),
+		})
+
 		var instruction RoutingInstruction
 		var stageErr error
 
 		if mode == "steps" {
 			// 1. Run stage steps if defined
 			if len(stage.Steps) > 0 {
-				err := ExecuteStageSteps(runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentStepID, r.resourceResolver, r.runEnv, r.secretLookup)
+				err := ExecuteStageSteps(runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentStepID, r.resourceResolver, r.runEnv, r.secretLookup, r.actionLog, r.rerunIndex)
 				currentStepID = "" // reset step resume targeting after first stage
 				if err != nil {
 					return r.failStage(ctx, pipePath, stage, stageStart, startTime, err)
@@ -243,6 +284,13 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				router = DefaultStepRouter
 			}
 			instruction, stageErr = router(runCtx, stateSnapshot(r.store), r.store)
+
+			// Record routing decision in the action log (§2.3: always
+			// recorded regardless of router purity — cheap, and prevents
+			// replay divergence from accidentally impure routers).
+			if stageErr == nil {
+				r.recordRouting(ctx, stage.ID, instruction)
+			}
 		} else {
 			// 3. Pipelines-mode stage: fork children, join, route.
 			// Resolve pipelines: use DynamicPipelines if set, else static Pipelines.
@@ -267,9 +315,19 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 					"subPipelineIds": subPipelineIDs,
 				},
 			})
+			r.appendLog(ctx, actionlog.Entry{
+				RunID:   r.runID,
+				Kind:    actionlog.KindSubpipelineForked,
+				Type:    "subpipeline:fork",
+				StageID: stage.ID,
+				Payload: mustMarshal(map[string]any{
+					"stageId":        stage.ID,
+					"subPipelineIds": subPipelineIDs,
+				}),
+			})
 
 			subResults, subErr := ExecuteSubPipelines(
-				runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentSubAddr, r.resourceResolver, r.runEnv, r.secretLookup,
+				runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentSubAddr, r.resourceResolver, r.runEnv, r.secretLookup, r.actionLog, r.rerunIndex,
 			)
 			currentSubAddr = nil // reset subpipeline address after first run
 
@@ -299,6 +357,14 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 					"stageLabel": stage.Label,
 					"results":    joinResults,
 				},
+			})
+			r.appendLog(ctx, actionlog.Entry{
+				RunID:    r.runID,
+				Kind:     actionlog.KindSubpipelineJoined,
+				Type:     "subpipeline:join",
+				StageID:  stage.ID,
+				Payload:  mustMarshal(map[string]any{"stageId": stage.ID}),
+				Duration: time.Since(stageStart).Milliseconds(),
 			})
 
 			if subErr != nil {
@@ -373,7 +439,6 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			for subIdx, sRes := range subResults {
 				if sRes.Status == "paused" && sRes.Checkpoint != nil {
 					// Bubble up nested checkpoint
-					snap, _ := r.store.ExportJSON()
 					nestedCkpt := PipelineCheckpoint{
 						RunID:              r.runID,
 						PipelineID:         r.definition.ID,
@@ -387,12 +452,10 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 								Step:  sRes.Checkpoint.ResumeAt.Step,
 							},
 						},
-						Snapshot: snap,
 					}
 					_ = r.store.Update(ctx, func(state map[string]any) error {
 						return WriteCheckpoint(state, nestedCkpt)
 					})
-					_ = r.store.Flush(ctx)
 					return PipelineRunResult{
 						Status:     "paused",
 						RunID:      r.runID,
@@ -408,6 +471,11 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				pipeRouter = DefaultPipelineStageRouter
 			}
 			instruction, stageErr = pipeRouter(runCtx, stateSnapshot(r.store), subResults, r.store)
+
+			// Record routing decision in the action log (§2.3).
+			if stageErr == nil {
+				r.recordRouting(ctx, stage.ID, instruction)
+			}
 		}
 
 		if stageErr != nil {
@@ -433,6 +501,15 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				"nextInstruction": serializeInstruction(instruction),
 			},
 		})
+		r.appendLog(ctx, actionlog.Entry{
+			RunID:    r.runID,
+			Kind:     actionlog.KindStageCompleted,
+			Type:     "stage:success",
+			StageID:  stage.ID,
+			Payload:  mustMarshal(map[string]any{"stageId": stage.ID, "stageLabel": stage.Label}),
+			Duration: stageDuration,
+		})
+		r.syncStateMilestone(ctx)
 
 		// router:evaluated — the client renders the routing decision.
 		hasNext := currentIdx+1 < len(r.definition.Stages)
@@ -491,6 +568,13 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			"finalState":    finalState,
 		},
 	})
+	r.appendLog(ctx, actionlog.Entry{
+		RunID:    r.runID,
+		Kind:     actionlog.KindPipelineCompleted,
+		Type:     "pipeline:success",
+		Duration: duration,
+	})
+	r.syncStateMilestone(ctx)
 
 	return PipelineRunResult{
 		Status:     "succeeded",
@@ -540,6 +624,22 @@ func (r *RunContextImpl) failStage(ctx context.Context, pipePath events.EventPat
 			"error":         core.SystemErrorJSON(stageErr),
 		},
 	})
+	r.appendLog(ctx, actionlog.Entry{
+		RunID:    r.runID,
+		Kind:     actionlog.KindStageFailed,
+		Type:     "stage:failure",
+		StageID:  stage.ID,
+		Error:    core.CauseMessage(stageErr),
+		Duration: duration,
+	})
+	r.appendLog(ctx, actionlog.Entry{
+		RunID:    r.runID,
+		Kind:     actionlog.KindPipelineFailed,
+		Type:     "pipeline:failure",
+		Error:    core.CauseMessage(stageErr),
+		Duration: time.Since(runStart).Milliseconds(),
+	})
+	r.syncStateMilestone(ctx)
 
 	return PipelineRunResult{
 		Status:     "failed",
@@ -562,6 +662,13 @@ func (r *RunContextImpl) abortedResult(ctx context.Context, pipePath events.Even
 			"pipelineLabel": r.definition.Label,
 			"error":         core.SystemErrorJSON(abortErr),
 		},
+	})
+	r.appendLog(ctx, actionlog.Entry{
+		RunID:    r.runID,
+		Kind:     actionlog.KindPipelineFailed,
+		Type:     "pipeline:failure",
+		Error:    core.CauseMessage(abortErr),
+		Duration: time.Since(runStart).Milliseconds(),
 	})
 	return PipelineRunResult{
 		Status:     "aborted",
@@ -685,12 +792,23 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 	}
 
 	if pauseInst.Persist {
-		snap, _ := r.store.ExportJSON()
-		ckpt.Snapshot = snap
 		_ = r.store.Update(ctx, func(state map[string]any) error {
 			return WriteCheckpoint(state, ckpt)
 		})
-		_ = r.store.Flush(ctx)
+		r.syncStateMilestone(ctx)
+	}
+
+	// Record the checkpoint in the action log so the Replayer can recover
+	// pause metadata (wait-for-event, timeout, cron) from the log alone.
+	if r.actionLog != nil {
+		ckptJSON, _ := json.Marshal(ckpt)
+		r.actionLog.Append(ctx, actionlog.Entry{
+			RunID:   r.runID,
+			Kind:    actionlog.KindCheckpoint,
+			Type:    "pipeline:pause",
+			StageID: stage.ID,
+			Output:  ckptJSON,
+		})
 	}
 
 	r.eventBus.Emit(ctx, "pipeline:pause", events.PipelineEvent{
@@ -723,6 +841,84 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 }
 
 var _ RunContext = (*RunContextImpl)(nil)
+
+// appendLog appends an entry to the run's action log, filling RunID
+// and RerunIndex. Nil-safe: returns silently when no log is configured.
+func (r *RunContextImpl) appendLog(ctx context.Context, entry actionlog.Entry) {
+	if r.actionLog == nil {
+		return
+	}
+	entry.RunID = r.runID
+	entry.RerunIndex = r.rerunIndex
+	r.actionLog.Append(ctx, entry)
+}
+
+// mustMarshal renders a payload map to JSON for a log entry. Returns nil
+// on marshaling failure — log enrichment must never fail execution.
+func mustMarshal(payload map[string]any) []byte {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// storeSyncer is implemented by stores that can project in-memory state to
+// a queryable backend (e.g. *store.PersistentStore.Sync). The engine calls
+// it at milestones — stage boundaries, checkpoints, completion — so the
+// state document tracks the log without a write per entry.
+type storeSyncer interface {
+	Sync(context.Context) error
+}
+
+// syncStateMilestone projects current state for queryability. Best-effort:
+// the action log is the durable source of truth, so a sync failure must
+// never fail execution.
+func (r *RunContextImpl) syncStateMilestone(ctx context.Context) {
+	if s, ok := r.store.(storeSyncer); ok {
+		if err := s.Sync(ctx); err != nil && r.logger != nil {
+			r.logger.Error("pipeline: milestone state sync failed", "runId", r.runID, "error", err)
+		}
+	}
+}
+
+// recordRouting appends a KindRouted entry to the action log for the given
+// stage's routing decision. Per §2.3 of the design doc, routing decisions are
+// always recorded regardless of router purity — cheap (a stage ID and handle),
+// and it eliminates replay divergence if a router is ever accidentally impure.
+func (r *RunContextImpl) recordRouting(ctx context.Context, stageID string, inst RoutingInstruction) {
+	if r.actionLog == nil {
+		return
+	}
+	handle := routingHandle(inst)
+	if handle == "" {
+		return // advance/terminate — nothing to record
+	}
+	r.appendLog(ctx, actionlog.Entry{
+		Kind:    actionlog.KindRouted,
+		Type:    "router:evaluated",
+		StageID: stageID,
+		Handle:  handle,
+	})
+}
+
+// routingHandle extracts the target handle from a routing instruction for
+// action log recording. Returns empty for advance/terminate (no route target).
+func routingHandle(inst RoutingInstruction) string {
+	switch v := inst.(type) {
+	case JumpInstruction:
+		return v.StageID
+	case JumpToInstruction:
+		return v.Address.Stage
+	case PauseInstruction:
+		if v.StageID != "" {
+			return v.StageID
+		}
+		return "__pause__"
+	default:
+		return ""
+	}
+}
 
 // @note #review-20260826-002 issue status=resolved priority=P1 tags=#review,#concurrency,#bug : stateSnapshot is a shallow copy — nested maps alias live store state
 // @author ox-alpha

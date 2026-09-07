@@ -76,8 +76,7 @@ func (f *AnansiStoreFactory) Models() *anansicollection.ModelCollection[*Pipelin
 }
 
 // Create returns a brand-new PersistentStore with a freshly minted run
-// identity. No document exists in the collection until the store's first
-// write-through.
+// identity. No document exists in the collection until Sync() is called.
 func (f *AnansiStoreFactory) Create(_ context.Context) (Store, error) {
 	return NewPersistentStore(f.models, nil), nil
 }

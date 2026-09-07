@@ -13,7 +13,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodes/trigger"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/runtime"
-	"github.com/asaidimu/hermes/pkg/timeline"
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,7 +88,7 @@ func TestPauseNodeEndToEnd(t *testing.T) {
 	ms := runtime.NewManualEventSource()
 	done := make(chan runtime.RunResult, 1)
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
-		Timeline:    timeline.NewMemoryTimelineStore(),
+		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
@@ -142,7 +142,7 @@ func TestPauseNodeTimeout(t *testing.T) {
 	ms := runtime.NewManualEventSource()
 	done := make(chan runtime.RunResult, 1)
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
-		Timeline:    timeline.NewMemoryTimelineStore(),
+		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
@@ -195,7 +195,7 @@ func TestPauseMultiEventAny(t *testing.T) {
 	ms := runtime.NewManualEventSource()
 	done := make(chan runtime.RunResult, 1)
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
-		Timeline:    timeline.NewMemoryTimelineStore(),
+		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
@@ -248,7 +248,7 @@ func TestPauseMultiEventAll(t *testing.T) {
 	ms := runtime.NewManualEventSource()
 	done := make(chan runtime.RunResult, 1)
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
-		Timeline:    timeline.NewMemoryTimelineStore(),
+		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})

@@ -236,8 +236,9 @@ func Registry() map[string]NodeDefinition {
 // supplies run-scoped resource handles (the compiler wires dependency edges).
 func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resources func() map[string]any) pipeline.Step {
 	return pipeline.Step{
-		ID:    nodeID,
-		Label: def.Label,
+		ID:     nodeID,
+		Label:  def.Label,
+		Effect: int(def.Effect),
 		Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 			if def.Run == nil {
 				return nil, nil

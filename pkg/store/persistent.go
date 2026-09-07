@@ -8,16 +8,19 @@ import (
 	"github.com/asaidimu/hermes/pkg/core"
 )
 
-// PersistentStore is a write-through Store backed by an anansi ModelCollection
-// of PipelineState. Every Update persists to the collection immediately, and
-// Flush ensures the current in-memory state is persisted.
+// PersistentStore is an in-memory Store backed by an anansi ModelCollection
+// for optional queryability. It delegates all state management to the embedded
+// MemoryStore — no write-through occurs on Update or Flush.
+//
+// The Action Log (pkg/actionlog) is the durable source of truth for crash
+// recovery. PersistentStore exists solely for external queryability —
+// it is an explicitly non-authoritative read projection.
+// Callers that need the database to reflect current state can call Sync()
+// to push the in-memory state to the collection.
 //
 // Identity model: a run IS its state document. NewPersistentStore mints the
 // document identity (a UUIDv7 _id_, via anansi's own document.New) in memory
 // with no database round-trip; Store.ID() returns it as the run identifier.
-// The first write-through inserts the document, preserving the pre-minted
-// _id_. Recovery loads by that id via NewPersistentStoreForID. The _id_ itself
-// is never overwritten by hermes — it is owned by the system.
 type PersistentStore struct {
 	*MemoryStore
 	models *collection.ModelCollection[*PipelineState]
@@ -26,10 +29,10 @@ type PersistentStore struct {
 
 var _ Store = (*PersistentStore)(nil)
 
-// NewPersistentStore creates a run document in memory only: the identity is
+// NewPersistentStore creates a run document in memory only. The identity is
 // minted immediately through anansi's struct-model pipeline but nothing is
-// written to the collection until the first write-through. initialState may
-// be nil.
+// written to the collection. Call Sync() to push state to the database for
+// queryability. initialState may be nil.
 func NewPersistentStore(models *collection.ModelCollection[*PipelineState], initialState map[string]any) *PersistentStore {
 	ps := document.New(&PipelineState{Data: RunData(initialState)})
 	ms := NewMemoryStore(initialState)
@@ -42,8 +45,7 @@ func NewPersistentStore(models *collection.ModelCollection[*PipelineState], init
 
 // NewPersistentStoreForID loads an existing run document from the collection
 // by its identifier. It returns a NotFound error when no document exists for
-// runID — recovery of an unknown run must fail loudly rather than silently
-// fabricate empty state.
+// runID.
 func NewPersistentStoreForID(ctx context.Context, models *collection.ModelCollection[*PipelineState], runID string) (*PersistentStore, error) {
 	ps, err := models.FindByID(ctx, runID)
 	if err != nil {
@@ -67,13 +69,35 @@ func NewPersistentStoreForID(ctx context.Context, models *collection.ModelCollec
 	}, nil
 }
 
+// Update applies the mutator to in-memory state only. No write-through
+// occurs — the Action Log is the durable record. Call Sync() to push
+// state to the database for queryability.
+func (s *PersistentStore) Update(ctx context.Context, mutator Mutator) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if mutator != nil {
+		return mutator(s.state)
+	}
+	return nil
+}
+
+// Flush is a no-op. The Action Log handles durability. Call Sync() to
+// explicitly push state to the database for queryability.
+func (s *PersistentStore) Flush(_ context.Context) error { return nil }
+
+// Sync pushes the current in-memory state to the database collection for
+// external queryability. This is optional — the Action Log is the durable
+// source of truth. Sync is useful when an HTTP API needs to serve the
+// current state of a run from the database rather than from memory.
+func (s *PersistentStore) Sync(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.persist(ctx)
+}
+
 // persist writes the current in-memory state to the collection. On the first
 // call the document is inserted with its pre-minted _id_; subsequent calls
-// update by _id_. The flat state is persisted as the PipelineState shape:
-// pipeline state under "state", run linkage under "metadata". System fields
-// (_id_, _metadata_) remain under anansi's control.
-//
-// Caller must hold the store lock (invoked from Update/Flush).
+// update by _id_.
 func (s *PersistentStore) persist(ctx context.Context) error {
 	state, info := s.typedView()
 
@@ -94,7 +118,6 @@ func (s *PersistentStore) persist(ctx context.Context) error {
 }
 
 // typedView converts the flat state into the persisted PipelineState fields.
-// Assumes the caller holds the store lock.
 func (s *PersistentStore) typedView() (RunData, RunMetadata) {
 	metaRaw, _ := s.state[RunMetaKey].(map[string]any)
 	info := RunInfoFromMap(metaRaw)
@@ -106,34 +129,6 @@ func (s *PersistentStore) typedView() (RunData, RunMetadata) {
 		state[k] = v
 	}
 	return state, info
-}
-
-// @note #review-20260826-007 observation status=open priority=P3 tags=#review,#api : Update(nil) persists instead of no-op — asymmetric with MemoryStore
-// @author ox-alpha
-//
-// MemoryStore.Update(nil mutator) is a no-op; this implementation still calls
-// persist(), so a nil mutator triggers a database write (behaves like Flush).
-// That may be intended, but the asymmetry will surprise callers holding a
-// store.Store. Either document it on the Store interface or skip persist when
-// the mutator is nil.
-//
-// Update applies the mutator under lock and writes through to the collection.
-func (s *PersistentStore) Update(ctx context.Context, mutator Mutator) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if mutator != nil {
-		if err := mutator(s.state); err != nil {
-			return err
-		}
-	}
-	return s.persist(ctx)
-}
-
-// Flush persists the current in-memory state to the collection.
-func (s *PersistentStore) Flush(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.persist(ctx)
 }
 
 // Clone creates a deep copy backed by the same model collection, preserving

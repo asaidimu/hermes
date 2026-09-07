@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -10,7 +9,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/runtime"
-	"github.com/asaidimu/hermes/pkg/timeline"
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,6 +64,9 @@ type wirePayload struct {
 	} `json:"edges"`
 }
 
+// wirePayload is kept as documentation of the canvas document shape. Decoding
+// goes through compiler.DecodeWireGraph — the single JSON→graph path.
+
 func getPathStr(path events.EventPath) string {
 	var parts []string
 	for _, n := range path {
@@ -74,41 +76,11 @@ func getPathStr(path events.EventPath) string {
 }
 
 func TestRunForkWhileWorkflow(t *testing.T) {
-	var payload wirePayload
-	err := json.Unmarshal([]byte(rawWorkflowJSON), &payload)
+	nodes, edges, err := compiler.DecodeWireGraph([]byte(rawWorkflowJSON))
 	require.NoError(t, err)
 
-	nodes := make([]compiler.Node, 0, len(payload.Nodes))
-	for _, n := range payload.Nodes {
-		var pos struct {
-			X float64
-			Y float64
-		}
-		pos.X = n.Position.X
-		pos.Y = n.Position.Y
-		nodes = append(nodes, compiler.Node{
-			ID:       n.ID,
-			Type:     compiler.NodeType(n.Type),
-			Kind:     n.Data.Kind,
-			Config:   n.Data.Config,
-			ParentID: n.ParentID,
-			Position: pos,
-		})
-	}
-
-	edges := make([]compiler.Edge, 0, len(payload.Edges))
-	for _, e := range payload.Edges {
-		edges = append(edges, compiler.Edge{
-			ID:           e.ID,
-			Source:       e.Source,
-			Target:       e.Target,
-			SourceHandle: e.SourceHandle,
-			Role:         compiler.EdgeRole(e.Data.Role),
-		})
-	}
-
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
-		Timeline: timeline.NewMemoryTimelineStore(),
+		ActionLog:  actionlog.NewMemoryActionLog(),
 	})
 
 	// Subscribe to all bus events to log every stage

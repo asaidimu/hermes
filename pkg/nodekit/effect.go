@@ -61,10 +61,10 @@ func (e Effect) Valid() bool {
 	return e == EffectPure || e == EffectSideEffecting
 }
 
-// MarshalJSON renders Effect as its string name, so the /registry endpoint
-// exposes a stable, readable value ("Pure" / "SideEffecting") rather than a
-// bare integer that would be meaningless to API consumers and would silently
-// renumber if constants are ever reordered.
+// MarshalJSON renders Effect as its string name, so serialized node
+// definitions expose a stable, readable value ("Pure" / "SideEffecting")
+// rather than a bare integer that would be meaningless to consumers and
+// would silently renumber if constants are ever reordered.
 func (e Effect) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + e.String() + `"`), nil
 }

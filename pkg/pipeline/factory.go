@@ -5,6 +5,7 @@ import (
 
 	"github.com/asaidimu/go-anansi/v8/core/data"
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -15,6 +16,21 @@ import (
 type FactoryOptions struct {
 	Logger   core.Logger
 	EventBus events.ScopedEventBus
+	// ActionLog records every significant event during execution for
+	// event-sourced recovery and observability. When nil, a NopLog is
+	// used (no entries recorded).
+	ActionLog actionlog.Store
+	// RerunIndex identifies which attempt of a run this factory prepares.
+	// 0 is the first execution; each forced recovery increments it so
+	// retries get separate log documents for audit purposes.
+	RerunIndex int
+	// Rebuilder, when set, replaces the checkpoint-based Resume path with
+	// event-sourced recovery (§4.2 of EXECUTION_ENGINE_REDESIGN_V2.md).
+	// The factory calls Rebuilder.Rebuild to reconstruct state from the
+	// action log instead of reading a stored checkpoint. This is the
+	// migration path: callers opt in, then the old checkpoint path is
+	// removed later.
+	Rebuilder Rebuilder
 	// ResourceResolver resolves run-scoped resource artifact keys ("resource:<id>")
 	// into initialized handles. Attached to every run context this factory prepares.
 	ResourceResolver func(key string) (any, bool)
@@ -24,6 +40,13 @@ type FactoryOptions struct {
 	// SecretLookup resolves credentials by key at execution time. Attached to
 	// every run context this factory prepares; values never persist to state.
 	SecretLookup func(key string) (any, bool)
+}
+
+// Rebuilder is the interface for event-sourced recovery. The replay.Replayer
+// implements this interface; defined here as an interface to avoid an import
+// cycle (pipeline → replay → pipeline).
+type Rebuilder interface {
+	Rebuild(ctx context.Context, runID string) (store.Store, EntryAddress, error)
 }
 
 // PipelineFactory creates and prepares pipeline run contexts.
@@ -41,6 +64,9 @@ func NewFactory(def PipelineDefinition, schema *definition.CompiledSchema, opts 
 	}
 	if opt.Logger == nil {
 		opt.Logger = core.NopLogger{}
+	}
+	if opt.ActionLog == nil {
+		opt.ActionLog = actionlog.NopLog{}
 	}
 	return &PipelineFactory{
 		definition: def,
@@ -67,6 +93,8 @@ func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...events.Sc
 	}
 
 	rc := NewRunContext(runID, f.definition, st, b, f.options.Logger)
+	rc.actionLog = f.options.ActionLog
+	rc.rerunIndex = f.options.RerunIndex
 	if f.options.ResourceResolver != nil {
 		rc.SetResourceResolver(f.options.ResourceResolver)
 	}
@@ -92,6 +120,8 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus eve
 	}
 
 	rc := NewRunContext(runID, f.definition, st, bus, f.options.Logger, entry)
+	rc.actionLog = f.options.ActionLog
+	rc.rerunIndex = f.options.RerunIndex
 	if f.options.ResourceResolver != nil {
 		rc.SetResourceResolver(f.options.ResourceResolver)
 	}
@@ -100,22 +130,51 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus eve
 	return rc
 }
 
-// Resume restores execution from an existing Store using its stored checkpoint.
+// Resume restores execution from an existing Store. When a Rebuilder is
+// configured (FactoryOptions.Rebuilder), it uses event-sourced recovery
+// (§4.2) to reconstruct state from the action log instead of reading a
+// stored checkpoint.
 func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Store, bus ...events.ScopedEventBus) (*RunContextImpl, error) {
 	if st == nil {
 		return nil, core.NewSystemError(core.ErrCodeValidation, "store is required to resume pipeline")
 	}
 
-	var ckpt *PipelineCheckpoint
-	if err := st.Read(func(state map[string]any) error {
-		var rErr error
-		ckpt, rErr = ReadCheckpoint(state, f.definition.ID)
-		return rErr
-	}); err != nil {
-		return nil, err
-	}
-	if ckpt == nil {
-		return nil, core.NewSystemError(core.ErrCodeNotFound, "no checkpoint found in document for pipeline "+f.definition.ID)
+	var entryAddr EntryAddress
+
+	if f.options.Rebuilder != nil {
+		// Event-sourced recovery path: reconstruct state from action log.
+		rebuiltStore, addr, err := f.options.Rebuilder.Rebuild(ctx, runID)
+		if err != nil {
+			return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
+				"replayer rebuild failed for run "+runID).WithCause(err)
+		}
+		if addr.Stage == "" {
+			// Run already completed during replay — nothing to resume.
+			return nil, core.NewSystemError(core.ErrCodeNotFound,
+				"run "+runID+" already completed (no resume needed)")
+		}
+		// Use the rebuilt store and resume address. Copy existing state
+		// from the original store (which may have additional fields
+		// seeded by the runtime) into the rebuilt store.
+		if err := copyStoreState(st, rebuiltStore); err != nil {
+			return nil, err
+		}
+		st = rebuiltStore
+		entryAddr = addr
+	} else {
+		// Legacy checkpoint path.
+		var ckpt *PipelineCheckpoint
+		if err := st.Read(func(state map[string]any) error {
+			var rErr error
+			ckpt, rErr = ReadCheckpoint(state, f.definition.ID)
+			return rErr
+		}); err != nil {
+			return nil, err
+		}
+		if ckpt == nil {
+			return nil, core.NewSystemError(core.ErrCodeNotFound, "no checkpoint found in document for pipeline "+f.definition.ID)
+		}
+		entryAddr = ckpt.ResumeAt
 	}
 
 	var b events.ScopedEventBus
@@ -127,8 +186,22 @@ func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Sto
 		b = f.newFallbackBus(runID)
 	}
 
-	runCtx := f.PrepareWithEntry(runID, st, b, ckpt.ResumeAt)
+	runCtx := f.PrepareWithEntry(runID, st, b, entryAddr)
 	return runCtx, nil
+}
+
+// copyStoreState copies all state from src into dst. Used when the replayer
+// produces a rebuilt store that needs the runtime-seeded fields (run metadata,
+// trigger event, etc.) from the original store.
+func copyStoreState(src, dst store.Store) error {
+	return src.Read(func(srcState map[string]any) error {
+		return dst.Update(context.Background(), func(dstState map[string]any) error {
+			for k, v := range srcState {
+				dstState[k] = v
+			}
+			return nil
+		})
+	})
 }
 
 // newFallbackBus creates a standalone, unparented event bus for callers that

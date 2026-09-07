@@ -33,10 +33,9 @@ func systemErrorMeta(code string) (category string, httpStatus int, action strin
 		return "conflict", 409, "lock"
 	// @note #review-20260822-025 issue status=wontfix priority=P2 tags=#review,#naming : HTTP status 499 is non-standard
 	//
-	// Considered remapping to 408/409, but pkg/server/server.go already
-	// writes a raw 499 directly for the client-disconnect case, so 499 is
-	// this codebase's established (if nginx-borrowed) convention for "the
-	// client went away / operation was aborted," not an isolated accident.
+	// Considered remapping to 408/409, but 499 is this codebase's
+	// established (if nginx-borrowed) convention for "the client went
+	// away / operation was aborted," not an isolated accident.
 	// Remapping only this call site would create an inconsistency with the
 	// server's own direct usage rather than remove one. Documenting it here
 	// instead: 499 is intentional and non-standard, keep client/monitoring

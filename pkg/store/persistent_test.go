@@ -74,7 +74,7 @@ func TestRunStateRoundTrip(t *testing.T) {
 	factory, _, cleanup := newRunsFactory(t)
 	defer cleanup()
 
-	// Mint a run and seed state. The first write-through inserts the doc.
+	// Mint a run and seed state.
 	created, err := factory.Create(ctx)
 	require.NoError(t, err)
 	runID := created.ID()
@@ -94,6 +94,10 @@ func TestRunStateRoundTrip(t *testing.T) {
 		"triggerId":  "trig-1",
 		"pipelineId": "p1",
 	})))
+
+	// Sync pushes in-memory state to the database for queryability.
+	// The Action Log is the durable source of truth; Sync is optional.
+	require.NoError(t, created.(*store.PersistentStore).Sync(ctx))
 
 	loaded, err := factory.Load(ctx, runID)
 	require.NoError(t, err)
@@ -127,8 +131,9 @@ func TestRunStateRoundTrip(t *testing.T) {
 	require.NotContains(t, string(rowJSON), pipeline.PipelineDataKey,
 		"checkpoints must live in the state column, not system metadata")
 
-	// Further writes update in place — still exactly one document.
+	// Further writes update in place — Sync again to persist.
 	require.NoError(t, loaded.Update(ctx, store.SetValue("total", 20.0)))
+	require.NoError(t, loaded.(*store.PersistentStore).Sync(ctx))
 	reloaded, err := factory.Load(ctx, runID)
 	require.NoError(t, err)
 	require.NoError(t, reloaded.Read(func(state map[string]any) error {

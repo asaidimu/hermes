@@ -13,7 +13,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/nodekit"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
-	"github.com/asaidimu/hermes/pkg/timeline"
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/asaidimu/hermes/pkg/nodes"
@@ -167,7 +167,7 @@ func TestAbortRun(t *testing.T) {
 	require.Equal(t, "aborted", res.Status)
 }
 
-func TestTimelineRecordsStepFailure(t *testing.T) {
+func TestActionLogRecordsStepFailure(t *testing.T) {
 	// Register a node kind that always throws, mirroring the TS test's
 	// "test-generic-error" node.
 	nodekit.Register(nodekit.NodeDefinition{
@@ -184,8 +184,8 @@ func TestTimelineRecordsStepFailure(t *testing.T) {
 		},
 	})
 
-	ts := timeline.NewMemoryTimelineStore()
-	rt := NewWorkflowRuntime(Options{Timeline: ts})
+	ts := actionlog.NewMemoryActionLog()
+	rt := NewWorkflowRuntime(Options{ActionLog: ts})
 	done := make(chan struct{}, 1)
 	var runID string
 
@@ -212,7 +212,7 @@ func TestTimelineRecordsStepFailure(t *testing.T) {
 	}
 
 	require.NotEmpty(t, runID)
-	evts, err := ts.GetEvents(context.Background(), runID, 0, 0)
+	evts, err := rt.GetEvents(context.Background(), runID, 0, 0)
 	require.NoError(t, err)
 
 	var found bool
@@ -440,7 +440,7 @@ func TestPauseResumeEventSource(t *testing.T) {
 
 	done := make(chan RunResult, 1)
 	rt := NewWorkflowRuntime(Options{
-		Timeline:    timeline.NewMemoryTimelineStore(),
+		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 	})
 
@@ -526,7 +526,7 @@ func TestResumeWithPayload(t *testing.T) {
 
 	done := make(chan RunResult, 1)
 	rt := NewWorkflowRuntime(Options{
-		Timeline:    timeline.NewMemoryTimelineStore(),
+		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 	})
 
@@ -582,7 +582,7 @@ func TestCustomEventTrigger(t *testing.T) {
 
 	done := make(chan RunResult, 1)
 	rt := NewWorkflowRuntime(Options{
-		Timeline: timeline.NewMemoryTimelineStore(),
+		ActionLog:  actionlog.NewMemoryActionLog(),
 	})
 
 	err := rt.Register(wf, RegisterOptions{
@@ -617,7 +617,7 @@ func TestCustomEventTriggerWithPayload(t *testing.T) {
 
 	done := make(chan RunResult, 1)
 	rt := NewWorkflowRuntime(Options{
-		Timeline: timeline.NewMemoryTimelineStore(),
+		ActionLog:  actionlog.NewMemoryActionLog(),
 	})
 
 	err := rt.Register(wf, RegisterOptions{

@@ -103,6 +103,16 @@ func NewPipelineContext(runID, pipelineID, stageID, stepID string, path events.E
 	return c
 }
 
+// NewReplayContext creates a minimal PipelineContext suitable for replay.
+// During replay, steps only need to compute their mutator — they don't
+// need event bus, logger, or resource resolution. All optional methods
+// return safe defaults.
+func NewReplayContext() PipelineContext {
+	return &pipelineContextImpl{
+		logger: core.NopLogger{},
+	}
+}
+
 // StepAction executes user logic against a read-only view of the run state
 // and returns a mutator to commit. Mutate the passed map only via the
 // returned mutator.
@@ -115,6 +125,13 @@ type Step struct {
 	Timeout time.Duration
 	Retries int
 	Action  StepAction
+	// Effect classifies this step for event-sourced replay purposes.
+	// EffectSideEffecting steps have their outcomes recorded in the action
+	// log; EffectPure steps are re-executed on replay. Set by
+	// nodekit.BuildStep from the node definition's classification.
+	// A zero value (EffectUnspecified) means "unknown" — the step is
+	// treated conservatively as effectful for safety.
+	Effect int
 }
 
 // RoutingInstruction defines state transitions after stage completion.

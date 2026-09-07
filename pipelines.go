@@ -1,11 +1,12 @@
 package pipelines
 
 import (
+	"github.com/asaidimu/hermes/pkg/actionlog"
+	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/registry"
-	"github.com/asaidimu/hermes/pkg/server"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
 )
@@ -36,13 +37,10 @@ type (
 
 	TimelineEvent   = timeline.TimelineEvent
 	RunTimelineMeta = timeline.RunTimelineMeta
-	TimelineStore   = timeline.TimelineStore
+	ActionLogStore  = actionlog.Store
 
 	PipelineRegistry = registry.PipelineRegistry
 	ActiveRun        = registry.ActiveRun
-
-	PipelineServer = server.PipelineServer
-	ServerConfig   = server.ServerConfig
 
 	SystemError = core.SystemError
 	Logger      = core.Logger
@@ -60,9 +58,13 @@ var (
 	NewMemoryStore      = store.NewMemoryStore
 	NewScopedEventBus   = events.NewMemoryScopedBus
 	NewPipelineRegistry = registry.NewPipelineRegistry
-	NewTimelineStore    = timeline.NewMemoryTimelineStore
-	NewPipelineServer   = server.NewPipelineServer
+	NewMemoryActionLog  = actionlog.NewMemoryActionLog
 	NewSystemError      = core.NewSystemError
+
+	// Wire-graph entry points: canvas JSON documents reach the compiler
+	// without an HTTP layer.
+	DecodeWireGraph = compiler.DecodeWireGraph
+	CompileWire     = compiler.CompileWire
 )
 
 // NewFactoryFromModel creates a factory reflecting a Go struct state model (Zero-Boilerplate).

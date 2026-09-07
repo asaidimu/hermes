@@ -1,14 +1,15 @@
 package tests
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/asaidimu/hermes/pkg/server"
+	"github.com/asaidimu/hermes/pkg/actionlog"
+	"github.com/asaidimu/hermes/pkg/compiler"
+	"github.com/asaidimu/hermes/pkg/runtime"
+	"github.com/asaidimu/hermes/pkg/timeline"
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/asaidimu/hermes/pkg/nodes"
@@ -45,62 +46,40 @@ func userIfWorkflow() map[string]any {
 }
 
 // logEvents dumps the run event sequence so failures are self-diagnosing.
-func logEvents(t *testing.T, evs []map[string]any) {
+func logEvents(t *testing.T, evs []timeline.TimelineEvent) {
 	t.Helper()
 	for _, ev := range evs {
-		step := ""
-		if p, ok := ev["payload"].(map[string]any); ok {
-			if s, ok := p["stepId"].(string); ok {
-				step = s
-			}
-		}
-		t.Logf("EVENT type=%s step=%s payload=%v", ev["type"], step, ev["payload"])
+		step, _ := ev.Payload["stepId"].(string)
+		t.Logf("EVENT type=%s step=%s payload=%v", ev.Type, step, ev.Payload)
 	}
 }
 
-// runWorkflow posts a graph and waits for the outcome, returning the events.
-func runWorkflow(t *testing.T, handler http.Handler, graph map[string]any) []map[string]any {
+// runWorkflow decodes a canvas graph, runs it, and returns the recorded events.
+func runWorkflow(t *testing.T, rt *runtime.WorkflowRuntime, graph map[string]any) []timeline.TimelineEvent {
 	t.Helper()
-	body, _ := json.Marshal(graph)
-	req := httptest.NewRequest("POST", "/run", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-	var runRes map[string]string
-	_ = json.Unmarshal(w.Body.Bytes(), &runRes)
-	runID := runRes["runId"]
+	body, err := json.Marshal(graph)
+	require.NoError(t, err)
+	nodes, edges, err := compiler.DecodeWireGraph(body)
+	require.NoError(t, err)
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		req = httptest.NewRequest("GET", "/runs/"+runID+"/outcome", nil)
-		w = httptest.NewRecorder()
-		handler.ServeHTTP(w, req)
-		var outcome map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &outcome)
-		if ok, _ := outcome["ok"].(bool); ok {
-			t.Logf("OUTCOME status=%v finalState=%v", outcome["status"], outcome["finalState"])
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for outcome")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := rt.Run(ctx, nodes, edges)
+	require.NoError(t, err)
+	require.True(t, res.OK, "run failed: %v", res.Error)
+	t.Logf("OUTCOME status=%v finalState=%v", res.Status, res.FinalState)
 
-	req = httptest.NewRequest("GET", "/runs/"+runID+"/events", nil)
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	var evs []map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &evs)
+	evs, err := rt.GetEvents(context.Background(), res.RunID, 0, 0)
+	require.NoError(t, err)
 	return evs
 }
 
 func TestIfNodeUserWorkflowReport(t *testing.T) {
-	srv := server.NewPipelineServer(server.ServerConfig{})
-	handler := srv.Handler()
+	rt := runtime.NewWorkflowRuntime(runtime.Options{
+		ActionLog: actionlog.NewMemoryActionLog(),
+	})
 
-	evs := runWorkflow(t, handler, userIfWorkflow())
+	evs := runWorkflow(t, rt, userIfWorkflow())
 	logEvents(t, evs)
 
 	// Assert: 42+34=76, and 76 < 70 is false -> the "else" delay (ba17639b...)
@@ -113,14 +92,15 @@ func TestIfNodeUserWorkflowReport(t *testing.T) {
 // TestIfNodeFlippedSign proves the if node can route to "if": flip less_than to
 // greater_than, so 76 > 70 is true and the "if" branch must run instead.
 func TestIfNodeFlippedSign(t *testing.T) {
-	srv := server.NewPipelineServer(server.ServerConfig{})
-	handler := srv.Handler()
+	rt := runtime.NewWorkflowRuntime(runtime.Options{
+		ActionLog: actionlog.NewMemoryActionLog(),
+	})
 
 	graph := userIfWorkflow()
 	conds := graph["nodes"].([]map[string]any)[2]["data"].(map[string]any)["config"].(map[string]any)["conditions"].([]any)
 	conds[0].(map[string]any)["operator"] = "greater_than"
 
-	evs := runWorkflow(t, handler, graph)
+	evs := runWorkflow(t, rt, graph)
 	logEvents(t, evs)
 
 	ifRan, elseRan := branchRuns(evs)
@@ -129,11 +109,10 @@ func TestIfNodeFlippedSign(t *testing.T) {
 }
 
 // branchRuns reports which delay branches executed based on step:success events.
-func branchRuns(evs []map[string]any) (ifRan, elseRan bool) {
+func branchRuns(evs []timeline.TimelineEvent) (ifRan, elseRan bool) {
 	for _, ev := range evs {
-		payload, _ := ev["payload"].(map[string]any)
-		step, _ := payload["stepId"].(string)
-		if ev["type"] == "step:success" {
+		step, _ := ev.Payload["stepId"].(string)
+		if ev.Type == "step:success" {
 			if step == "eb6e3969-360c-4384-b0ee-f24aab95a69f" {
 				ifRan = true
 			}

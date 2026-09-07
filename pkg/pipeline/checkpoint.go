@@ -41,12 +41,11 @@ type PipelineCheckpoint struct {
 	ReceivedEvents     []string       `json:"receivedEvents,omitempty"`
 	Cron               string         `json:"cron,omitempty"`         // cron expression for auto-resume (e.g. "@every 5m")
 	ResumeReason       string         `json:"resumeReason,omitempty"` // "event" or "timeout"
-	Snapshot           map[string]any `json:"snapshot,omitempty"`     // state snapshot at pause time
 }
 
 // WriteCheckpoint saves a checkpoint into the state map under PipelineDataKey.
 // Mutates state in place; callers invoke it inside a store.Update closure so
-// the change goes through locking and write-through persistence.
+// the change goes through locking.
 func WriteCheckpoint(state map[string]any, ckpt PipelineCheckpoint) error {
 	if ckpt.PausedOn == "" {
 		ckpt.PausedOn = time.Now().UTC().Format(time.RFC3339)

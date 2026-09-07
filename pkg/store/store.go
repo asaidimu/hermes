@@ -23,8 +23,8 @@ type Store interface {
 	// Read executes fn under a shared read lock with the live state map.
 	// fn must not retain or mutate the map.
 	Read(fn func(state map[string]any) error) error
-	// Update applies a mutator under an exclusive lock. Persistent stores
-	// write through to their backing collection.
+	// Update applies a mutator under an exclusive lock. The Action Log
+	// (pkg/actionlog) is the durable source of truth for crash recovery.
 	Update(ctx context.Context, m Mutator) error
 	Ready(ctx context.Context) error
 	ExportJSON() (map[string]any, error)

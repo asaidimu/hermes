@@ -12,10 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
+	"github.com/asaidimu/hermes/pkg/replay"
 	"github.com/asaidimu/hermes/pkg/scheduler"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
@@ -60,8 +62,6 @@ type Options struct {
 	// lookups — they never persist to state, checkpoints, or events. When nil,
 	// workflows whose nodes declare required secrets fail registration.
 	Secrets SecretProvider
-	// Timeline, when set, records every run into the store (TimelineRecorder).
-	Timeline timeline.TimelineStore
 	Logger   core.Logger
 	// Env holds global environment layers available to runs.
 	Env map[string]any
@@ -75,6 +75,12 @@ type Options struct {
 	// Scheduler handles time-based scheduling (delays, cron). When nil, an
 	// InMemoryScheduler is used.
 	Scheduler scheduler.Scheduler
+	// ActionLog is the unified, append-only observability log. Every
+	// significant event during execution is recorded here, keyed by
+	// (runID, rerunIndex). It is the source of truth for crash recovery
+	// (via the Replayer) and for run history (ListRuns/GetEvents derive
+	// from it). When nil, a NopLog is used (no entries recorded).
+	ActionLog actionlog.Store
 }
 
 // Mode mirrors the TS WorkflowExecutionMode. It controls per-workflow run
@@ -159,9 +165,9 @@ type WorkflowRuntime struct {
 	secrets      SecretProvider
 	storeFactory func() (store.Store, error)
 	storeLoader  func(runID string) (store.Store, error)
-	timeline     timeline.TimelineStore
 	eventSource  EventSource
 	scheduler    scheduler.Scheduler
+	actionLog    actionlog.Store
 	watchService *WatchService
 
 	mu        sync.Mutex
@@ -172,6 +178,8 @@ type WorkflowRuntime struct {
 	active    map[string]*pipeline.RunContextImpl
 	stores    map[string]store.Store
 	paused    map[string]*pausedRun // runID → paused run waiting for an event
+	runMetas  map[string]*timeline.RunTimelineMeta
+	rerunIdx  map[string]int // runID → current rerunIndex (0 = first attempt)
 }
 
 // pausedRun tracks a pipeline that is paused waiting for specific event(s).
@@ -256,7 +264,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		secrets:      opts.Secrets,
 		storeFactory: opts.StoreFactory,
 		storeLoader:  opts.StoreLoader,
-		timeline:     opts.Timeline,
+		actionLog:    opts.ActionLog,
 		workflows:    make(map[string]*workflowRecord),
 		index:        make(map[string][]*routeEntry),
 		subs:         make(map[string]*busRef),
@@ -264,6 +272,11 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		active:       make(map[string]*pipeline.RunContextImpl),
 		stores:       make(map[string]store.Store),
 		paused:       make(map[string]*pausedRun),
+		runMetas:     make(map[string]*timeline.RunTimelineMeta),
+		rerunIdx:     make(map[string]int),
+	}
+	if rt.actionLog == nil {
+		rt.actionLog = actionlog.NopLog{}
 	}
 	if opts.EventSource != nil {
 		rt.eventSource = opts.EventSource
@@ -330,29 +343,108 @@ func (rt *WorkflowRuntime) GetRunOutcome(runID string) (RunResult, bool) {
 	return res, ok
 }
 
-// ListRuns returns timeline metadata for all runs when a timeline store is
-// configured. Returns nil when the runtime has no timeline store.
+// ListRuns returns metadata for all runs this runtime has started.
+// Event counts are refreshed from the action log.
 func (rt *WorkflowRuntime) ListRuns(ctx context.Context) ([]timeline.RunTimelineMeta, error) {
-	if rt.timeline == nil {
-		return nil, nil
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	list := make([]timeline.RunTimelineMeta, 0, len(rt.runMetas))
+	for runID, meta := range rt.runMetas {
+		cp := *meta
+		if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
+			if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
+				cp.EventCount = int64(n)
+			}
+		}
+		list = append(list, cp)
 	}
-	return rt.timeline.ListRuns(ctx)
+	return list, nil
 }
 
-// GetRunMeta returns timeline metadata for a single run.
+// GetRunMeta returns metadata for a single run.
 func (rt *WorkflowRuntime) GetRunMeta(ctx context.Context, runID string) (*timeline.RunTimelineMeta, error) {
-	if rt.timeline == nil {
-		return nil, core.NewSystemError(core.ErrCodeNotFound, "no timeline store configured")
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	meta, ok := rt.runMetas[runID]
+	if !ok {
+		return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
 	}
-	return rt.timeline.GetRunMeta(ctx, runID)
+	cp := *meta
+	if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
+		if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
+			cp.EventCount = int64(n)
+		}
+	}
+	return &cp, nil
 }
 
-// GetEvents returns recorded timeline events for a run.
+// GetEvents returns the run's action log entries for its latest attempt,
+// projected onto the frontend timeline wire shape.
 func (rt *WorkflowRuntime) GetEvents(ctx context.Context, runID string, fromSeq, toSeq int64) ([]timeline.TimelineEvent, error) {
-	if rt.timeline == nil {
-		return nil, core.NewSystemError(core.ErrCodeNotFound, "no timeline store configured")
+	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
+	if err != nil {
+		return nil, err
 	}
-	return rt.timeline.GetEvents(ctx, runID, fromSeq, toSeq)
+	if idx < 0 {
+		return []timeline.TimelineEvent{}, nil
+	}
+	entries, err := rt.actionLog.All(ctx, runID, idx)
+	if err != nil {
+		return nil, err
+	}
+
+	rt.mu.Lock()
+	pipelineID, pipelineLabel := rt.pipelineLabelLocked(runID)
+	rt.mu.Unlock()
+
+	out := make([]timeline.TimelineEvent, 0, len(entries))
+	for _, e := range entries {
+		seq := int64(e.Seq)
+		if fromSeq > 0 && seq < fromSeq {
+			continue
+		}
+		if toSeq > 0 && seq > toSeq {
+			continue
+		}
+		out = append(out, timeline.EntryToTimelineEvent(e, pipelineID, pipelineLabel))
+	}
+	return out, nil
+}
+
+// pipelineLabelLocked resolves the pipeline identity for event projection.
+// Caller must hold rt.mu.
+func (rt *WorkflowRuntime) pipelineLabelLocked(runID string) (string, string) {
+	if meta, ok := rt.runMetas[runID]; ok {
+		return meta.PipelineID, ""
+	}
+	if st, ok := rt.stores[runID]; ok {
+		var pipelineID string
+		_ = st.Read(func(state map[string]any) error {
+			if m, ok := state[store.RunMetaKey].(map[string]any); ok {
+				pipelineID, _ = m["pipelineId"].(string)
+			}
+			return nil
+		})
+		return pipelineID, ""
+	}
+	return "", ""
+}
+
+// nextRerunIndex returns the rerun index for a new attempt of a run:
+// one past the latest recorded attempt, or 0 for a fresh run.
+func (rt *WorkflowRuntime) nextRerunIndex(ctx context.Context, runID string) int {
+	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
+	if err != nil || idx < 0 {
+		return 0
+	}
+	return idx + 1
+}
+
+// rerunIndexOf returns the current rerun index tracked for a run.
+func (rt *WorkflowRuntime) rerunIndexOf(runID string) int {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.rerunIdx[runID]
 }
 
 // ---------------------------------------------------------------------------
@@ -700,6 +792,9 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 				store:         rt.stores[runID],
 				checkpoint:    result.Checkpoint,
 			}
+			if meta, ok := rt.runMetas[runID]; ok {
+				meta.Status = timeline.StatusPaused
+			}
 			rt.mu.Unlock()
 
 			// Notify WatchService that run is now paused
@@ -833,12 +928,54 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// which is what PipelineEvent.Path is actually consumed for (the
 	// frontend timeline).
 	bus := rt.bus.Scope(events.EventPath{}.Append("pipeline", runID, pdef.Label))
+
+	// Wire the Rebuilder (Replayer) so factory.Resume uses event-sourced
+	// recovery from the action log instead of the legacy checkpoint path.
+	// Skip when the action log is a NopLog — event-sourced recovery needs
+	// durable entries to reconstruct state.
+	var rp pipeline.Rebuilder
+	if _, isNop := rt.actionLog.(actionlog.NopLog); !isNop {
+		definitionResolver := func(resolvedID string) (*pipeline.PipelineDefinition, bool) {
+			d := pdef
+			return &d, true
+		}
+		rp = replay.NewReplayer(rt.actionLog, definitionResolver)
+	}
+
 	factory := pipeline.NewFactory(record.workflow.Pipelines[paused.pipelineID], record.workflow.Pipelines[paused.pipelineID].Schema, pipeline.FactoryOptions{
 		Logger:       rt.logger,
+		ActionLog:    rt.actionLog,
+		Rebuilder:    rp,
+		RerunIndex:   rt.rerunIndexOf(runID),
 		RunEnv:       rt.env,
 		SecretLookup: rt.secretLookup(),
 	})
-	runCtx := factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
+
+	var runCtx *pipeline.RunContextImpl
+	if rp != nil {
+		// Event-sourced recovery path: reconstruct state from action log.
+		var resumeErr error
+		runCtx, resumeErr = factory.Resume(context.Background(), runID, st, bus)
+		if resumeErr != nil {
+			// Rebuilder failed — fall back to the legacy checkpoint path.
+			rt.logger.Warn("resume: replayer rebuild failed, falling back to checkpoint",
+				"runId", runID, "error", resumeErr)
+			runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
+		}
+	} else {
+		// Legacy checkpoint path (no durable action log).
+		runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
+	}
+
+	// Record the resume in the action log so the Replayer knows this run
+	// is no longer paused.
+	rt.actionLog.Append(context.Background(), actionlog.Entry{
+		RunID:      runID,
+		RerunIndex: rt.rerunIndexOf(runID),
+		Kind:       actionlog.KindResumed,
+		Type:       "pipeline:resumed",
+		StageID:    ckpt.ResumeAt.Stage,
+	})
 
 	resolver, cleanup := rt.initResources(record, bus, runID, paused.pipelineID)
 	if len(resolver) > 0 {
@@ -899,6 +1036,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	rt.mu.Lock()
 	rt.outcomes[runID] = result
 	rt.mu.Unlock()
+	rt.setRunStatus(runID, result.Status)
 
 	// Don't call OnComplete if the run paused again — the next resume event
 	// will trigger completion.
@@ -910,116 +1048,30 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	return result
 }
 
-// resumeFromPersistence attempts to load a paused run from the persistent store.
-// It reads the run's state document by id, resolves its workflow from the
-// seeded __run_meta__ linkage, and reconstructs the pausedRun from the
-// checkpoint stored in the document body.
-func (rt *WorkflowRuntime) resumeFromPersistence(runID string, payload map[string]any) RunResult {
-	st, err := rt.newStoreForID(runID)
-	if err != nil || st == nil {
-		return RunResult{
-			OK:     false,
-			Status: "failed",
-			Error:  core.NewSystemError(core.ErrCodeNotFound, "no store available for run "+runID),
-		}
+// setRunStatus records the terminal/paused status of a run in its metadata.
+func (rt *WorkflowRuntime) setRunStatus(runID, status string) {
+	var s timeline.RunTimelineStatus
+	switch status {
+	case "succeeded":
+		s = timeline.StatusComplete
+	case "failed", "aborted":
+		s = timeline.StatusFailed
+	case "paused":
+		s = timeline.StatusPaused
+	default:
+		return
 	}
-
-	// Read run linkage and checkpoint from state.
-	var meta struct{ workflowID, triggerID string }
-	var ckpt *pipeline.PipelineCheckpoint
-	_ = st.Read(func(state map[string]any) error {
-		if m, ok := state[store.RunMetaKey].(map[string]any); ok {
-			meta.workflowID, _ = m["workflowId"].(string)
-			meta.triggerID, _ = m["triggerId"].(string)
-		}
-		if meta.workflowID != "" {
-			rt.mu.Lock()
-			if rec, ok := rt.workflows[meta.workflowID]; ok {
-				for pipeID := range rec.workflow.Pipelines {
-					if c, rErr := pipeline.ReadCheckpoint(state, pipeID); c != nil && rErr == nil {
-						ckpt = c
-						break
-					}
-				}
-			}
-			rt.mu.Unlock()
-			return nil
-		}
-		// No linkage (legacy run): scan all workflows' pipelines.
-		rt.mu.Lock()
-		for _, rec := range rt.workflows {
-			for pipeID := range rec.workflow.Pipelines {
-				if c, rErr := pipeline.ReadCheckpoint(state, pipeID); c != nil && rErr == nil {
-					ckpt = c
-					rt.mu.Unlock()
-					return nil
-				}
-			}
-		}
-		rt.mu.Unlock()
-		return nil
-	})
-
-	if ckpt == nil {
-		return RunResult{
-			OK:     false,
-			Status: "failed",
-			Error:  core.NewSystemError(core.ErrCodeNotFound, "no checkpoint found for run "+runID),
-		}
-	}
-
-	// Resolve the workflow: direct from seeded linkage, falling back to a
-	// scan for the workflow containing this pipeline.
-	workflowID := meta.workflowID
-	if workflowID == "" {
-		rt.mu.Lock()
-		for wfID, rec := range rt.workflows {
-			if _, ok := rec.workflow.Pipelines[ckpt.PipelineID]; ok {
-				workflowID = wfID
-				break
-			}
-		}
-		rt.mu.Unlock()
-	}
-
-	if workflowID == "" {
-		return RunResult{
-			OK:     false,
-			Status: "failed",
-			Error:  core.NewSystemError(core.ErrCodeNotFound, "workflow not found for pipeline "+ckpt.PipelineID),
-		}
-	}
-
-	record := rt.workflows[workflowID]
-	if record == nil {
-		return RunResult{
-			OK:     false,
-			Status: "failed",
-			Error:  core.NewSystemError(core.ErrCodeNotFound, "workflow "+workflowID+" no longer registered"),
-		}
-	}
-
-	// Determine wait-for-event from checkpoint.
-	waitForEvent := ckpt.WaitForEvent
-	waitForEvents := ckpt.WaitForEvents
-	waitMode := ckpt.WaitMode
-
+	now := time.Now().UnixMilli()
 	rt.mu.Lock()
-	rt.paused[runID] = &pausedRun{
-		runID:         runID,
-		workflowID:    workflowID,
-		triggerID:     meta.triggerID, // empty when the doc predates run linkage
-		pipelineID:    ckpt.PipelineID,
-		waitForEvent:  waitForEvent,
-		waitForEvents: waitForEvents,
-		waitMode:      waitMode,
-		store:         st,
-		checkpoint:    ckpt,
+	defer rt.mu.Unlock()
+	meta, ok := rt.runMetas[runID]
+	if !ok {
+		return
 	}
-	rt.mu.Unlock()
-
-	// Now delegate to the normal Resume path.
-	return rt.Resume(runID, payload)
+	meta.Status = s
+	if s == timeline.StatusComplete || s == timeline.StatusFailed {
+		meta.EndTime = &now
+	}
 }
 
 // Shutdown gracefully shuts down the runtime and its event source.
@@ -1122,8 +1174,17 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	}
 	runID := st.ID()
 
+	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
+
 	rt.mu.Lock()
 	rt.stores[runID] = st
+	rt.rerunIdx[runID] = rerunIndex
+	rt.runMetas[runID] = &timeline.RunTimelineMeta{
+		RunID:      runID,
+		PipelineID: def.ID,
+		StartTime:  time.Now().UnixMilli(),
+		Status:     timeline.StatusRecording,
+	}
 	rt.mu.Unlock()
 
 	// The run's bus scopes under the root bus so all pipeline events bubble to
@@ -1138,6 +1199,8 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 
 	factory := pipeline.NewFactory(def, def.Schema, pipeline.FactoryOptions{
 		Logger:       rt.logger,
+		ActionLog:    rt.actionLog,
+		RerunIndex:   rerunIndex,
 		RunEnv:       rt.env,
 		SecretLookup: rt.secretLookup(),
 	})
@@ -1183,12 +1246,6 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 		})
 	}
 
-	var unsub func()
-	if rt.timeline != nil {
-		rec := timeline.NewTimelineRecorder(runID, def.ID, rt.timeline)
-		unsub = rec.Attach(bus, st)
-	}
-
 	rt.mu.Lock()
 	rt.active[runID] = runCtx
 	rt.mu.Unlock()
@@ -1207,9 +1264,6 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	if record.opts.OnPrepare != nil {
 		if err := record.opts.OnPrepare(handle); err != nil {
 			cleanup()
-			if unsub != nil {
-				unsub()
-			}
 			rt.clearActive(runID)
 			return rt.finishRun(record, RunResult{
 				RunID:      runID,
@@ -1225,9 +1279,6 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	res, runErr := runCtx.Run(context.Background())
 
 	cleanup()
-	if unsub != nil {
-		unsub()
-	}
 	rt.clearActive(runID)
 
 	finalState, _ := st.ExportJSON()
@@ -1271,6 +1322,7 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	rt.mu.Lock()
 	rt.outcomes[runID] = result
 	rt.mu.Unlock()
+	rt.setRunStatus(runID, result.Status)
 
 	return result
 }

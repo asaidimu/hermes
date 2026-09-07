@@ -328,7 +328,6 @@ pipelines/
 ├── go.mod
 ├── go.sum
 ├── SPEC.md
-├── SCHEMA_AND_DURABILITY.md
 ├── pkg/
 │   ├── core/                  # Errors and logger interfaces
 │   ├── store/                 # Anansi Store implementation & JSON exporter

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -38,6 +39,8 @@ func ExecuteSubPipelines(
 	resolver func(key string) (any, bool),
 	runEnv map[string]any,
 	secretLookup func(key string) (any, bool),
+	actLog actionlog.Store,
+	rerunIndex int,
 ) ([]PipelineRunResult, error) {
 	if len(stage.Pipelines) == 0 {
 		return nil, nil
@@ -111,6 +114,8 @@ func ExecuteSubPipelines(
 				RunEnv:           runEnv,
 				SecretLookup:     secretLookup,
 				Logger:           logger,
+				ActionLog:        actLog,
+				RerunIndex:       rerunIndex,
 				ResourceResolver: resolver,
 			})
 
