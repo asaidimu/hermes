@@ -1,5 +1,18 @@
 package tests
 
+// @note #review-20260910-021 todo status=open priority=P2 tags=#review,#ci,#testing : CI runs `make test` without -race, vet, or gofmt gates
+// @author hermes-review
+//
+// .github/workflows/test.yaml only runs `make test` (go test -v ./...).
+// Three gates the project's own docs promise are missing: (1) README's
+// "Testing & Quality Standard" says `go test -race ./...` — the race
+// detector has caught real bugs here before (see #review-20260826-001 in
+// pkg/scheduler) but CI never exercises it; (2) `go vet ./...` is clean
+// today and cheap to keep clean; (3) `gofmt -s -l .` currently lists 12
+// files (see #review-20260910-010) and nothing in CI would have stopped
+// the drift. Cheap fix: make test → go vet ./... && go test -race ./...,
+// plus a gofmt/goimports check step in the workflow.
+
 import (
 	"context"
 	"testing"

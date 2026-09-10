@@ -89,6 +89,7 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 		}
 		handle, err := def.Router(ctx, NodeRunContext{
 			NodeID:  nodeID,
+			RunID:   pipeline.RunIDFromContext(ctx),
 			Config:  cfg,
 			State:   state,
 			Results: results,
@@ -128,6 +129,7 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, r
 		}
 		inst, err := def.RouterFunc(ctx, NodeRunContext{
 			NodeID:  nodeID,
+			RunID:   pipeline.RunIDFromContext(ctx),
 			Config:  cfg,
 			State:   state,
 			Results: results,
@@ -145,6 +147,44 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, r
 		}
 		return pipeline.Jump(target), nil
 	}
+}
+
+// resolveRouterResources builds the Resources map for bounded nodes'
+// PipelinesRouterFunc / Router callbacks. Unlike the step path (which has a
+// PipelineContext), routers receive only a bare context, so the run-scoped
+// resolver is read from the context stamped by RunContextImpl.Run. The
+// compiler's resource map is a static, shared map (see staticResources), so it
+// is cloned before resolution — resolving handles into the shared map would
+// leak run-scoped handles across runs and race concurrent ones. Built-in
+// runtime services (builtinResourceKeys, e.g. the pause node's
+// "resource:watch-service") are injected so the router can reach them without
+// a compiler-wired dependency edge (see #review-20260910-007).
+func resolveRouterResources(ctx context.Context, resources func() map[string]any) map[string]any {
+	res := map[string]any{}
+	if resources != nil {
+		for kind, key := range resources() {
+			res[kind] = key
+		}
+	}
+	resolve := pipeline.ResourceResolverFromContext(ctx)
+	if resolve == nil {
+		return res
+	}
+	for kind, key := range res {
+		if ks, ok := key.(string); ok {
+			if handle, ok := resolve(ks); ok {
+				res[kind] = handle
+			}
+		}
+	}
+	for _, key := range builtinResourceKeys {
+		if _, ok := res[key]; !ok {
+			if handle, ok := resolve(key); ok {
+				res[key] = handle
+			}
+		}
+	}
+	return res
 }
 
 // defaultStageRouter advances to the default next target. It mirrors the TS
@@ -229,7 +269,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 					errors[r.PipelineID] = r.Error
 				}
 			}
-			res := resources()
+			res := resolveRouterResources(ctx, resources)
 			cfg, err := prepareNodeConfig(def, config, state, res, resultsByID)
 			if err != nil {
 				return nil, err
@@ -239,6 +279,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 			if def.PipelinesRouterFunc != nil {
 				return def.PipelinesRouterFunc(ctx, NodeRunContext{
 					NodeID:    nodeID,
+					RunID:     pipeline.RunIDFromContext(ctx),
 					Config:    cfg,
 					State:     state,
 					Results:   resultsByID,
@@ -253,6 +294,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 			if def.Router != nil {
 				handle, err = def.Router(ctx, NodeRunContext{
 					NodeID:    nodeID,
+					RunID:     pipeline.RunIDFromContext(ctx),
 					Config:    cfg,
 					State:     state,
 					Results:   resultsByID,
@@ -382,6 +424,20 @@ func BuildDistributeStage(
 					"value": val,
 				}
 
+				// @note #review-20260910-018 observation status=open priority=P3 tags=#review,#concurrency : "Clone" shares Stage structs across concurrent children
+				// @author hermes-review
+				//
+				// The comment below says "each child owns its copy", but
+				// copy(cloned, bodyStages) only copies the slice header:
+				// every child pipeline references the SAME Stage structs,
+				// including their Steps maps and Router closures. It is
+				// safe today only because the engine treats compiled
+				// stages as immutable during execution (context.go's
+				// DynamicPipelines patch mutates a per-iteration struct
+				// copy, not the shared one). Any future code that writes
+				// to a Stage/Steps map at runtime turns this into a
+				// cross-child data race. Consider a real deep clone (or
+				// documenting the immutability contract on Stage).
 				// Clone body stages so each child owns its copy.
 				cloned := make([]pipeline.Stage, len(bodyStages))
 				copy(cloned, bodyStages)

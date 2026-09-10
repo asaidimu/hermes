@@ -45,6 +45,22 @@ func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx c
 	js := &jobState{ctx: ctx, cancel: cancel, callback: callback}
 	s.jobs[id] = js
 
+	// @note #review-20260910-013 issue status=open priority=P2 tags=#review,#validation : Invalid cron expressions are accepted and silently fire hourly
+	// @author hermes-review
+	// @see #review-20260822-040
+	// @see #review-20260822-053
+	//
+	// Schedule never validates the expression: CronDelay falls back to a
+	// 1-hour delay (after a slog.Warn) for anything it cannot parse, so
+	// runtime.Register with a typo'd cron trigger — e.g. "30 * * *"
+	// (4 fields) or "@evry 5m" — SUCCEEDS and the trigger fires every hour
+	// forever. This contradicts the resolution of #review-20260822-040,
+	// which states invalid cron expressions fail registration loudly; that
+	// enforcement never actually happens because the error never reaches
+	// Schedule's caller. Fix: parse/validate the expression here and return
+	// an error (Register already propagates Schedule errors), keeping the
+	// 1-hour fallback only for the recursive re-arm path where an error
+	// return is impossible.
 	s.scheduleNextLocked(id, js, cron)
 	return nil
 }

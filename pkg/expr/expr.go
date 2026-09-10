@@ -163,6 +163,21 @@ func newRuntime(ctx context.Context) (*goja.Runtime, func()) {
 	return rt, func() { close(stop) }
 }
 
+// @note #review-20260910-019 observation status=open priority=P3 tags=#review,#security : EvalBody skips the validation EvalValue applies, and the blocklist is bypassable
+// @author hermes-review
+//
+// EvalValue runs ValidateExpression first; EvalBody — which executes the
+// if/while predicate strings AND user-supplied complex condition bodies —
+// does not, so the two entry points enforce different policies for the
+// same VM. The blocklist itself is a deny-list over regexes and is
+// trivially evaded (e.g. `this["ev"+"al"]`, computed member access), so
+// it should be treated as UX guardrails, not a security boundary. Today
+// the blast radius is small because goja has no host bindings registered
+// (no I/O from the VM) and ctx cancellation interrupts runaway scripts —
+// but a consistent policy (validate both, or neither + documented threat
+// model) would keep future host bindings from silently inheriting the
+// weaker path.
+
 // EvalBody evaluates a JS body against a `state` binding, invoking it as a
 // function so `return` statements work. It returns the boolean truthiness of the
 // result. Used by the if/while simple-predicate eval strings and complex

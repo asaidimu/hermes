@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/nodekit"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
-	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/asaidimu/hermes/pkg/nodes"
@@ -582,7 +582,7 @@ func TestCustomEventTrigger(t *testing.T) {
 
 	done := make(chan RunResult, 1)
 	rt := NewWorkflowRuntime(Options{
-		ActionLog:  actionlog.NewMemoryActionLog(),
+		ActionLog: actionlog.NewMemoryActionLog(),
 	})
 
 	err := rt.Register(wf, RegisterOptions{
@@ -617,7 +617,7 @@ func TestCustomEventTriggerWithPayload(t *testing.T) {
 
 	done := make(chan RunResult, 1)
 	rt := NewWorkflowRuntime(Options{
-		ActionLog:  actionlog.NewMemoryActionLog(),
+		ActionLog: actionlog.NewMemoryActionLog(),
 	})
 
 	err := rt.Register(wf, RegisterOptions{

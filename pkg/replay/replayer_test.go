@@ -98,7 +98,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 	})
 
 	def := &pipeline.PipelineDefinition{
-		ID:    "effectful-pipeline",
+		ID: "effectful-pipeline",
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
@@ -170,7 +170,7 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 	// http-step-2 has NO entry — this is where resume should happen
 
 	def := &pipeline.PipelineDefinition{
-		ID:    "partial-pipeline",
+		ID: "partial-pipeline",
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
@@ -231,7 +231,7 @@ func TestRebuild_PureBeforeEffectful(t *testing.T) {
 	runID := "run-mixed"
 
 	def := &pipeline.PipelineDefinition{
-		ID:    "mixed-pipeline",
+		ID: "mixed-pipeline",
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
@@ -298,7 +298,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 	})
 
 	def := &pipeline.PipelineDefinition{
-		ID:    "routing-pipeline",
+		ID: "routing-pipeline",
 		Stages: []pipeline.Stage{
 			{
 				ID:    "start",
@@ -399,7 +399,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 	})
 
 	def := &pipeline.PipelineDefinition{
-		ID:    "failed-pipeline",
+		ID: "failed-pipeline",
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
@@ -457,7 +457,7 @@ func TestStateAt(t *testing.T) {
 	runID := "run-stateat"
 
 	def := &pipeline.PipelineDefinition{
-		ID:    "stateat-pipeline",
+		ID: "stateat-pipeline",
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",

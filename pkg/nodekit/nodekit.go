@@ -50,7 +50,15 @@ type HandleSpec struct {
 
 // NodeRunContext provides configuration and state to a running node action.
 type NodeRunContext struct {
-	NodeID    string
+	NodeID string
+	// RunID identifies the pipeline run this node executes under. Populated
+	// from the PipelineContext (steps) or the run-stamped execution context
+	// (routers — see pipeline.RunIDFromContext). Nodes that interact with
+	// run-scoped services must key them by this id, not NodeID: node ids are
+	// shared by every concurrent run of a workflow, while run-scoped state
+	// (watch registrations, cleanup lifecycles) is keyed by run id everywhere
+	// else in the engine (see #review-20260910-007).
+	RunID     string
 	Config    map[string]any
 	State     map[string]any
 	Results   map[string]any
@@ -254,6 +262,7 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 			}
 			return def.Run(ctx, NodeRunContext{
 				NodeID:    nodeID,
+				RunID:     pcxt.RunID(),
 				Config:    cfg,
 				State:     state,
 				Results:   results,
@@ -266,23 +275,40 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 	}
 }
 
+// builtinResourceKeys are runtime-provided services nodes can address by
+// well-known resource keys without a compiler-wired resource dependency edge.
+// The runtime publishes these handles through its run-scoped resource
+// resolver (see WorkflowRuntime.initResources).
+var builtinResourceKeys = []string{"resource:watch-service"}
+
 // resolveStepResources turns the compiler-supplied resource key map
 // ({kind: "resource:<sourceNodeId>"}) into resolved handles via the pipeline
 // context's resource resolver. Keys that cannot be resolved are passed through
-// unchanged so interpolation/run still see the artifact key string.
+// unchanged so interpolation/run still see the artifact key string. Built-in
+// runtime services (builtinResourceKeys) are injected so nodes can reach them
+// without a compiler-wired dependency edge — before this, the pause node's
+// watch-service lookup never succeeded and pausing silently became a no-op
+// (see #review-20260910-007).
 func resolveStepResources(pcxt pipeline.PipelineContext, resources func() map[string]any) map[string]any {
-	if resources == nil {
-		return nil
-	}
 	res := map[string]any{}
-	for kind, key := range resources() {
-		if ks, ok := key.(string); ok {
-			if handle, ok := pcxt.ResolveResource(ks); ok {
-				res[kind] = handle
-				continue
+	if resources != nil {
+		for kind, key := range resources() {
+			if ks, ok := key.(string); ok {
+				if handle, ok := pcxt.ResolveResource(ks); ok {
+					res[kind] = handle
+					continue
+				}
 			}
+			res[kind] = key
 		}
-		res[kind] = key
+	}
+	for _, key := range builtinResourceKeys {
+		if _, ok := res[key]; ok {
+			continue
+		}
+		if handle, ok := pcxt.ResolveResource(key); ok {
+			res[key] = handle
+		}
 	}
 	return res
 }

@@ -149,6 +149,15 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 	// Derive a cancellable context from the abort channel so in-flight steps
 	// (e.g. delay) observe aborts via ctx.Done() instead of only between stages.
 	runCtx, cancel := context.WithCancel(ctx)
+	// Stamp run identity and the run-scoped resource resolver onto the
+	// execution context. Stage routers and node callbacks receive only a bare
+	// context.Context (no PipelineContext), so this is how the pause node's
+	// PipelinesRouterFunc learns the run id it registers watches under
+	// (#review-20260910-007) and reaches built-in runtime resources.
+	runCtx = context.WithValue(runCtx, runIDContextKey{}, r.runID)
+	if r.resourceResolver != nil {
+		runCtx = context.WithValue(runCtx, resourceResolverContextKey{}, r.resourceResolver)
+	}
 	defer cancel()
 	// @note #review-20260822-055 issue status=resolved priority=P1 tags=#review,#performance,#memory-leak : Goroutine leak on normal path
 	//
@@ -791,6 +800,23 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 		Cron:          pauseInst.Cron,
 	}
 
+	// @note #review-20260910-012 issue status=open priority=P2 tags=#review,#error-handling : Checkpoint persistence failure is silently discarded on pause
+	// @author hermes-review
+	// @see #review-20260822-033
+	//
+	// When Persist is set, the checkpoint write is best-effort with the
+	// error dropped via `_ =` — yet everything downstream (the emitted
+	// pipeline:pause event, the returned "paused" result, the runtime's
+	// pausedRun registration) proceeds as if persistence succeeded. For a
+	// Persist=true pause whose store write fails, the run reports paused
+	// but nothing durable records where to resume; the legacy checkpoint
+	// resume path then finds no checkpoint ("no checkpoint found in
+	// document") and recovery dead-ends. Sibling instances of the same
+	// pattern in this file: the default sub-pipeline state merge and the
+	// nested-checkpoint write in the Run loop, both `_ = r.store.Update`.
+	// At minimum log the failure like review-20260822-033 does; ideally
+	// fail the pause (return the error) since a lost checkpoint invalidates
+	// the whole paused-run contract.
 	if pauseInst.Persist {
 		_ = r.store.Update(ctx, func(state map[string]any) error {
 			return WriteCheckpoint(state, ckpt)
@@ -841,6 +867,33 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 }
 
 var _ RunContext = (*RunContextImpl)(nil)
+
+// Context keys for values RunContextImpl.Run stamps onto the execution
+// context. Unexported: values are read through the accessors below.
+type runIDContextKey struct{}
+type resourceResolverContextKey struct{}
+
+// RunIDFromContext returns the run id stamped onto ctx by
+// RunContextImpl.Run, or "" when ctx did not originate from a pipeline run
+// (replay, standalone factory use). Stage routers and node callbacks use
+// this to identify the run they execute under without a signature change.
+func RunIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(runIDContextKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// ResourceResolverFromContext returns the run-scoped resource resolver
+// stamped onto ctx by RunContextImpl.Run, or nil when absent. Node wiring
+// uses it to resolve resource handles in call paths that receive no
+// PipelineContext (e.g. bounded nodes' PipelinesRouterFunc).
+func ResourceResolverFromContext(ctx context.Context) func(key string) (any, bool) {
+	if v, ok := ctx.Value(resourceResolverContextKey{}).(func(string) (any, bool)); ok {
+		return v
+	}
+	return nil
+}
 
 // appendLog appends an entry to the run's action log, filling RunID
 // and RerunIndex. Nil-safe: returns silently when no log is configured.
@@ -902,6 +955,13 @@ func (r *RunContextImpl) recordRouting(ctx context.Context, stageID string, inst
 	})
 }
 
+// PauseRouteHandle is the routing handle recorded for pause instructions
+// without an explicit resume stage (PauseForEvent / PauseForEvents /
+// PauseForCron). It is a WAIT MARKER, not a jump target: replay consumers
+// (pkg/replay) must resolve it through the stage's pause checkpoint
+// (ResumeAt) instead of re-entering the pausing stage.
+const PauseRouteHandle = "__pause__"
+
 // routingHandle extracts the target handle from a routing instruction for
 // action log recording. Returns empty for advance/terminate (no route target).
 func routingHandle(inst RoutingInstruction) string {
@@ -914,7 +974,7 @@ func routingHandle(inst RoutingInstruction) string {
 		if v.StageID != "" {
 			return v.StageID
 		}
-		return "__pause__"
+		return PauseRouteHandle
 	default:
 		return ""
 	}

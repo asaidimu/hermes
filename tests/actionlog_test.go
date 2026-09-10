@@ -106,7 +106,7 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"init": {
-						ID:    "init",
+						ID:     "init",
 						Effect: 1, // Pure
 						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("route", "jump"), nil
@@ -122,7 +122,7 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 				Order: 2,
 				Steps: map[string]pipeline.Step{
 					"skipped": {
-						ID:    "skipped",
+						ID:     "skipped",
 						Effect: 1,
 						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("should_not_exist", true), nil
@@ -135,7 +135,7 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 				Order: 3,
 				Steps: map[string]pipeline.Step{
 					"done": {
-						ID:    "done",
+						ID:     "done",
 						Effect: 1,
 						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("finished", true), nil

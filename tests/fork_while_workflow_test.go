@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/compiler"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/runtime"
-	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,7 +80,7 @@ func TestRunForkWhileWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
-		ActionLog:  actionlog.NewMemoryActionLog(),
+		ActionLog: actionlog.NewMemoryActionLog(),
 	})
 
 	// Subscribe to all bus events to log every stage

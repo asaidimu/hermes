@@ -103,6 +103,23 @@ func (s *AnansiStore) Append(ctx context.Context, entry Entry) (uint64, error) {
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = time.Now().UTC()
 	}
+	// @note #review-20260910-014 issue status=open priority=P2 tags=#review,#durability,#integration : No durable Store can serve the multi-run runtime; Append force-rewrites RunID
+	// @author hermes-review
+	//
+	// WorkflowRuntime takes ONE Options.ActionLog for ALL runs and appends
+	// entries carrying their own RunID. The only durable implementation,
+	// AnansiStore, is scoped to a single (runID, rerunIndex) document and
+	// OVERWRITES entry.RunID/RerunIndex with its own scope (right below) —
+	// so pointing Options.ActionLog at one AnansiStore silently merges
+	// every run's log into one foreign runID. Nothing outside tests wires
+	// the factory into the runtime either (all runtime tests use
+	// MemoryActionLog), so the README's durable, event-sourced recovery
+	// story has no shipped integration path: hosts must hand-write a
+	// multi-run routing wrapper. Two secondary costs while here: Append is
+	// O(n) per call (full read + JSON unmarshal + full re-marshal of every
+	// prior entry, i.e. O(n^2) per run), and nextSeq derives from
+	// len(existing)+1, so seq numbers are not stable if entries ever
+	// fail to marshal.
 	// The scoped store is authoritative for identity: entries always
 	// land in this store's (runID, rerunIndex) document.
 	entry.RunID = s.runID

@@ -26,20 +26,20 @@ type EntryKind string
 
 const (
 	// Pipeline lifecycle
-	KindPipelineStarted  EntryKind = "pipeline_started"
+	KindPipelineStarted   EntryKind = "pipeline_started"
 	KindPipelineCompleted EntryKind = "pipeline_completed"
-	KindPipelineFailed   EntryKind = "pipeline_failed"
+	KindPipelineFailed    EntryKind = "pipeline_failed"
 
 	// Stage lifecycle
-	KindStageStarted  EntryKind = "stage_started"
+	KindStageStarted   EntryKind = "stage_started"
 	KindStageCompleted EntryKind = "stage_completed"
-	KindStageFailed   EntryKind = "stage_failed"
+	KindStageFailed    EntryKind = "stage_failed"
 
 	// Step lifecycle (all steps, pure and effectful)
-	KindStepStarted  EntryKind = "step_started"
+	KindStepStarted   EntryKind = "step_started"
 	KindStepCompleted EntryKind = "step_completed"
-	KindStepFailed   EntryKind = "step_failed"
-	KindStepRetry    EntryKind = "step_retry"
+	KindStepFailed    EntryKind = "step_failed"
+	KindStepRetry     EntryKind = "step_retry"
 
 	// Effectful step outcomes (for crash recovery — replayer filters to these)
 	KindEffectCompleted EntryKind = "effect_completed"
@@ -63,17 +63,17 @@ type Entry struct {
 	RunID      string          `json:"runId"`
 	RerunIndex int             `json:"rerunIndex"`
 	Seq        uint64          `json:"seq"`
-	Kind      EntryKind       `json:"kind"`
-	StageID   string          `json:"stageId,omitempty"`
-	StepID    string          `json:"stepId,omitempty"`
-	Handle    string          `json:"handle,omitempty"`     // routing handle
-	Type      string          `json:"type,omitempty"`       // frontend event type (e.g. "step:success")
-	Payload   json.RawMessage `json:"payload,omitempty"`    // event-specific data
-	Output    json.RawMessage `json:"output,omitempty"`     // state delta
-	Error     string          `json:"error,omitempty"`
-	Duration  int64           `json:"duration,omitempty"`   // ms
-	Attempt   int             `json:"attempt,omitempty"`    // retry attempt number
-	Timestamp time.Time       `json:"timestamp"`
+	Kind       EntryKind       `json:"kind"`
+	StageID    string          `json:"stageId,omitempty"`
+	StepID     string          `json:"stepId,omitempty"`
+	Handle     string          `json:"handle,omitempty"`  // routing handle
+	Type       string          `json:"type,omitempty"`    // frontend event type (e.g. "step:success")
+	Payload    json.RawMessage `json:"payload,omitempty"` // event-specific data
+	Output     json.RawMessage `json:"output,omitempty"`  // state delta
+	Error      string          `json:"error,omitempty"`
+	Duration   int64           `json:"duration,omitempty"` // ms
+	Attempt    int             `json:"attempt,omitempty"`  // retry attempt number
+	Timestamp  time.Time       `json:"timestamp"`
 }
 
 // Store is the persistence interface for action log entries. Implementations
@@ -109,16 +109,16 @@ type Store interface {
 // disabled or not yet configured. All methods return zero values and nil error.
 type NopLog struct{}
 
-func (NopLog) Append(_ context.Context, _ Entry) (uint64, error)            { return 0, nil }
-func (NopLog) All(_ context.Context, _ string, _ int) ([]Entry, error)      { return nil, nil }
+func (NopLog) Append(_ context.Context, _ Entry) (uint64, error)       { return 0, nil }
+func (NopLog) All(_ context.Context, _ string, _ int) ([]Entry, error) { return nil, nil }
 func (NopLog) ByStepID(_ context.Context, _ string, _ int, _ string) ([]Entry, error) {
 	return nil, nil
 }
 func (NopLog) LastByStageID(_ context.Context, _ string, _ int, _ string) (*Entry, error) {
 	return nil, nil
 }
-func (NopLog) Count(_ context.Context, _ string, _ int) (uint64, error)     { return 0, nil }
-func (NopLog) LatestRerunIndex(_ context.Context, _ string) (int, error)    { return -1, nil }
+func (NopLog) Count(_ context.Context, _ string, _ int) (uint64, error)  { return 0, nil }
+func (NopLog) LatestRerunIndex(_ context.Context, _ string) (int, error) { return -1, nil }
 
 // MemoryActionLog is an in-memory Store implementation for testing and
 // development. Not durable — data is lost on process exit. Callers that

@@ -21,10 +21,15 @@ type watchRegistration struct {
 
 // WatchService manages watch registrations for all active runs.
 type WatchService struct {
-	mu             sync.Mutex
-	registrations  map[string]map[string]*watchRegistration
-	byEventType    map[string]map[string]bool
-	busSubs        map[string]func()
+	mu            sync.Mutex
+	registrations map[string]map[string]*watchRegistration
+	byEventType   map[string]map[string]bool
+	busSubs       map[string]func()
+	// delivered tracks, per run, which watched event types have delivered an
+	// event in the current parked cycle. Only used for multi-event mode=all
+	// registrations, which must not resume until every watched type has
+	// delivered (a single matching event resumes mode=any waits immediately).
+	delivered      map[string]map[string]bool
 	bus            events.ScopedEventBus
 	resumeCallback func(runID string, patch map[string]any)
 }
@@ -35,8 +40,64 @@ func NewWatchService(bus events.ScopedEventBus, resumeCallback func(runID string
 		registrations:  make(map[string]map[string]*watchRegistration),
 		byEventType:    make(map[string]map[string]bool),
 		busSubs:        make(map[string]func()),
+		delivered:      make(map[string]map[string]bool),
 		bus:            bus,
 		resumeCallback: resumeCallback,
+	}
+}
+
+// markDeliveredLocked records that eventType delivered for runID in the
+// current parked cycle. Caller must hold s.mu.
+func (s *WatchService) markDeliveredLocked(runID, eventType string) {
+	set, ok := s.delivered[runID]
+	if !ok {
+		set = make(map[string]bool)
+		s.delivered[runID] = set
+	}
+	set[eventType] = true
+}
+
+// allDeliveredLocked reports whether every event type in types delivered for
+// runID in the current parked cycle. Caller must hold s.mu.
+func (s *WatchService) allDeliveredLocked(runID string, types []string) bool {
+	set := s.delivered[runID]
+	for _, t := range types {
+		if set == nil || !set[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// clearDeliveredLocked drops the per-run delivered tracking. Caller must
+// hold s.mu.
+func (s *WatchService) clearDeliveredLocked(runID string) {
+	delete(s.delivered, runID)
+}
+
+// multiAllRegLocked returns the run's first multi-event mode=all
+// registration, or nil when the run has none. Caller must hold s.mu.
+func (s *WatchService) multiAllRegLocked(runID string) *watchRegistration {
+	for _, reg := range s.registrations[runID] {
+		if reg.descriptor.Mode == string(watch.WatchModeAll) && len(reg.descriptor.EventTypes) > 1 {
+			return reg
+		}
+	}
+	return nil
+}
+
+// parkLocked marks every registration of a run as parked and starts the
+// timeout timer for the first descriptor that declares one. Caller must
+// hold s.mu.
+func (s *WatchService) parkLocked(runID string, runMap map[string]*watchRegistration) {
+	for _, reg := range runMap {
+		reg.parked = true
+	}
+	for _, reg := range runMap {
+		if reg.descriptor.Timeout > 0 {
+			s.startTimeoutLocked(runID, reg.descriptor.Timeout)
+			break
+		}
 	}
 }
 
@@ -51,6 +112,11 @@ func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) error 
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// A fresh registration starts a new watch cycle: any delivered-type
+	// tracking from a previous cycle for this run is stale (see onEvent's
+	// mode=all handling).
+	s.clearDeliveredLocked(runID)
 
 	runMap, ok := s.registrations[runID]
 	if !ok {
@@ -89,6 +155,35 @@ func (s *WatchService) OnRunPaused(runID string) *watch.WatchEvent {
 		return nil
 	}
 
+	// Fresh parked cycle: drop any delivered-type tracking left over from a
+	// previous one (see the mode=all handling in onEvent).
+	s.clearDeliveredLocked(runID)
+
+	// Single-event drain: hand back one buffered event for immediate resume.
+	// For a multi-event mode=all wait, a single drained entry must not resume
+	// the run unless every watched type already has a buffered event — in that
+	// case park (pre-crediting the buffered types, which onEvent's completed-
+	// set check would otherwise never see) and let onEvent complete the set.
+	if reg := s.multiAllRegLocked(runID); reg != nil {
+		allQueued := true
+		for _, t := range reg.descriptor.EventTypes {
+			tr, ok := runMap[t]
+			if !ok || len(tr.queue) == 0 {
+				allQueued = false
+				break
+			}
+		}
+		if !allQueued {
+			for t, r := range runMap {
+				if len(r.queue) > 0 {
+					s.markDeliveredLocked(runID, t)
+				}
+			}
+			s.parkLocked(runID, runMap)
+			return nil
+		}
+	}
+
 	for _, reg := range runMap {
 		if len(reg.queue) > 0 {
 			event := &reg.queue[0]
@@ -97,17 +192,7 @@ func (s *WatchService) OnRunPaused(runID string) *watch.WatchEvent {
 		}
 	}
 
-	for _, reg := range runMap {
-		reg.parked = true
-	}
-
-	for _, reg := range runMap {
-		if reg.descriptor.Timeout > 0 {
-			s.startTimeoutLocked(runID, reg.descriptor.Timeout)
-			break
-		}
-	}
-
+	s.parkLocked(runID, runMap)
 	return nil
 }
 
@@ -128,6 +213,7 @@ func (s *WatchService) OnRunEnded(runID string) {
 		s.removeFromReverseIndexLocked(runID, eventType)
 		s.releaseBusSubscriptionLocked(eventType)
 	}
+	s.clearDeliveredLocked(runID)
 
 	delete(s.registrations, runID)
 }
@@ -198,6 +284,16 @@ func (s *WatchService) onEvent(eventType string, payload map[string]any) {
 		}
 
 		if reg.parked {
+			// Multi-event mode=all waits resume only when every watched
+			// event type has delivered in this parked cycle; other waits
+			// resume on the first matching event.
+			if reg.descriptor.Mode == string(watch.WatchModeAll) && len(reg.descriptor.EventTypes) > 1 {
+				s.markDeliveredLocked(runID, eventType)
+				if !s.allDeliveredLocked(runID, reg.descriptor.EventTypes) {
+					continue
+				}
+				s.clearDeliveredLocked(runID)
+			}
 			reg.parked = false
 			if reg.timer != nil {
 				reg.timer.Stop()

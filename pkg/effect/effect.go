@@ -10,6 +10,6 @@ package effect
 // in pkg/nodekit/effect.go's Effect type. The integer values must stay
 // in sync — see nodekit.EffectPure, nodekit.EffectSideEffecting.
 const (
-	Pure           = 1
+	Pure          = 1
 	SideEffecting = 2
 )

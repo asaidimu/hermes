@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +16,21 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// ExecuteStageSteps runs all steps in a stage concurrently and applies their mutators atomically on success.
+// @note #review-20260910-010 todo status=open priority=P2 tags=#review,#style : gofmt -s was not clean — 12 files failed gofmt -s -l at review time
+// @author hermes-review
+//
+// gofmt -s -l . (go1.27rc1) listed 12 files before this review's mechanical
+// pass: pkg/actionlog/actionlog.go, pkg/effect/effect.go,
+// pkg/nodekit/typed_test.go, pkg/nodes/pause/pause_test.go,
+// pkg/pipeline/checkpoint.go, pkg/pipeline/stage.go,
+// pkg/replay/replayer_test.go, pkg/runtime/requirements_test.go,
+// pkg/runtime/runtime.go, pkg/runtime/runtime_test.go,
+// tests/actionlog_test.go, tests/fork_while_workflow_test.go. This file's
+// step-failure branch (the actLog block inside `if stepErr != nil`) was
+// visibly misindented, and review edits had drifted files to space
+// indentation. The tree has since been normalized with `gofmt -s -w .`;
+// this note now tracks the missing PREVENTION: add a gofmt/goimports (or
+// gofumpt) gate to CI so the drift cannot recur — see #review-20260910-021.
 // resolver (optional) resolves run-scoped resource keys ("resource:<id>") into handles.
 // actLog (optional) records every step event for the unified observability log.
 // rerunIndex stamps each entry so retries get separate audit trails.
@@ -53,6 +68,27 @@ func ExecuteStageSteps(
 	var errsMu sync.Mutex
 	stepErrs := make([]error, 0, len(stage.Steps))
 
+	// @note #review-20260910-008 issue status=resolved priority=P1 tags=#review,#robustness,#panic : Step goroutines have no panic recovery — a panicking action kills the host process
+	// @author hermes-review
+	//
+	// Resolved: panics are recovered at three layers, each converting into
+	// the existing failure path instead of unwinding into the runtime:
+	//
+	// 1. executeStepAttempt recovers action panics (Go node runners,
+	//    panics inside resource handles, third-party NodeRunners — goja
+	//    already recovers JS internally) and returns them as
+	//    ErrCodeExecutionFailed step errors with the stack logged via the
+	//    step's logger, so the existing retry loop, step:failure event,
+	//    action log entries, and stage failure aggregation apply unchanged.
+	// 2. The step goroutine itself carries a safety-net recover for panics
+	//    outside the action (bus event handlers, delta computation): it
+	//    logs the stack and appends to stepErrs so the stage still fails
+	//    cleanly without killing the host process or the concurrent
+	//    siblings mid-stage.
+	// 3. ExecuteSubPipelines' child goroutines recover panics from child
+	//    pipeline execution into a failed PipelineRunResult, which the
+	//    bounded stage's PipelinesRouter (try-catch) can catch like any
+	//    child failure.
 	var wg sync.WaitGroup
 	for stepID, stepDef := range stage.Steps {
 		step := stepDef
@@ -61,6 +97,18 @@ func ExecuteStageSteps(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Safety net: a panic anywhere in this goroutine outside the
+			// action (which has its own recovery in executeStepAttempt)
+			// must fail the step, not the process.
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("step goroutine panicked", "stepId", sID, "stageId", stage.ID, "runId", runID, "panic", r, "stack", string(debug.Stack()))
+					errsMu.Lock()
+					stepErrs = append(stepErrs, core.NewSystemError(core.ErrCodeExecutionFailed,
+						fmt.Sprintf("step %s panicked: %v", sID, r)))
+					errsMu.Unlock()
+				}
+			}()
 			stepPath := stagePath.Append("step", sID, step.Label)
 
 			bus.Emit(stageCtx, "step:start", events.PipelineEvent{
@@ -112,6 +160,26 @@ func ExecuteStageSteps(
 
 				pCtx := NewPipelineContext(runID, pipelineID, stage.ID, sID, stepPath, logger,
 					WithResourceResolver(resolver), WithRunEnv(runEnv), WithSecretLookup(secretLookup))
+				// @note #review-20260910-009 issue status=open priority=P2 tags=#review,#concurrency,#api : Actions execute while the store read lock is held — Store.Update from an action self-deadlocks
+				// @author hermes-review
+				//
+				// step.Action runs inside st.Read's callback, i.e. under MemoryStore's
+				// RLock (Read hands out the LIVE state map, not a copy). Two hazards:
+				//
+				// 1. NodeRunContext.Store is exposed to runners; any custom node that
+				//    calls nCtx.Store.Update (or pcxt.Write) while executing
+				//    deadlocks itself 100% of the time — RWMutex cannot upgrade a read
+				//    lock to a write lock in the same goroutine. Today's built-in nodes
+				//    only Update from ROUTERS (called outside st.Read), so the engine
+				//    passes its own test suite, but the API invites extension authors
+				//    into a guaranteed deadlock with no documentation of the constraint.
+				// 2. Arbitrary user code (JS sandbox, HTTP retries) runs while the lock
+				//    is held, serializing all concurrent steps in the stage for the
+				//    action's whole duration and stretching the lock hold time.
+				//
+				// Fix direction: snapshot a deep copy for the action (stateSnapshot
+				// already exists), or document + enforce that actions must not touch
+				// the store, and hide Store from NodeRunContext during Run.
 				snapshotErr := st.Read(func(state map[string]any) error {
 					mutator, stepErr = executeStepAttempt(stepAttemptCtx, pCtx, step, state)
 					return nil
@@ -161,14 +229,14 @@ func ExecuteStageSteps(
 
 			duration := time.Since(stepStart).Milliseconds()
 			if stepErr != nil {
-			// Record the failure for every step (observability).
-			if actLog != nil {
-				payload, _ := json.Marshal(map[string]any{
-					"stepId":     sID,
-					"stepLabel":  step.Label,
-					"durationMs": duration,
-					"error":      core.SystemErrorJSON(stepErr),
-				})
+				// Record the failure for every step (observability).
+				if actLog != nil {
+					payload, _ := json.Marshal(map[string]any{
+						"stepId":     sID,
+						"stepLabel":  step.Label,
+						"durationMs": duration,
+						"error":      core.SystemErrorJSON(stepErr),
+					})
 					actLog.Append(stageCtx, actionlog.Entry{
 						RunID:      runID,
 						RerunIndex: rerunIndex,
@@ -310,10 +378,24 @@ func ExecuteStageSteps(
 	return nil
 }
 
-func executeStepAttempt(ctx context.Context, pCtx PipelineContext, step Step, state map[string]any) (store.Mutator, error) {
+// executeStepAttempt runs one attempt of a step's action. A panic inside the
+// action (node runner bug, nil-map write, panicking resource handle or
+// third-party NodeRunner — see #review-20260910-008) is recovered and
+// converted into the normal step error path, so it participates in retries
+// and the standard failure reporting instead of terminating the host process.
+func executeStepAttempt(ctx context.Context, pCtx PipelineContext, step Step, state map[string]any) (mutator store.Mutator, err error) {
 	if step.Action == nil {
 		return nil, nil
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = core.NewSystemError(core.ErrCodeExecutionFailed,
+				fmt.Sprintf("step %s panicked: %v", step.ID, r))
+			if lg := pCtx.Logger(); lg != nil {
+				lg.Error("step action panicked", "stepId", step.ID, "panic", r, "stack", string(debug.Stack()))
+			}
+		}
+	}()
 	return step.Action(ctx, pCtx, state)
 }
 

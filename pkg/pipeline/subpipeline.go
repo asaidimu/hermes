@@ -3,6 +3,8 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime/debug"
 	"sync"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
@@ -87,6 +89,26 @@ func ExecuteSubPipelines(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Panic recovery (see #review-20260910-008): a panic inside a
+			// child pipeline (router bug, engine defect, panicking node
+			// code that escaped the per-step recovery) must surface as a
+			// failed child result — which a bounded stage's
+			// PipelinesRouter (try-catch) can catch — not kill the host
+			// process with sibling children still mid-flight.
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("subpipeline goroutine panicked", "pipelineId", childDef.ID, "runId", runID, "panic", r, "stack", string(debug.Stack()))
+					mu.Lock()
+					results[childIdx] = PipelineRunResult{
+						Status:     "failed",
+						RunID:      runID,
+						PipelineID: childDef.ID,
+						Error: core.NewSystemError(core.ErrCodeExecutionFailed,
+							fmt.Sprintf("subpipeline %s panicked: %v", childDef.ID, r)),
+					}
+					mu.Unlock()
+				}
+			}()
 
 			childBus := bus.Scope(path.Append("pipeline", childDef.ID, childDef.Label))
 

@@ -1,3 +1,16 @@
+## [Unreleased]
+
+### Bug Fixes
+
+* **pipeline:** recover panics in step actions, step goroutines, and sub-pipeline children so a bad node fails the step/stage instead of the host process (#review-20260910-008)
+* **runtime:** track a re-paused run in full after resume — multi-event waits, wait mode, WatchService re-registration, buffered-event drain, and cron re-arm (#review-20260910-001)
+* **runtime:** adopt the Replayer's rebuilt store as the canonical store after an event-sourced resume, fixing stale FinalState results and multi-pause state corruption (#review-20260910-002)
+* **nodes/pause:** key watch registrations and buffered-event lookups by run id instead of node id, eliminating cross-run collisions and registration leaks (#review-20260910-007)
+* **nodekit:** plumb RunID into NodeRunContext and inject built-in runtime resources (watch-service) so nodes and routers can reach them; the pause node previously never received the service and silently never paused
+* **runtime/watchservice:** honor mode=all on parked multi-event registrations — resume only when every watched event type has delivered
+* **replay:** resolve the "__pause__" wait-marker route through the pause checkpoint's ResumeAt instead of returning the pausing stage, which made every event-sourced resume re-pause forever (#review-20260910-023)
+* **runtime:** fall back to the trigger-id Pipelines key when resolving the resume definition, fixing vacuous no-op resumes for hand-built workflows (#review-20260910-022)
+
 ## [1.1.1](https://github.com/asaidimu/hermes/compare/v1.1.0...v1.1.1) (2026-09-01)
 
 

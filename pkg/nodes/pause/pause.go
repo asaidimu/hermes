@@ -79,9 +79,40 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 			eventTypes = []string{"__pause__"}
 		}
 
+		// @note #review-20260910-007 issue status=resolved priority=P1 tags=#review,#concurrency,#watch : Watch registered under the node id instead of the run id
+		// @author hermes-review
+		// @see #review-20260910-005
+		//
+		// Resolved: the registration (and the matching PeekBufferedEvent in the
+		// PipelinesRouterFunc below) is now keyed by nCtx.RunID, plumbed through
+		// the new NodeRunContext.RunID (from PipelineContext.RunID on the step
+		// path, pipeline.RunIDFromContext on the router path — children share
+		// the parent run id, so body and router see the same id). This removes
+		// both failure modes the note described: concurrent runs of the same
+		// workflow no longer overwrite each other's registrations (node ids are
+		// shared, run ids are not), and every registration is now reachable by
+		// the OnRunEnded(runID) cleanup, so pauses no longer leak registrations
+		// and root bus subscriptions. Fixing this also surfaced two latent gaps
+		// that made the whole path dead code, both fixed alongside: the
+		// watch-service handle was never injected into node Resources (nothing
+		// resolved "resource:watch-service" for nodes without a compiler-wired
+		// resource edge, so Run and the router always took the no-op warning
+		// path — see the builtinResourceKeys injection in nodekit), and the
+		// WatchService resumed parked mode=all registrations on the first
+		// matching event instead of the last (see the per-run delivered-type
+		// tracking in watchservice.go's onEvent).
+		//
 		// Register with WatchService (pre-pause buffering)
 		// This happens BEFORE the body executes, so callbacks are caught
-		if err := watchService.Register(nCtx.NodeID, watch.WatchDescriptor{
+		if nCtx.RunID == "" {
+			// No run identity (e.g. hostless/replay execution): buffering could
+			// never be matched or cleaned up, so keep the pause a logged no-op.
+			if nCtx.Logger != nil {
+				nCtx.Logger.Warn("pause node: no run id in node context; skipping watch registration", "nodeId", nCtx.NodeID)
+			}
+			return nil, nil
+		}
+		if err := watchService.Register(nCtx.RunID, watch.WatchDescriptor{
 			EventTypes: eventTypes,
 			Mode:       nCtx.Config.Mode,
 			Timeout:    int64(nCtx.Config.Timeout),
@@ -114,8 +145,9 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 			return nil, nil
 		}
 
-		// Check if there's a buffered event
-		if bufferedEvent, found := watchService.PeekBufferedEvent(nCtx.NodeID); found {
+		// Check if there's a buffered event (keyed by run id to match the
+		// registration above — see #review-20260910-007).
+		if bufferedEvent, found := watchService.PeekBufferedEvent(nCtx.RunID); found {
 			// Buffered event found - merge payload into state and route to onResume
 			for k, v := range bufferedEvent.Patch {
 				// @note #review-20260822-046 issue status=resolved priority=P1 tags=#review,#error-handling : Store update errors silently discarded

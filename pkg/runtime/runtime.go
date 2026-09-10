@@ -62,7 +62,7 @@ type Options struct {
 	// lookups — they never persist to state, checkpoints, or events. When nil,
 	// workflows whose nodes declare required secrets fail registration.
 	Secrets SecretProvider
-	Logger   core.Logger
+	Logger  core.Logger
 	// Env holds global environment layers available to runs.
 	Env map[string]any
 	// Services are runtime-global services. Kept for API parity with the TS
@@ -313,6 +313,20 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		// in-memory bus with no underlying go-events backend at all.
 		rt.bus = events.NewMemoryScopedBus()
 	}
+	// @note #review-20260910-005 observation status=open priority=P2 tags=#review,#concurrency,#api : Watch resume runs the whole pipeline synchronously in the emitter's goroutine
+	// @author hermes-review
+	//
+	// resumeCallback invokes rt.Resume inline, and MemoryScopedBus.Emit
+	// dispatches handlers synchronously — so the goroutine that emits a
+	// watched event type (a user calling rt.Bus().Emit, an HTTP /events
+	// handler, another run's step) blocks until the ENTIRE resumed pipeline
+	// finishes (or pauses again). dispatch()'s own resume path deliberately
+	// wraps Resume in a goroutine; this path does not, and the asymmetry is
+	// easy to trip over: a fire-and-forget-looking Emit silently becomes a
+	// blocking call whose duration equals the resumed run's. Consider
+	// routing the callback through a goroutine (or a bounded worker pool) —
+	// the callback's signature already loses the resume result, so nothing
+	// today depends on synchronous completion.
 	rt.watchService = NewWatchService(rt.bus, func(runID string, patch map[string]any) {
 		rt.Resume(runID, patch)
 	})
@@ -916,6 +930,27 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	}
 
 	pdef := record.workflow.Pipelines[paused.pipelineID]
+	if len(pdef.Stages) == 0 {
+		// @note #review-20260910-022 issue status=resolved priority=P1 tags=#review,#resume,#bug : Resume resolves the pipeline definition with the wrong map key, silently succeeding without executing anything
+		// @author hermes-review
+		// @see #review-20260910-001
+		//
+		// Resolved: workflow.Pipelines is keyed by trigger id for compiled
+		// workflows (where the pipeline definition's own ID equals the trigger
+		// node id, so the old lookup worked by coincidence), but hand-built
+		// workflows may key it only by the pipeline's ID. With the recorded
+		// pipelineID missing from the map, pdef was the ZERO definition: the
+		// resume scoped its bus with an empty label, the Replayer rebuilt
+		// nothing ("run already completed"), and the fallback prepared a run
+		// context with zero stages — which emitted pipeline:start followed
+		// immediately by pipeline:success, reporting "succeeded" while
+		// executing NOTHING after the pause. Resume now falls back to the
+		// trigger-id key (the key the dispatch/executePipeline path itself
+		// uses) and every use below reads the resolved pdef.
+		if alt, ok := record.workflow.Pipelines[paused.triggerID]; ok && len(alt.Stages) > 0 {
+			pdef = alt
+		}
+	}
 	// @note #scoped-bus-opportunity-003 issue status=resolved priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
 	//
 	// Resolved: scope the per-run bus with a real ["pipeline", pipelineID, runID]
@@ -935,6 +970,19 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// durable entries to reconstruct state.
 	var rp pipeline.Rebuilder
 	if _, isNop := rt.actionLog.(actionlog.NopLog); !isNop {
+		// @note #review-20260910-003 issue status=open priority=P2 tags=#review,#replay : DefinitionResolver answers every id with the root pipeline definition
+		// @author hermes-review
+		//
+		// The Replayer resolves pipeline definitions by id, but this resolver
+		// returns pdef (the run's root pipeline) for ANY resolvedID. Runs that
+		// contain subpipelines (fork branches, try-catch bodies, distribute
+		// children, pipeline-ref stages) log entries under child pipeline ids;
+		// replaying those entries against the root definition can attribute
+		// stages to the wrong pipeline and produce wrong resume addresses.
+		// Combined with #review-20260910-015 (log entries carry no subpipeline
+		// identity) event-sourced recovery is only trustworthy for linear,
+		// subpipeline-free pipelines today. Consider resolving from the
+		// compiled workflow (all pipelines) instead of the single root def.
 		definitionResolver := func(resolvedID string) (*pipeline.PipelineDefinition, bool) {
 			d := pdef
 			return &d, true
@@ -942,7 +990,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		rp = replay.NewReplayer(rt.actionLog, definitionResolver)
 	}
 
-	factory := pipeline.NewFactory(record.workflow.Pipelines[paused.pipelineID], record.workflow.Pipelines[paused.pipelineID].Schema, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(pdef, pdef.Schema, pipeline.FactoryOptions{
 		Logger:       rt.logger,
 		ActionLog:    rt.actionLog,
 		Rebuilder:    rp,
@@ -952,6 +1000,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	})
 
 	var runCtx *pipeline.RunContextImpl
+	rebuiltStoreUsed := false
 	if rp != nil {
 		// Event-sourced recovery path: reconstruct state from action log.
 		var resumeErr error
@@ -961,10 +1010,34 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 			rt.logger.Warn("resume: replayer rebuild failed, falling back to checkpoint",
 				"runId", runID, "error", resumeErr)
 			runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
+		} else {
+			rebuiltStoreUsed = true
 		}
 	} else {
 		// Legacy checkpoint path (no durable action log).
 		runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
+	}
+
+	// @note #review-20260910-002 issue status=resolved priority=P1 tags=#review,#replay,#state : Replayer-path resume executes on a rebuilt store but reports and re-pauses with the stale original
+	// @author hermes-review
+	// @see #review-20260910-015
+	//
+	// Resolved: after a successful Rebuilder-path resume, the rebuilt store
+	// returned by factory.Resume (bound into runCtx) is adopted as the
+	// canonical store: the local st, rt.stores[runID], and — via the re-pause
+	// tracking below — any subsequent pausedRun.store all reference it. So
+	// RunResult.FinalState now reflects the completed segment (not the state
+	// as of the pause), and on a multi-pause run the next resume's
+	// copyStoreState only overlays values at least as fresh as the replay
+	// itself, instead of reverting every key to the previous pause's values.
+	// The legacy checkpoint path is unaffected: it reuses st directly.
+	if rebuiltStoreUsed {
+		if rebuilt := runCtx.Store(); rebuilt != nil {
+			st = rebuilt
+			rt.mu.Lock()
+			rt.stores[runID] = st
+			rt.mu.Unlock()
+		}
 	}
 
 	// Record the resume in the action log so the Replayer knows this run
@@ -977,6 +1050,9 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		StageID:    ckpt.ResumeAt.Stage,
 	})
 
+	// The rebuilt store was adopted as the canonical store above (see the
+	// resolved #review-20260910-002 note): st, rt.stores[runID], and the
+	// re-pause pausedRun.store all reference it.
 	resolver, cleanup := rt.initResources(record, bus, runID, paused.pipelineID)
 	if len(resolver) > 0 {
 		runCtx.SetResourceResolver(func(key string) (any, bool) {
@@ -1018,25 +1094,91 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		}
 	}
 
-	// If the resumed run paused again (waiting for another event), track it.
-	if result.Status == "paused" && res.WaitForEvent != "" && res.Checkpoint != nil {
-		rt.mu.Lock()
-		rt.paused[runID] = &pausedRun{
-			runID:        runID,
-			workflowID:   paused.workflowID,
-			triggerID:    paused.triggerID,
-			pipelineID:   paused.pipelineID,
-			waitForEvent: res.WaitForEvent,
-			store:        st,
-			checkpoint:   res.Checkpoint,
-		}
-		rt.mu.Unlock()
-	}
-
+	// Record the segment outcome and status before re-pause bookkeeping below:
+	// if the run paused again and a buffered event triggers another resume
+	// immediately, that resume's final outcome must land after this write.
 	rt.mu.Lock()
 	rt.outcomes[runID] = result
 	rt.mu.Unlock()
 	rt.setRunStatus(runID, result.Status)
+
+	// @note #review-20260910-001 issue status=resolved priority=P1 tags=#review,#resume,#bug : Re-pause after resume drops multi-event waits and skips watch/cron re-registration
+	// @author hermes-review
+	//
+	// Resolved: the re-pause tracking now mirrors spawnRun's pause handling
+	// in full. (1) The guard accepts multi-event waits (WaitForEvents +
+	// WaitMode), not just single WaitForEvent, so a re-paused PauseForEvents
+	// run is tracked instead of being recorded as paused with nothing waiting
+	// for it. (2) waitForEvents/waitMode are propagated onto the pausedRun so
+	// dispatch can match (and accumulate ReceivedEvents for) a re-paused
+	// multi-event wait. (3) The WatchService registration for the new wait's
+	// event types is re-done (restoring bus subscriptions and pre-pause event
+	// buffering), OnRunPaused drains anything buffered while the segment ran,
+	// and the cron-based auto-resume is re-armed from the new checkpoint —
+	// with a stale schedule from the previous pause canceled when the new one
+	// carries no cron. The buffered-event resume runs in its own goroutine:
+	// a synchronous call would recurse inside this Resume frame, and this
+	// frame's paused outcome must not overwrite the final one (the outcome
+	// write above happens before the goroutine is spawned, so ordering holds).
+	if result.Status == "paused" && res.Checkpoint != nil &&
+		(res.WaitForEvent != "" || len(res.WaitForEvents) > 0) {
+		var eventTypes []string
+		if len(res.WaitForEvents) > 0 {
+			eventTypes = res.WaitForEvents
+		} else {
+			eventTypes = []string{res.WaitForEvent}
+		}
+
+		// Re-register pre-pause event buffering for the new wait.
+		if err := rt.watchService.Register(runID, watch.WatchDescriptor{
+			EventTypes: eventTypes,
+			Mode:       res.WaitMode,
+			Timeout:    res.Checkpoint.Timeout,
+		}); err != nil {
+			rt.logger.Error("resume: failed to register watch for re-paused run", "runId", runID, "error", err)
+		}
+
+		rt.mu.Lock()
+		rt.paused[runID] = &pausedRun{
+			runID:         runID,
+			workflowID:    paused.workflowID,
+			triggerID:     paused.triggerID,
+			pipelineID:    paused.pipelineID,
+			waitForEvent:  res.WaitForEvent,
+			waitForEvents: res.WaitForEvents,
+			waitMode:      res.WaitMode,
+			store:         st,
+			checkpoint:    res.Checkpoint,
+		}
+		rt.mu.Unlock()
+
+		// Deliver any event that arrived while the resumed segment was
+		// executing, then re-arm (or drop) the cron auto-resume.
+		if bufferedEvent := rt.watchService.OnRunPaused(runID); bufferedEvent != nil {
+			go rt.Resume(runID, bufferedEvent.Patch)
+		}
+
+		if res.Checkpoint.Cron != "" {
+			if err := rt.scheduler.Schedule(runID, res.Checkpoint.Cron, func(ctx context.Context) {
+				// Only resume if the run is still paused.
+				rt.mu.Lock()
+				p, stillPaused := rt.paused[runID]
+				if stillPaused && p.checkpoint != nil {
+					p.checkpoint.ResumeReason = "cron"
+				}
+				rt.mu.Unlock()
+				if stillPaused {
+					rt.Resume(runID, nil)
+				}
+			}); err != nil {
+				rt.logger.Error("resume: failed to schedule cron auto-resume", "runId", runID, "error", err)
+			}
+		} else {
+			// The previous pause may have armed a cron schedule; the new wait
+			// must not be resumed prematurely by that stale schedule.
+			rt.scheduler.Cancel(runID)
+		}
+	}
 
 	// Don't call OnComplete if the run paused again — the next resume event
 	// will trigger completion.
@@ -1174,8 +1316,28 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	}
 	runID := st.ID()
 
+	// @note #review-20260910-006 observation status=open priority=P3 tags=#review,#audit : rerunIndex is never incremented, so resume attempts share one audit trail
+	// @author hermes-review
+	//
+	// The RerunIndex contract (see FactoryOptions.RerunIndex and the action
+	// log package docs: "each forced recovery increments it so retries get
+	// separate audit trails") is not honored by the runtime: nextRerunIndex
+	// runs once against a brand-new runID (always 0) and Resume uses
+	// rt.rerunIndexOf(runID) without ever incrementing rt.rerunIdx. Every
+	// resume therefore appends to attempt 0's log, merging what the docs
+	// promise will be separate audit trails, and LatestRerunIndex can never
+	// exceed 0. Either increment on resume or update the contract docs.
 	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
 
+	// @note #review-20260910-004 issue status=open priority=P2 tags=#review,#memory-leak : Per-run bookkeeping maps are never evicted
+	// @author hermes-review
+	//
+	// rt.stores, rt.outcomes, rt.runMetas and rt.rerunIdx only ever gain
+	// entries (delete(rt.stores/...) has no matches in this file); only
+	// rt.active and rt.paused are pruned. A long-lived host accumulates one
+	// full state map per run forever — for workflows with sizeable state
+	// this is a genuine leak, not just metadata growth. Needs an eviction
+	// policy (TTL, LRU, or explicit purge after OnComplete + outcome read).
 	rt.mu.Lock()
 	rt.stores[runID] = st
 	rt.rerunIdx[runID] = rerunIndex

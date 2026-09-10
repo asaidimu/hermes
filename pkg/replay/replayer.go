@@ -63,6 +63,7 @@ func (rp *Replayer) Rebuild(ctx context.Context, runID string) (store.Store, Ste
 
 	byStep := indexByStepID(entries)
 	routes := indexByStage(entries)
+	checkpoints := indexCheckpoints(entries)
 
 	def, ok := rp.resolve(runID)
 	if !ok {
@@ -72,6 +73,21 @@ func (rp *Replayer) Rebuild(ctx context.Context, runID string) (store.Store, Ste
 
 	st := store.NewMemoryStore(nil)
 
+	// @note #review-20260910-015 issue status=open priority=P2 tags=#review,#replay,#concurrency : Log indexing by bare stage/step IDs collapses concurrent subpipeline instances
+	// @author hermes-review
+	// @see #review-20260910-003
+	//
+	// indexByStepID/indexByStage key entries by StepID/StageID alone, and
+	// actionlog.Entry has no subpipeline identity field. Workflows compiled
+	// with distribute (and fork) clone the SAME body stages/step ids into N
+	// concurrent child pipelines, so N instances of a step share one ID:
+	// only the FIRST completion entry survives indexing, deltas from the
+	// other children are silently dropped, and a routing handle recorded by
+	// one child steers every child's replay. Rebuild/StateAt are therefore
+	// only faithful for subpipeline-free pipelines (or children with
+	// globally unique stage ids). A durable fix needs a path-qualified
+	// address (pipeline id chain + per-instance suffix) in both the log
+	// entries and this index — a schema change to actionlog.Entry.
 	// Build a stage-indexed lookup for jump resolution.
 	stageIdx := make(map[string]int, len(def.Stages))
 	for i, s := range def.Stages {
@@ -114,6 +130,30 @@ func (rp *Replayer) Rebuild(ctx context.Context, runID string) (store.Store, Ste
 			if targetIdx, found := stageIdx[handle]; found {
 				currentIdx = targetIdx
 				continue
+			}
+			// @note #review-20260910-023 issue status=resolved priority=P1 tags=#review,#replay,#resume : Rebuild returns the pausing stage as the resume address, so every resumed run re-pauses forever
+			// @author hermes-review
+			// @see #review-20260910-001
+			//
+			// Resolved: a recorded pause route (PauseRouteHandle, "__pause__")
+			// is a WAIT MARKER, not a jump target. Previously the lookup below
+			// failed (no stage is named "__pause__") and fell through to
+			// "unknown target — treat as resume point", returning the PAUSING
+			// stage as the resume address. The resumed run then re-entered the
+			// pause stage, whose router paused again — an infinite pause loop
+			// that made event-sourced resume unusable for any workflow that
+			// actually pauses (masked until now: the pause node was a silent
+			// no-op, see #review-20260910-007, and hand-built runtime tests
+			// hit the vacuous zero-definition path, see
+			// #review-20260910-022). A pause checkpoint records where execution
+			// should continue (ResumeAt) — resolve the marker through it.
+			if handle == pipeline.PauseRouteHandle {
+				if resumeAt, ok := checkpoints[stage.ID]; ok {
+					if targetIdx, found := stageIdx[resumeAt]; found {
+						currentIdx = targetIdx
+						continue
+					}
+				}
 			}
 			// Unknown target — treat as resume point.
 			return st, StepAddress{Stage: stage.ID}, nil
@@ -219,6 +259,27 @@ func indexByStage(entries []actionlog.Entry) map[string]string {
 	for _, e := range entries {
 		if e.Kind == actionlog.KindRouted && e.StageID != "" {
 			m[e.StageID] = e.Handle
+		}
+	}
+	return m
+}
+
+// indexCheckpoints builds a map from StageID to the resume stage recorded in
+// that stage's pause checkpoint (KindCheckpoint / "pipeline:pause"). The
+// checkpoint's ResumeAt is where execution continues after the wait — replay
+// resolves the "__pause__" wait-marker route through it (see Rebuild).
+func indexCheckpoints(entries []actionlog.Entry) map[string]string {
+	m := make(map[string]string)
+	for _, e := range entries {
+		if e.Kind != actionlog.KindCheckpoint || e.StageID == "" || len(e.Output) == 0 {
+			continue
+		}
+		var ckpt pipeline.PipelineCheckpoint
+		if err := json.Unmarshal(e.Output, &ckpt); err != nil {
+			continue
+		}
+		if ckpt.ResumeAt.Stage != "" {
+			m[e.StageID] = ckpt.ResumeAt.Stage
 		}
 	}
 	return m

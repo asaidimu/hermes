@@ -329,8 +329,8 @@ func TestDefineContextPassedThrough(t *testing.T) {
 
 func TestDefineDynamicHandles(t *testing.T) {
 	type SwitchConfig struct {
-		Cases          string `config:"cases"`
-		DefaultHandle  string `config:"defaultHandle"`
+		Cases         string `config:"cases"`
+		DefaultHandle string `config:"defaultHandle"`
 	}
 
 	nd := Define(TypedDefinition[SwitchConfig]{

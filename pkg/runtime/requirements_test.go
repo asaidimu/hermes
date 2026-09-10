@@ -124,9 +124,9 @@ func TestRegisterSucceedsWhenSatisfied(t *testing.T) {
 
 func TestStepReadsEnvAndSecret(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{
-		Bus:      events.NewMemoryScopedBus(),
-		Env:      map[string]any{"REQ_TEST_ENV": "prod-value"},
-		Secrets:  &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
+		Bus:       events.NewMemoryScopedBus(),
+		Env:       map[string]any{"REQ_TEST_ENV": "prod-value"},
+		Secrets:   &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
 		ActionLog: nil,
 	})
 
