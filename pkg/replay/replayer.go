@@ -174,6 +174,26 @@ func (rp *Replayer) Rebuild(ctx context.Context, runID string) (store.Store, Ste
 // run take the branch it took" questions — without the engine having
 // ever separately stored a snapshot at that point.
 func (rp *Replayer) StateAt(ctx context.Context, runID string, addr StepAddress) (map[string]any, error) {
+	// @note #review-20260910-024 issue status=resolved priority=P2 tags=#review,#replay,#determinism : StateAt result depended on Go's randomized map iteration order
+	// @author hermes-review
+	//
+	// StateAt walked def.Stages and, inside the target stage, iterated
+	// stage.Steps (a map) with an early return on the target step. Go
+	// randomizes map iteration, so whether a sibling step's recorded
+	// delta was folded in before the early return flipped run to run:
+	// StateAt(…, StepAddress{Stage: "stage-1", Step: "step-b"}) returned
+	// state WITH step-a's delta about half the time and WITHOUT it the
+	// other half (caught by TestStateAt failing intermittently in the
+	// full-suite run). An unrecorded effectful sibling also aborted the
+	// whole projection mid-stage, order-dependently.
+	//
+	// Resolved: steps in a stage run concurrently (Stage.Execute spawns
+	// one goroutine per step), so "state at step X" is only stable as
+	// "just before X's own delta landed". The projection now folds in
+	// every non-target sibling deterministically — recorded deltas for
+	// effectful steps, re-execution for pure ones — skipping the
+	// target's own contribution, and treats an unrecorded effectful
+	// sibling as "no delta yet" instead of aborting.
 	entries, err := rp.latestEntries(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("actionlog.All: %w", err)
@@ -195,31 +215,43 @@ func (rp *Replayer) StateAt(ctx context.Context, runID string, addr StepAddress)
 			return exportState(st)
 		}
 
-		for _, step := range stage.Steps {
-			// Stop after reaching the target step.
-			if stage.ID == addr.Stage && step.ID == addr.Step {
-				return exportState(st)
-			}
-
-			if step.Effect == int(effect.SideEffecting) {
-				entry, done := byStep[step.ID]
-				if done {
-					if err := applyRecordedDelta(st, entry); err != nil {
-						return nil, err
-					}
+		if stage.ID == addr.Stage {
+			// Step-level target: fold in every sibling's contribution
+			// regardless of map iteration order, skip the target's own.
+			for stepID, step := range stage.Steps {
+				if stepID == addr.Step {
 					continue
 				}
-				// Unrecorded effectful step before target — shouldn't
-				// happen if addr is valid, but handle gracefully.
-				return exportState(st)
+				if err := foldStep(ctx, st, byStep, step); err != nil {
+					return nil, err
+				}
 			}
-			if err := replayStep(ctx, st, step); err != nil {
+			return exportState(st)
+		}
+
+		// Stages before the target: fold in every step.
+		for _, step := range stage.Steps {
+			if err := foldStep(ctx, st, byStep, step); err != nil {
 				return nil, err
 			}
 		}
 	}
 
 	return exportState(st)
+}
+
+// foldStep folds one step's contribution into a replayed store: the
+// recorded delta for an effectful step (a no-op when the step has no
+// recording yet), or re-execution for a pure step.
+func foldStep(ctx context.Context, st store.Store, byStep map[string]actionlog.Entry, step pipeline.Step) error {
+	if step.Effect == int(effect.SideEffecting) {
+		entry, done := byStep[step.ID]
+		if !done {
+			return nil
+		}
+		return applyRecordedDelta(st, entry)
+	}
+	return replayStep(ctx, st, step)
 }
 
 // --- helpers ---

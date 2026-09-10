@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-10T12:44:00.08126144Z",
+  "generatedAt": "2026-09-10T13:23:57.990043886Z",
   "root": ".",
   "notes": {
     "review-20260822-001": {
@@ -975,18 +975,18 @@
       "category": "issue",
       "status": "open",
       "title": "No durable Store can serve the multi-run runtime; Append force-rewrites RunID",
-      "body": "WorkflowRuntime takes ONE Options.ActionLog for ALL runs and appends\nentries carrying their own RunID. The only durable implementation,\nAnansiStore, is scoped to a single (runID, rerunIndex) document and\nOVERWRITES entry.RunID/RerunIndex with its own scope (right below) —\nso pointing Options.ActionLog at one AnansiStore silently merges\nevery run's log into one foreign runID. Nothing outside tests wires\nthe factory into the runtime either (all runtime tests use\nMemoryActionLog), so the README's durable, event-sourced recovery\nstory has no shipped integration path: hosts must hand-write a\nmulti-run routing wrapper. Two secondary costs while here: Append is\nO(n) per call (full read + JSON unmarshal + full re-marshal of every\nprior entry, i.e. O(n^2) per run), and nextSeq derives from\nlen(existing)+1, so seq numbers are not stable if entries ever\nfail to marshal.\nThe scoped store is authoritative for identity: entries always\nland in this store's (runID, rerunIndex) document.\n",
+      "body": "WorkflowRuntime takes ONE Options.ActionLog for ALL runs and appends\nentries carrying their own RunID. The only durable implementation,\nAnansiStore, used to be scoped to a single (runID, rerunIndex)\ndocument and OVERWROTE entry.RunID/RerunIndex with its own scope —\nso pointing Options.ActionLog at one AnansiStore silently merged\nevery run's log into one foreign runID, and the document itself had\nno stable identity (it was located by querying the runId FIELD, a\nfull collection scan, with the runID pinned by the constructor).\nNothing outside tests wired the factory into the runtime either, so\nthe README's durable, event-sourced recovery story had no shipped\nintegration path.\n\nResolved: runID is detached from document identity. Log documents\nnow carry a deterministic ID derived from the entry's own (RunID,\nRerunIndex) — logDocID, a UUIDv7-shaped hash because anansi only\naccepts 32-hex v7 document IDs — while runId remains a plain\nqueryable FIELD inside the document for rerun enumeration\n(readByRunID). One AnansiStore (factory.NewStore(), no scope) now\nserves the multi-run runtime exactly like MemoryActionLog: Append\nroutes by entry identity and rejects entries without a RunID, and\nSeq derives from max(existing)+1 so numbering is stable even if an\nentry ever fails to marshal. Reads go straight to the deterministic\ndocument ID instead of scanning the collection on runId. The\ndurable path is wired end-to-end in\npkg/runtime/durable_log_test.go (two runs, one shared store,\nReplayer rebuild off it). Breaking API change: NewStore dropped its\n(runID, rerunIndex) scope parameters — the scoped handle was the\nbug. The per-Append O(n) array rewrite remains (inherent to the\none-document-per-run schema); a throughput fix belongs with the\npath-qualified addressing schema change tracked in\n#review-20260910-015.\n\nIdentity must come from the entry, not the store: an entry without\na RunID has nowhere to land. Fail loudly instead of silently\nmerging it into a foreign run's log.\n",
       "authors": [
         "hermes-review"
       ],
       "location": {
         "file": "pkg/actionlog/anansi.go",
-        "startLine": 105,
+        "startLine": 134,
         "startCol": 3,
-        "endLine": 123,
+        "endLine": 171,
         "endCol": 3
       },
-      "hash": "68a7130184caa4d8"
+      "hash": "1ca1cdd6dd73f306"
     },
     "review-20260910-015": {
       "id": "review-20260910-015",
@@ -1237,13 +1237,13 @@
       "hash": "2cd0c85cb9413d6a"
     },
     "pkg/actionlog/anansi.go": {
-      "hash": "242d45e5a0d9d1f7",
+      "hash": "21839c767c42a582",
       "noteIds": [
         "review-20260910-014"
       ]
     },
     "pkg/actionlog/anansi_test.go": {
-      "hash": "75f4a374514057cc"
+      "hash": "bf2b4ca3ce06b84b"
     },
     "pkg/compiler/compiler.go": {
       "hash": "04562f5bcbb53495",
@@ -1585,6 +1585,9 @@
     "pkg/runtime/calc_run_test.go": {
       "hash": "f4fd35ed10097cfe"
     },
+    "pkg/runtime/durable_log_test.go": {
+      "hash": "460dc6897842daf7"
+    },
     "pkg/runtime/eventsource.go": {
       "hash": "0cc0cea146fe3190"
     },
@@ -1598,7 +1601,7 @@
       "hash": "6416ef56be3267c3"
     },
     "pkg/runtime/runtime.go": {
-      "hash": "d1bbc065521448b3",
+      "hash": "73348cf76698d3ec",
       "noteIds": [
         "review-20260822-038",
         "review-20260822-039",

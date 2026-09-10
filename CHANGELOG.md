@@ -2,6 +2,8 @@
 
 ### Bug Fixes
 
+* **replay:** make StateAt deterministic — the projection previously depended on Go's randomized map iteration order, folding in a sibling step's recorded delta only when map order happened to allow it; it now always reconstructs "just before the target step's own delta landed" (steps in a stage run concurrently), and an unrecorded effectful sibling no longer aborts the projection (#review-20260910-024)
+* **actionlog:** detach the run id from document identity — log documents now carry a deterministic UUIDv7-shaped id derived from the entry's own (RunID, RerunIndex), so ONE scope-free AnansiStore serves the multi-run runtime like MemoryActionLog; Append routes by entry identity, rejects entries without a RunID, and derives Seq as max(existing)+1; reads go straight to the document id instead of scanning the collection on the runId field; the durable event-sourced recovery path is wired end-to-end in a runtime integration test (#review-20260910-014)
 * **pipeline:** recover panics in step actions, step goroutines, and sub-pipeline children so a bad node fails the step/stage instead of the host process (#review-20260910-008)
 * **runtime:** track a re-paused run in full after resume — multi-event waits, wait mode, WatchService re-registration, buffered-event drain, and cron re-arm (#review-20260910-001)
 * **runtime:** adopt the Replayer's rebuilt store as the canonical store after an event-sourced resume, fixing stale FinalState results and multi-pause state corruption (#review-20260910-002)
