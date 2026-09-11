@@ -92,6 +92,7 @@ func TestPauseNodeEndToEnd(t *testing.T) {
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, runtime.RegisterOptions{
 		Mode:       runtime.Mode{Type: "transient"},
@@ -146,6 +147,7 @@ func TestPauseNodeTimeout(t *testing.T) {
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, runtime.RegisterOptions{
 		Mode:       runtime.Mode{Type: "transient"},
@@ -199,6 +201,7 @@ func TestPauseMultiEventAny(t *testing.T) {
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, runtime.RegisterOptions{
 		Mode:       runtime.Mode{Type: "transient"},
@@ -252,6 +255,7 @@ func TestPauseMultiEventAll(t *testing.T) {
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, runtime.RegisterOptions{
 		Mode:       runtime.Mode{Type: "transient"},
@@ -309,6 +313,7 @@ func TestPauseNodeTwoConcurrentRunsIndependentWatches(t *testing.T) {
 		EventSource: ms,
 		Logger:      core.NopLogger{},
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, runtime.RegisterOptions{
 		Mode:       runtime.Mode{Type: "transient"},

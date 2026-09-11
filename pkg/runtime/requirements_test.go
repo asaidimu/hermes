@@ -81,6 +81,7 @@ func reqTestNodes() ([]compiler.Node, []compiler.Edge) {
 
 func TestValidateRequirementsMissingKeys(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	nodes, edges := reqTestNodes()
 	wf, err := compiler.Compile(nodes, edges, nil)
 	if err != nil {
@@ -112,6 +113,7 @@ func TestRegisterSucceedsWhenSatisfied(t *testing.T) {
 		Env:     map[string]any{"REQ_TEST_ENV": "prod-value"},
 		Secrets: &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
 	})
+	defer rt.Shutdown(context.Background())
 	nodes, edges := reqTestNodes()
 	wf, err := compiler.Compile(nodes, edges, nil)
 	if err != nil {
@@ -129,6 +131,7 @@ func TestStepReadsEnvAndSecret(t *testing.T) {
 		Secrets:   &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
 		ActionLog: nil,
 	})
+	defer rt.Shutdown(context.Background())
 
 	rn, re := reqTestNodes()
 	res, err := rt.Run(context.Background(), rn, re)

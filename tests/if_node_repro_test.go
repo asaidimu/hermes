@@ -78,6 +78,7 @@ func TestIfNodeUserWorkflowReport(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog: actionlog.NewMemoryActionLog(),
 	})
+	defer rt.Shutdown(context.Background())
 
 	evs := runWorkflow(t, rt, userIfWorkflow())
 	logEvents(t, evs)
@@ -95,6 +96,7 @@ func TestIfNodeFlippedSign(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog: actionlog.NewMemoryActionLog(),
 	})
+	defer rt.Shutdown(context.Background())
 
 	graph := userIfWorkflow()
 	conds := graph["nodes"].([]map[string]any)[2]["data"].(map[string]any)["config"].(map[string]any)["conditions"].([]any)

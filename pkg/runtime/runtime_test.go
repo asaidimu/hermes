@@ -53,6 +53,7 @@ func awaitDone(t *testing.T, ch chan RunResult) RunResult {
 
 func TestRunCompilesAndWritesFinalState(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	done := make(chan RunResult, 1)
 
 	nodes := []compiler.Node{
@@ -91,6 +92,7 @@ func TestRunCompilesAndWritesFinalState(t *testing.T) {
 
 func TestDuplicateRegisterFails(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{"initialState": map[string]any{}}),
 		execNode("delay-1", "delay", map[string]any{"ms": float64(1)}),
@@ -107,6 +109,7 @@ func TestDuplicateRegisterFails(t *testing.T) {
 
 func TestDeregisterStopsDispatch(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	nodes := []compiler.Node{
 		execNode("trigger-1", "trigger", map[string]any{"initialState": map[string]any{}}),
 		execNode("delay-1", "delay", map[string]any{"ms": float64(1)}),
@@ -133,6 +136,7 @@ func TestDeregisterStopsDispatch(t *testing.T) {
 
 func TestAbortRun(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	done := make(chan RunResult, 1)
 
 	nodes := []compiler.Node{
@@ -186,6 +190,7 @@ func TestActionLogRecordsStepFailure(t *testing.T) {
 
 	ts := actionlog.NewMemoryActionLog()
 	rt := NewWorkflowRuntime(Options{ActionLog: ts})
+	defer rt.Shutdown(context.Background())
 	done := make(chan struct{}, 1)
 	var runID string
 
@@ -267,6 +272,7 @@ func TestResourceResolverInjection(t *testing.T) {
 	})
 
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	done := make(chan struct{}, 1)
 	var runID string
 
@@ -336,6 +342,7 @@ func TestResourceLifecycleEvents(t *testing.T) {
 	})
 
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	var mu sync.Mutex
 	var seen []events.PipelineEvent
 	unsub := rt.Bus().Subscribe("*", func(_ context.Context, evt events.PipelineEvent) error {
@@ -443,6 +450,7 @@ func TestPauseResumeEventSource(t *testing.T) {
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, RegisterOptions{
 		Mode:       Mode{Type: "transient"},
@@ -529,6 +537,7 @@ func TestResumeWithPayload(t *testing.T) {
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, RegisterOptions{
 		Mode:       Mode{Type: "transient"},
@@ -584,6 +593,7 @@ func TestCustomEventTrigger(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{
 		ActionLog: actionlog.NewMemoryActionLog(),
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, RegisterOptions{
 		Mode:       Mode{Type: "transient"},
@@ -619,6 +629,7 @@ func TestCustomEventTriggerWithPayload(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{
 		ActionLog: actionlog.NewMemoryActionLog(),
 	})
+	defer rt.Shutdown(context.Background())
 
 	err := rt.Register(wf, RegisterOptions{
 		Mode:       Mode{Type: "transient"},

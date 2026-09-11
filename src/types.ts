@@ -243,3 +243,9 @@ export interface TimelineEventMeta {
 }
 
 export type RunTimelineMeta = Record<string, TimelineEventMeta>;
+
+// ---------------------------------------------------------------------------
+// Replay types (re-exported from ./replay)
+// ---------------------------------------------------------------------------
+
+export type { ActionLogEntry, TimelineSnapshot } from "./replay";

@@ -35,6 +35,7 @@ func TestCalcSampleRun(t *testing.T) {
 	}
 
 	rt := NewWorkflowRuntime(Options{})
+	defer rt.Shutdown(context.Background())
 	var mu sync.Mutex
 	var seen []events.PipelineEvent
 	unsub := rt.Bus().Subscribe("*", func(_ context.Context, evt events.PipelineEvent) error {

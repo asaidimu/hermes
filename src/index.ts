@@ -4,6 +4,8 @@ import type { NodeCatalogEntry } from "./types";
 
 export * from "./types";
 export * from "./serialize";
+export { Replayer } from "./replay";
+export type { ActionLogEntry, TimelineSnapshot } from "./replay";
 
 /** All node definitions keyed by kind (generated from the per-kind node packages). */
 export { NODE_DEFS } from "./generated";

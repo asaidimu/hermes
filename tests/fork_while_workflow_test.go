@@ -82,6 +82,7 @@ func TestRunForkWhileWorkflow(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog: actionlog.NewMemoryActionLog(),
 	})
+	defer rt.Shutdown(context.Background())
 
 	// Subscribe to all bus events to log every stage
 	unsubscribe := rt.Bus().Subscribe("*", func(ctx context.Context, ev events.PipelineEvent) error {

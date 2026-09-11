@@ -453,6 +453,20 @@ func (rt *WorkflowRuntime) GetEvents(ctx context.Context, runID string, fromSeq,
 	return out, nil
 }
 
+// GetActionLog returns the raw action log entries for a run's latest attempt.
+// Unlike GetEvents (which projects to timeline shapes), this returns the full
+// entry structs including state deltas — suitable for the TS Replayer.
+func (rt *WorkflowRuntime) GetActionLog(ctx context.Context, runID string) ([]actionlog.Entry, error) {
+	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if idx < 0 {
+		return []actionlog.Entry{}, nil
+	}
+	return rt.actionLog.All(ctx, runID, idx)
+}
+
 // pipelineLabelLocked resolves the pipeline identity for event projection.
 // Caller must hold rt.mu.
 func (rt *WorkflowRuntime) pipelineLabelLocked(runID string) (string, string) {
