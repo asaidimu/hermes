@@ -45,8 +45,13 @@ type FactoryOptions struct {
 // Rebuilder is the interface for event-sourced recovery. The replay.Replayer
 // implements this interface; defined here as an interface to avoid an import
 // cycle (pipeline → replay → pipeline).
+//
+// Rebuild receives the run's root pipeline id so the replayer can partition
+// the log per pipeline (entries carry a PipelineID since
+// #review-20260910-015) and resolve the definition to replay
+// (#review-20260910-003).
 type Rebuilder interface {
-	Rebuild(ctx context.Context, runID string) (store.Store, EntryAddress, error)
+	Rebuild(ctx context.Context, runID, rootPipelineID string) (store.Store, EntryAddress, error)
 }
 
 // PipelineFactory creates and prepares pipeline run contexts.
@@ -143,7 +148,7 @@ func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Sto
 
 	if f.options.Rebuilder != nil {
 		// Event-sourced recovery path: reconstruct state from action log.
-		rebuiltStore, addr, err := f.options.Rebuilder.Rebuild(ctx, runID)
+		rebuiltStore, addr, err := f.options.Rebuilder.Rebuild(ctx, runID, f.definition.ID)
 		if err != nil {
 			return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
 				"replayer rebuild failed for run "+runID).WithCause(err)

@@ -17,10 +17,14 @@ type QueryConfig struct {
 }
 
 var Node = nodekit.Define(nodekit.TypedDefinition[QueryConfig]{
-	Kind:        "query",
-	Effect:      nodekit.EffectSideEffecting,
-	Label:       "Database Query",
-	Description: "Execute a query against a database service collection.",
+	Kind:   "query",
+	Effect: nodekit.EffectSideEffecting,
+	Label:  "Database Query",
+	// Experimental: the node has no resource-backed implementation yet —
+	// the compiler REJECTS workflows that use it (see the resolved
+	// #review-20260910-016 note) so dead canvases fail at authoring time,
+	// not at run time.
+	Description: "[EXPERIMENTAL — not yet implemented] Execute a query against a database service collection.",
 	Type:        "executable",
 	Handles: func(cfg *QueryConfig) []nodekit.HandleSpec {
 		return []nodekit.HandleSpec{
@@ -34,21 +38,15 @@ var Node = nodekit.Define(nodekit.TypedDefinition[QueryConfig]{
 })
 
 func run(ctx context.Context, nCtx *nodekit.TypedRunContext[QueryConfig]) (store.Mutator, error) {
-	// @note #review-20260910-016 issue status=open priority=P2 tags=#review,#docs,#stub : Node is an always-failing stub but the README lists it as production-ready
-	// @author hermes-review
-	// @see #review-20260910-017
-	//
-	// Every execution returns "database resource not yet implemented" —
-	// yet README.md's Built-in Node Catalog documents `query` as a working
-	// production node ("Executes queries against a connected service
-	// resource"). Users drawn to the catalog will wire dependency edges and
-	// fail at runtime with no config-time signal (the node validates fine;
-	// the failure only surfaces during execution). Also note the lookup key:
-	// buildResourcesFor maps resources by source KIND, so the resolved map
-	// is keyed "database" — this works today by coincidence with the kind
-	// name, not via the "resource:<id>" artifact keys the compiler docs
-	// describe. Either implement the node or hide it from the catalog and
-	// README until it works.
+	// Resolution of #review-20260910-016 (the canonical note lives at the
+	// compile gate in pkg/compiler compileStages): workflows using the query
+	// node are rejected at COMPILE time, the README catalog marks it
+	// experimental, and the definition description carries the same marker.
+	// This runtime path remains as the defense-in-depth backstop (direct
+	// factory use bypasses the compiler): the failure is still loud, never a
+	// silent no-op. The resource lookup quirk noted at review time stands
+	// documented: buildResourcesFor keys resources by source KIND
+	// ("database"), not by the "resource:<id>" artifact keys.
 	db := nCtx.Resources["database"]
 	if db == nil {
 		return nil, fmt.Errorf(

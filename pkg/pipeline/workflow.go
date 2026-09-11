@@ -73,3 +73,47 @@ type Requirement struct {
 type PipelineRegistry interface {
 	Resolve(id string) (*PipelineDefinition, bool)
 }
+
+// FindPipeline locates a pipeline definition by id anywhere in the compiled
+// workflow: first the trigger-keyed Pipelines map, then the subpipeline
+// definitions embedded in stages (static Pipelines lists, searched
+// recursively — bounded-node bodies and fork branches can nest arbitrarily
+// deep). DynamicPipelines children (distribute items) are runtime-generated
+// and cannot be found statically; callers replay them from the parent stage's
+// DynamicPipelines closure instead.
+//
+// Used by the runtime's replay DefinitionResolver (#review-20260910-003) to
+// resolve child pipeline ids instead of answering every id with the root
+// definition.
+func (w *Workflow) FindPipeline(id string) (*PipelineDefinition, bool) {
+	if w == nil || id == "" {
+		return nil, false
+	}
+	if d, ok := w.Pipelines[id]; ok && len(d.Stages) > 0 {
+		return &d, true
+	}
+	for _, d := range w.Pipelines {
+		dd := d
+		if found, ok := findPipelineInStages(dd.Stages, id); ok {
+			return found, true
+		}
+	}
+	return nil, false
+}
+
+// findPipelineInStages searches a stage list (and its embedded subpipeline
+// definitions, recursively) for a pipeline definition with the given id.
+func findPipelineInStages(stages []Stage, id string) (*PipelineDefinition, bool) {
+	for _, stage := range stages {
+		for i := range stage.Pipelines {
+			child := &stage.Pipelines[i]
+			if child.ID == id && len(child.Stages) > 0 {
+				return child, true
+			}
+			if found, ok := findPipelineInStages(child.Stages, id); ok {
+				return found, true
+			}
+		}
+	}
+	return nil, false
+}

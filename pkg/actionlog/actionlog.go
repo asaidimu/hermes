@@ -60,10 +60,19 @@ const (
 // Entry is a durable fact in the action log. Records every significant
 // event during pipeline execution for debugging, audit, and crash recovery.
 type Entry struct {
-	RunID      string          `json:"runId"`
-	RerunIndex int             `json:"rerunIndex"`
-	Seq        uint64          `json:"seq"`
-	Kind       EntryKind       `json:"kind"`
+	RunID      string    `json:"runId"`
+	RerunIndex int       `json:"rerunIndex"`
+	Seq        uint64    `json:"seq"`
+	Kind       EntryKind `json:"kind"`
+	// PipelineID identifies the pipeline (root or subpipeline instance)
+	// whose execution produced this entry. Root entries carry the run's
+	// primary pipeline id; subpipeline entries carry the child definition
+	// id (e.g. "<nodeId>__body" for try-catch bodies, "<nodeId>__0" for
+	// distribute item 0). Entries written before this field existed (and
+	// entries outside any pipeline context) leave it empty; consumers
+	// treat empty as "the run's primary pipeline" for backward
+	// compatibility. See #review-20260910-015.
+	PipelineID string          `json:"pipelineId,omitempty"`
 	StageID    string          `json:"stageId,omitempty"`
 	StepID     string          `json:"stepId,omitempty"`
 	Handle     string          `json:"handle,omitempty"`  // routing handle

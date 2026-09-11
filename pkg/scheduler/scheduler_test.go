@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -213,5 +214,65 @@ func TestParseCronTooManyFields(t *testing.T) {
 	_, err := parseCron("* * * * * *")
 	if err == nil {
 		t.Error("expected error for too many fields")
+	}
+}
+
+// TestScheduleRejectsInvalidCron pins the resolved #review-20260910-013:
+// Schedule must VALIDATE the expression and return an error instead of
+// accepting it and silently firing hourly via CronDelay's fallback. Before
+// the fix, "30 * * *" (4 fields) and "@evry 5m" registered fine and fired
+// every hour forever.
+func TestScheduleRejectsInvalidCron(t *testing.T) {
+	s := New()
+	defer s.Shutdown(context.Background())
+
+	cases := []struct {
+		expr string
+		ok   bool
+	}{
+		{"30 * * *", false},    // 4 fields
+		{"* * * * * *", false}, // 6 fields
+		{"@evry 5m", false},    // typo'd @every
+		{"@every5m", false},    // @every without separating space
+		{"@every zero", false}, // invalid duration
+		{"@every 0s", false},   // non-positive duration
+		{"", false},            // empty
+		{"*/5 * * * *", true},  // standard 5-field
+		{"0 9 * * 1-5", true},  // ranges
+		{"@every 5m", true},    // valid @every
+		{"@daily", true},       // named interval
+	}
+
+	for i, tc := range cases {
+		id := "job-" + strconv.Itoa(i)
+		err := s.Schedule(id, tc.expr, func(ctx context.Context) {})
+		if tc.ok && err != nil {
+			t.Errorf("case %d (%q): expected valid, got error: %v", i, tc.expr, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("case %d (%q): expected validation error, got nil", i, tc.expr)
+		}
+	}
+}
+
+// TestScheduleValidCronStillArms ensures validation did not break the happy
+// path: a valid expression arms a timer that actually fires.
+func TestScheduleValidCronStillArms(t *testing.T) {
+	s := New()
+	defer s.Shutdown(context.Background())
+
+	fired := make(chan struct{}, 1)
+	if err := s.Schedule("ok-job", "@every 10ms", func(ctx context.Context) {
+		select {
+		case fired <- struct{}{}:
+		default:
+		}
+	}); err != nil {
+		t.Fatalf("valid @every rejected: %v", err)
+	}
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("valid cron job never fired")
 	}
 }

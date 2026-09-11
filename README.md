@@ -96,40 +96,40 @@ Run a workflow graph directly against the embedded runtime:
 package main
 
 import (
-	"context"
-	"fmt"
-	"time"
+        "context"
+        "fmt"
+        "time"
 
-	"github.com/asaidimu/hermes/pkg/compiler"
-	"github.com/asaidimu/hermes/pkg/nodes" // registers all node kinds
-	"github.com/asaidimu/hermes/pkg/runtime"
+        "github.com/asaidimu/hermes/pkg/compiler"
+        "github.com/asaidimu/hermes/pkg/nodes" // registers all node kinds
+        "github.com/asaidimu/hermes/pkg/runtime"
 )
 
 func main() {
-	rt := runtime.NewWorkflowRuntime(runtime.Options{})
+        rt := runtime.NewWorkflowRuntime(runtime.Options{})
 
-	nodes := []compiler.Node{
-		{
-			ID: "trigger", Type: compiler.NodeExecutable, Kind: "trigger",
-			Config: map[string]any{"initialState": map[string]any{"text": "hello"}},
-		},
-		{
-			ID: "delay", Type: compiler.NodeExecutable, Kind: "delay",
-			Config: map[string]any{"ms": float64(250)},
-		},
-	}
-	edges := []compiler.Edge{
-		{ID: "e1", Source: "trigger", Target: "delay", Role: compiler.EdgeFlow},
-	}
+        nodes := []compiler.Node{
+                {
+                        ID: "trigger", Type: compiler.NodeExecutable, Kind: "trigger",
+                        Config: map[string]any{"initialState": map[string]any{"text": "hello"}},
+                },
+                {
+                        ID: "delay", Type: compiler.NodeExecutable, Kind: "delay",
+                        Config: map[string]any{"ms": float64(250)},
+                },
+        }
+        edges := []compiler.Edge{
+                {ID: "e1", Source: "trigger", Target: "delay", Role: compiler.EdgeFlow},
+        }
 
-	result, err := rt.Run(context.Background(), nodes, edges,
-		runtime.RunOptions{Timeout: 10 * time.Second})
-	if err != nil {
-		panic(err)
-	}
+        result, err := rt.Run(context.Background(), nodes, edges,
+                runtime.RunOptions{Timeout: 10 * time.Second})
+        if err != nil {
+                panic(err)
+        }
 
-	fmt.Printf("status: %s\n", result.Status)     // status: succeeded
-	fmt.Printf("state: %v\n", result.FinalState)  // state: map[text:hello]
+        fmt.Printf("status: %s\n", result.Status)     // status: succeeded
+        fmt.Printf("state: %v\n", result.FinalState)  // state: map[text:hello]
 }
 ```
 
@@ -139,13 +139,13 @@ Run a canvas JSON document directly against the embedded runtime:
 package main
 
 import (
-	"context"
-	"fmt"
-	"time"
+        "context"
+        "fmt"
+        "time"
 
-	"github.com/asaidimu/hermes/pkg/compiler"
-	"github.com/asaidimu/hermes/pkg/nodes" // registers all node kinds
-	"github.com/asaidimu/hermes/pkg/runtime"
+        "github.com/asaidimu/hermes/pkg/compiler"
+        "github.com/asaidimu/hermes/pkg/nodes" // registers all node kinds
+        "github.com/asaidimu/hermes/pkg/runtime"
 )
 
 var canvasDoc = []byte(`{
@@ -164,23 +164,23 @@ var canvasDoc = []byte(`{
 }`)
 
 func main() {
-	rt := runtime.NewWorkflowRuntime(runtime.Options{})
+        rt := runtime.NewWorkflowRuntime(runtime.Options{})
 
-	nodes, edges, err := compiler.DecodeWireGraph(canvasDoc)
-	if err != nil {
-		panic(err)
-	}
-	result, err := rt.Run(context.Background(), nodes, edges,
-		runtime.RunOptions{Timeout: 10 * time.Second})
-	if err != nil {
-		panic(err)
-	}
+        nodes, edges, err := compiler.DecodeWireGraph(canvasDoc)
+        if err != nil {
+                panic(err)
+        }
+        result, err := rt.Run(context.Background(), nodes, edges,
+                runtime.RunOptions{Timeout: 10 * time.Second})
+        if err != nil {
+                panic(err)
+        }
 
-	fmt.Printf("status: %s\n", result.Status) // status: succeeded
+        fmt.Printf("status: %s\n", result.Status) // status: succeeded
 
-	// Every step/stage/lifecycle event is in the unified action log.
-	evs, _ := rt.GetEvents(context.Background(), result.RunID, 0, 0)
-	fmt.Printf("events: %d\n", len(evs))
+        // Every step/stage/lifecycle event is in the unified action log.
+        evs, _ := rt.GetEvents(context.Background(), result.RunID, 0, 0)
+        fmt.Printf("events: %d\n", len(evs))
 }
 ```
 
@@ -207,7 +207,7 @@ func main() {
 | `code` | executable | Sandboxed JavaScript transformation of workflow state (goja VM) |
 | `http` | executable | Outbound HTTP request (method, url, headers, params, body, timeout) |
 | `gemini` | executable | Structured prompt execution against Google Gemini models |
-| `query` | executable | Executes queries against a connected service resource |
+| `query` | executable | **Experimental — not yet implemented.** Compiles are rejected; executes queries against a connected service resource once implemented |
 | `transformer` | executable | Declarative state transformations |
 | `if` | executable | Conditional branch routed by handle |
 | `switch` | executable | Multi-way branch over configured cases |
@@ -216,7 +216,7 @@ func main() {
 | `try-catch` | executable | Error containment for subgraphs |
 | `delay` | executable | Timed pause between steps |
 | `pause` | executable | Pauses the run until a watched event or timeout (with pre-pause buffering) |
-| `database` | resource | Database connection exposed as a run-scoped resource |
+| `database` | resource | **Experimental — no handle initialization.** Database connection exposed as a run-scoped resource; inert until wired to a real connection |
 
 #### Core Go Types
 
@@ -235,7 +235,7 @@ func main() {
 
 1. **API orchestration backend**: Embed the runtime in a Go service, register workflows compiled from user-drawn graphs, dispatch webhook payloads with `rt.Invoke(workflowID, triggerID, evt)`, and expose results through your own handlers.
 2. **Visual builder preview & debugging**: Decode a frontend canvas with `compiler.DecodeWireGraph`, execute via `rt.Run`, then drive inspection from `rt.GetEvents` (unified log) while reading intermediate state via the run store.
-3. **Scheduled data pipelines**: Register a workflow whose trigger is bound to a cron schedule (`"@daily"`); combine `http`, `gemini`, and `database` nodes to fetch, enrich, and persist data on recurring intervals, using `pause` + event watches for human-in-the-loop gates.
+3. **Scheduled data pipelines**: Register a workflow whose trigger is bound to a cron schedule (`"@daily"`); combine `http` and `gemini` nodes to fetch and enrich data on recurring intervals, using `pause` + event watches for human-in-the-loop gates. (The `database`/`query` nodes are experimental and not yet wired — see the node catalog.)
 
 ---
 

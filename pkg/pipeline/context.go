@@ -432,14 +432,19 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				// Default merge: merge application keys from successful sub-pipelines (e.g. fork branches)
 				for _, sRes := range subResults {
 					if sRes.Status == "succeeded" && sRes.FinalState != nil {
-						_ = r.store.Update(ctx, func(state map[string]any) error {
+						// Best-effort merge, now visible (#review-20260910-012
+						// sibling pattern): a failed merge means the parent state
+						// silently misses a child's application keys.
+						if err := r.store.Update(ctx, func(state map[string]any) error {
 							for k, v := range sRes.FinalState {
 								if !strings.HasPrefix(k, "__") {
 									state[k] = v
 								}
 							}
 							return nil
-						})
+						}); err != nil && r.logger != nil {
+							r.logger.Error("pipeline: failed to merge sub-pipeline state into parent", "runId", r.runID, "pipelineId", r.definition.ID, "error", err)
+						}
 					}
 				}
 			}
@@ -462,9 +467,15 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 							},
 						},
 					}
-					_ = r.store.Update(ctx, func(state map[string]any) error {
+					// Best-effort like the sibling sites: the child's own
+					// checkpoint (returned below) still records the resume
+					// address, but a failed bubble-up write is now VISIBLE
+					// (#review-20260910-012 sibling pattern).
+					if err := r.store.Update(ctx, func(state map[string]any) error {
 						return WriteCheckpoint(state, nestedCkpt)
-					})
+					}); err != nil && r.logger != nil {
+						r.logger.Error("pipeline: failed to persist nested subpipeline checkpoint", "runId", r.runID, "pipelineId", r.definition.ID, "stageId", stage.ID, "error", err)
+					}
 					return PipelineRunResult{
 						Status:     "paused",
 						RunID:      r.runID,
@@ -800,27 +811,37 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 		Cron:          pauseInst.Cron,
 	}
 
-	// @note #review-20260910-012 issue status=open priority=P2 tags=#review,#error-handling : Checkpoint persistence failure is silently discarded on pause
+	// @note #review-20260910-012 issue status=resolved priority=P2 tags=#review,#error-handling : Checkpoint persistence failure is silently discarded on pause
 	// @author hermes-review
 	// @see #review-20260822-033
 	//
-	// When Persist is set, the checkpoint write is best-effort with the
-	// error dropped via `_ =` — yet everything downstream (the emitted
-	// pipeline:pause event, the returned "paused" result, the runtime's
-	// pausedRun registration) proceeds as if persistence succeeded. For a
-	// Persist=true pause whose store write fails, the run reports paused
-	// but nothing durable records where to resume; the legacy checkpoint
-	// resume path then finds no checkpoint ("no checkpoint found in
-	// document") and recovery dead-ends. Sibling instances of the same
-	// pattern in this file: the default sub-pipeline state merge and the
-	// nested-checkpoint write in the Run loop, both `_ = r.store.Update`.
-	// At minimum log the failure like review-20260822-033 does; ideally
-	// fail the pause (return the error) since a lost checkpoint invalidates
-	// the whole paused-run contract.
+	// Resolved: a failed Persist checkpoint write now FAILS THE PAUSE.
+	// Everything downstream (the pipeline:pause event, the "paused"
+	// result, the runtime's pausedRun registration) used to proceed as
+	// if persistence had succeeded, so a run whose store write failed
+	// reported paused with nothing durable recording where to resume —
+	// the legacy checkpoint resume path then found no checkpoint and
+	// recovery dead-ended. A lost checkpoint invalidates the whole
+	// paused-run contract, so the error surfaces as a failed stage/run
+	// instead of a fake pause. The sibling discarded-update sites in
+	// this file (nested-checkpoint bubbling below, default sub-pipeline
+	// merge) are best-effort by design and now LOG failures like
+	// review-20260822-033 does.
 	if pauseInst.Persist {
-		_ = r.store.Update(ctx, func(state map[string]any) error {
+		if err := r.store.Update(ctx, func(state map[string]any) error {
 			return WriteCheckpoint(state, ckpt)
-		})
+		}); err != nil {
+			if r.logger != nil {
+				r.logger.Error("pipeline: failed to persist pause checkpoint — failing the pause", "runId", r.runID, "pipelineId", r.definition.ID, "stageId", stage.ID, "error", err)
+			}
+			return PipelineRunResult{
+				Status:     "failed",
+				RunID:      r.runID,
+				PipelineID: r.definition.ID,
+				FinalState: stateSnapshot(r.store),
+				Error:      core.NewSystemError(core.ErrCodeExecutionFailed, "failed to persist pause checkpoint").WithCause(err),
+			}, core.NewSystemError(core.ErrCodeExecutionFailed, "failed to persist pause checkpoint").WithCause(err)
+		}
 		r.syncStateMilestone(ctx)
 	}
 
@@ -829,11 +850,13 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 	if r.actionLog != nil {
 		ckptJSON, _ := json.Marshal(ckpt)
 		r.actionLog.Append(ctx, actionlog.Entry{
-			RunID:   r.runID,
-			Kind:    actionlog.KindCheckpoint,
-			Type:    "pipeline:pause",
-			StageID: stage.ID,
-			Output:  ckptJSON,
+			RunID:      r.runID,
+			RerunIndex: r.rerunIndex,
+			PipelineID: r.definition.ID,
+			Kind:       actionlog.KindCheckpoint,
+			Type:       "pipeline:pause",
+			StageID:    stage.ID,
+			Output:     ckptJSON,
 		})
 	}
 
@@ -895,14 +918,18 @@ func ResourceResolverFromContext(ctx context.Context) func(key string) (any, boo
 	return nil
 }
 
-// appendLog appends an entry to the run's action log, filling RunID
-// and RerunIndex. Nil-safe: returns silently when no log is configured.
+// appendLog appends an entry to the run's action log, filling RunID,
+// RerunIndex and PipelineID (the pipeline whose execution produced the
+// entry — the root def for this run context, or the child def when a
+// subpipeline's own RunContextImpl logs; see #review-20260910-015).
+// Nil-safe: returns silently when no log is configured.
 func (r *RunContextImpl) appendLog(ctx context.Context, entry actionlog.Entry) {
 	if r.actionLog == nil {
 		return
 	}
 	entry.RunID = r.runID
 	entry.RerunIndex = r.rerunIndex
+	entry.PipelineID = r.definition.ID
 	r.actionLog.Append(ctx, entry)
 }
 

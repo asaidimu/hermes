@@ -161,7 +161,7 @@ func TestDurableActionLogServesMultiRunRuntime(t *testing.T) {
 		def := wf.Pipelines["trigger:manual:Run"]
 		return &def, true
 	})
-	st, _, err := rp.Rebuild(ctx, runA)
+	st, _, err := rp.Rebuild(ctx, runA, "durable-log-pipeline")
 	require.NoError(t, err)
 	require.NoError(t, st.Read(func(state map[string]any) error {
 		require.Equal(t, true, state["done"], "rebuilt state must reflect the recorded effect delta")

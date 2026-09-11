@@ -494,6 +494,29 @@ func compileStages(
 				node.Kind, id)
 		}
 
+		// @note #review-20260910-016 issue status=resolved priority=P2 tags=#review,#docs,#stub : The query node was an always-failing stub listed as production-ready
+		// @author hermes-review
+		// @see #review-20260910-017
+		//
+		// Resolved: the node is rejected at COMPILE time instead of failing
+		// at runtime. Every execution of the query node returned "database
+		// resource not yet implemented", yet the README's node catalog
+		// documented it as a working production node — so users wired
+		// dependency edges and config into it, validated fine at compile
+		// time, and only discovered the dead end during execution. Gating
+		// here means canvases using `query` cannot compile dead workflows:
+		// the failure surfaces where the graph is authored, with an
+		// actionable message. The node stays registered (its definition and
+		// handles still resolve for the editor) but marked experimental in
+		// the catalog until a real resource-backed implementation lands
+		// (together with the database service node, see the resolved
+		// #review-20260910-017).
+		if node.Kind == "query" {
+			return nil, fmt.Errorf(
+				"Query node %q is not yet implemented: the query node is experimental and cannot execute against database resources. Remove it or wire the data through the http/transformer nodes instead.",
+				id)
+		}
+
 		// Validate node config against its schema at compile time.
 		if err := def.ValidateConfig(node.Config); err != nil {
 			return nil, fmt.Errorf("node %q (kind: %q): %w", id, node.Kind, err)

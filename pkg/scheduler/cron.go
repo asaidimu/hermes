@@ -67,6 +67,40 @@ func untilNext(interval time.Duration) time.Duration {
 	return time.Until(next)
 }
 
+// ValidateCron reports whether expr is a cron expression this scheduler can
+// fire: "@every <duration>" with a positive duration, one of the named
+// intervals (@daily/@midnight, @hourly, @weekly), or a standard 5-field
+// expression that parses. Used by Schedule to reject invalid expressions at
+// registration time instead of silently falling back to an hourly fire
+// (#review-20260910-013).
+func ValidateCron(expr string) error {
+	expr = strings.TrimSpace(expr)
+
+	if strings.HasPrefix(expr, "@every ") {
+		d, err := time.ParseDuration(expr[7:])
+		if err != nil {
+			return fmt.Errorf("invalid @every duration in cron expression %q: %w", expr, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("invalid @every duration in cron expression %q: must be positive", expr)
+		}
+		return nil
+	}
+	switch expr {
+	case "@daily", "@midnight", "@hourly", "@weekly":
+		return nil
+	}
+	if expr == "" {
+		return fmt.Errorf("cron expression is empty")
+	}
+
+	// Standard 5-field cron
+	if _, err := parseCron(expr); err != nil {
+		return fmt.Errorf("invalid cron expression %q: %w", expr, err)
+	}
+	return nil
+}
+
 // Cron represents a parsed 5-field cron expression.
 type Cron struct {
 	Minute, Hour, Day, Month, Weekday []int

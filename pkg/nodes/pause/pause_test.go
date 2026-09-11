@@ -71,10 +71,10 @@ func TestPauseNodeEndToEnd(t *testing.T) {
 			"timeout":      float64(0),
 		}),
 		execNode("code-inside", "code", map[string]any{
-			"code": "state.insideBody = true;",
+			"code": "return { insideBody: true };",
 		}),
 		execNode("code-after", "code", map[string]any{
-			"code": "state.afterPause = true;",
+			"code": "return { afterPause: true };",
 		}),
 	}
 	edges := []compiler.Edge{
@@ -125,10 +125,10 @@ func TestPauseNodeTimeout(t *testing.T) {
 			"timeout":      float64(50),
 		}),
 		execNode("code-inside", "code", map[string]any{
-			"code": "state.insideBody = true;",
+			"code": "return { insideBody: true };",
 		}),
 		execNode("code-after", "code", map[string]any{
-			"code": "state.afterTimeout = true;",
+			"code": "return { afterTimeout: true };",
 		}),
 	}
 	edges := []compiler.Edge{
@@ -178,10 +178,10 @@ func TestPauseMultiEventAny(t *testing.T) {
 			"timeout":       float64(0),
 		}),
 		execNode("code-inside", "code", map[string]any{
-			"code": "state.insideBody = true;",
+			"code": "return { insideBody: true };",
 		}),
 		execNode("code-after", "code", map[string]any{
-			"code": "state.received = true;",
+			"code": "return { received: true };",
 		}),
 	}
 	edges := []compiler.Edge{
@@ -231,10 +231,10 @@ func TestPauseMultiEventAll(t *testing.T) {
 			"timeout":       float64(0),
 		}),
 		execNode("code-inside", "code", map[string]any{
-			"code": "state.insideBody = true;",
+			"code": "return { insideBody: true };",
 		}),
 		execNode("code-after", "code", map[string]any{
-			"code": "state.received = true;",
+			"code": "return { received: true };",
 		}),
 	}
 	edges := []compiler.Edge{
@@ -291,8 +291,8 @@ func TestPauseNodeTwoConcurrentRunsIndependentWatches(t *testing.T) {
 			"waitForEvent": "user:approved",
 			"timeout":      float64(0),
 		}),
-		execNode("code-inside", "code", map[string]any{"code": "state.insideBody = true;"}),
-		execNode("code-after", "code", map[string]any{"code": "state.afterPause = true;"}),
+		execNode("code-inside", "code", map[string]any{"code": "return { insideBody: true };"}),
+		execNode("code-after", "code", map[string]any{"code": "return { afterPause: true };"}),
 	}
 	edges := []compiler.Edge{
 		flowEdge("e1", "trigger-1", "pause-1"),

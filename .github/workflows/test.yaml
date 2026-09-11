@@ -21,5 +21,12 @@ jobs:
       - name: Get dependencies
         run: go mod download
 
-      - name: Test
+      # Full quality gate (see the resolved #review-20260910-021):
+      # gofmt -s check + go vet + go test -race, matching the README's
+      # "Testing & Quality Standard". Kept as a separate step so a failure
+      # names the gate instead of vanishing inside `make test`.
+      - name: Formatting and vet checks
+        run: make check
+
+      - name: Test (race detector)
         run: make test

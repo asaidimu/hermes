@@ -28,6 +28,13 @@ func New() *InMemoryScheduler {
 }
 
 func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx context.Context)) error {
+	// Validate BEFORE touching any existing job with the same id: a typo'd
+	// expression fails loudly here instead of silently replacing a working
+	// job with an hourly fallback timer (#review-20260910-013).
+	if err := ValidateCron(cron); err != nil {
+		return err
+	}
+
 	s.Cancel(id) // remove any existing job with same ID
 
 	s.mu.Lock()
@@ -45,22 +52,21 @@ func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx c
 	js := &jobState{ctx: ctx, cancel: cancel, callback: callback}
 	s.jobs[id] = js
 
-	// @note #review-20260910-013 issue status=open priority=P2 tags=#review,#validation : Invalid cron expressions are accepted and silently fire hourly
+	// @note #review-20260910-013 issue status=resolved priority=P2 tags=#review,#validation : Invalid cron expressions were accepted and silently fired hourly
 	// @author hermes-review
 	// @see #review-20260822-040
 	// @see #review-20260822-053
 	//
-	// Schedule never validates the expression: CronDelay falls back to a
-	// 1-hour delay (after a slog.Warn) for anything it cannot parse, so
-	// runtime.Register with a typo'd cron trigger — e.g. "30 * * *"
-	// (4 fields) or "@evry 5m" — SUCCEEDS and the trigger fires every hour
-	// forever. This contradicts the resolution of #review-20260822-040,
-	// which states invalid cron expressions fail registration loudly; that
-	// enforcement never actually happens because the error never reaches
-	// Schedule's caller. Fix: parse/validate the expression here and return
-	// an error (Register already propagates Schedule errors), keeping the
-	// 1-hour fallback only for the recursive re-arm path where an error
-	// return is impossible.
+	// Resolved: Schedule now VALIDATES the expression (ValidateCron) and
+	// returns an error before registering anything, so a typo'd cron
+	// trigger — e.g. "30 * * *" (4 fields) or "@evry 5m" — fails
+	// registration loudly (runtime.Register already propagates Schedule
+	// errors) instead of succeeding and firing every hour forever. This
+	// finally enforces what #review-20260822-040's resolution promised.
+	// The 1-hour fallback inside CronDelay remains only for the recursive
+	// re-arm path (scheduleNextLocked), where an error return is
+	// impossible — an expression that reached a timer can only have come
+	// from a validated Schedule.
 	s.scheduleNextLocked(id, js, cron)
 	return nil
 }

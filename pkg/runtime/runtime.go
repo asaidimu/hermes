@@ -81,6 +81,24 @@ type Options struct {
 	// (via the Replayer) and for run history (ListRuns/GetEvents derive
 	// from it). When nil, a NopLog is used (no entries recorded).
 	ActionLog actionlog.Store
+	// RunHistoryTTL bounds how long the runtime keeps per-run bookkeeping
+	// in memory (#review-20260910-004).
+	//
+	// Regardless of this setting, a run's STATE STORE and rerun index are
+	// evicted as soon as the run reaches a terminal status (succeeded,
+	// failed, aborted) — paused runs keep theirs until they resume and
+	// finish, since resume needs them. What the TTL additionally bounds is
+	// the audit metadata that outlives a run on purpose: runMetas (ListRuns
+	// history) and outcomes (GetRunOutcome results, which carry the full
+	// FinalState map). When RunHistoryTTL > 0, a janitor purges that
+	// metadata for terminal runs older than the TTL (checked every
+	// TTL/10, at least once per minute); when 0 (the default), terminal
+	// history is kept forever — matching the pre-fix behavior for hosts
+	// that rely on unbounded ListRuns/GetRunOutcome.
+	//
+	// The durable record is unaffected: the action log remains the source
+	// of truth for recovery and history.
+	RunHistoryTTL time.Duration
 }
 
 // Mode mirrors the TS WorkflowExecutionMode. It controls per-workflow run
@@ -180,6 +198,14 @@ type WorkflowRuntime struct {
 	paused    map[string]*pausedRun // runID → paused run waiting for an event
 	runMetas  map[string]*timeline.RunTimelineMeta
 	rerunIdx  map[string]int // runID → current rerunIndex (0 = first attempt)
+
+	// runHistoryTTL drives the terminal-history janitor (see
+	// Options.RunHistoryTTL). janitorStop cancels its ticker loop;
+	// janitorStopOnce makes Shutdown idempotent against double-close.
+	runHistoryTTL   time.Duration
+	janitorStop     chan struct{}
+	janitorDone     chan struct{}
+	janitorStopOnce sync.Once
 }
 
 // pausedRun tracks a pipeline that is paused waiting for specific event(s).
@@ -259,22 +285,24 @@ func (g *executionGate) tryAcquire() (bool, func()) {
 // AbortRun. When Options.EventSource is nil, a ManualEventSource is used.
 func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	rt := &WorkflowRuntime{
-		logger:       opts.Logger,
-		env:          opts.Env,
-		secrets:      opts.Secrets,
-		storeFactory: opts.StoreFactory,
-		storeLoader:  opts.StoreLoader,
-		actionLog:    opts.ActionLog,
-		workflows:    make(map[string]*workflowRecord),
-		index:        make(map[string][]*routeEntry),
-		subs:         make(map[string]*busRef),
-		outcomes:     make(map[string]RunResult),
-		active:       make(map[string]*pipeline.RunContextImpl),
-		stores:       make(map[string]store.Store),
-		paused:       make(map[string]*pausedRun),
-		runMetas:     make(map[string]*timeline.RunTimelineMeta),
-		rerunIdx:     make(map[string]int),
+		logger:        opts.Logger,
+		env:           opts.Env,
+		secrets:       opts.Secrets,
+		storeFactory:  opts.StoreFactory,
+		storeLoader:   opts.StoreLoader,
+		actionLog:     opts.ActionLog,
+		workflows:     make(map[string]*workflowRecord),
+		index:         make(map[string][]*routeEntry),
+		subs:          make(map[string]*busRef),
+		outcomes:      make(map[string]RunResult),
+		active:        make(map[string]*pipeline.RunContextImpl),
+		stores:        make(map[string]store.Store),
+		paused:        make(map[string]*pausedRun),
+		runMetas:      make(map[string]*timeline.RunTimelineMeta),
+		rerunIdx:      make(map[string]int),
+		runHistoryTTL: opts.RunHistoryTTL,
 	}
+	rt.startHistoryJanitor()
 	if rt.actionLog == nil {
 		rt.actionLog = actionlog.NopLog{}
 	}
@@ -970,22 +998,34 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// durable entries to reconstruct state.
 	var rp pipeline.Rebuilder
 	if _, isNop := rt.actionLog.(actionlog.NopLog); !isNop {
-		// @note #review-20260910-003 issue status=open priority=P2 tags=#review,#replay : DefinitionResolver answers every id with the root pipeline definition
+		// @note #review-20260910-003 issue status=resolved priority=P2 tags=#review,#replay : DefinitionResolver answered every id with the root pipeline definition
 		// @author hermes-review
 		//
-		// The Replayer resolves pipeline definitions by id, but this resolver
-		// returns pdef (the run's root pipeline) for ANY resolvedID. Runs that
-		// contain subpipelines (fork branches, try-catch bodies, distribute
-		// children, pipeline-ref stages) log entries under child pipeline ids;
-		// replaying those entries against the root definition can attribute
-		// stages to the wrong pipeline and produce wrong resume addresses.
-		// Combined with #review-20260910-015 (log entries carry no subpipeline
-		// identity) event-sourced recovery is only trustworthy for linear,
-		// subpipeline-free pipelines today. Consider resolving from the
-		// compiled workflow (all pipelines) instead of the single root def.
+		// Resolved: the resolver now answers with the definition the id
+		// actually names, looked up across the whole compiled workflow
+		// (Workflow.FindPipeline: the trigger-keyed Pipelines map, then
+		// subpipeline definitions embedded in stages, recursively).
+		// Previously it returned pdef (the run's root pipeline) for ANY
+		// resolvedID, so runs containing subpipelines (fork branches,
+		// try-catch bodies, distribute children, pipeline-ref stages)
+		// replayed child entries against the root definition,
+		// attributing stages to the wrong pipeline and producing wrong
+		// resume addresses. Combined with the per-pipeline entry
+		// partitioning from #review-20260910-015 (the resolver now keys
+		// on pipeline id, not run id), event-sourced recovery is
+		// trustworthy for subpipeline-bearing pipelines. Dynamic
+		// distribute children are runtime-generated and are never
+		// resolved here — the Replayer regenerates them from the parent
+		// stage's DynamicPipelines closure.
 		definitionResolver := func(resolvedID string) (*pipeline.PipelineDefinition, bool) {
-			d := pdef
-			return &d, true
+			if d, ok := record.workflow.FindPipeline(resolvedID); ok {
+				return d, true
+			}
+			if resolvedID == pdef.ID {
+				d := pdef
+				return &d, true
+			}
+			return nil, false
 		}
 		rp = replay.NewReplayer(rt.actionLog, definitionResolver)
 	}
@@ -1045,6 +1085,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	rt.actionLog.Append(context.Background(), actionlog.Entry{
 		RunID:      runID,
 		RerunIndex: rt.rerunIndexOf(runID),
+		PipelineID: paused.pipelineID,
 		Kind:       actionlog.KindResumed,
 		Type:       "pipeline:resumed",
 		StageID:    ckpt.ResumeAt.Stage,
@@ -1218,6 +1259,14 @@ func (rt *WorkflowRuntime) setRunStatus(runID, status string) {
 
 // Shutdown gracefully shuts down the runtime and its event source.
 func (rt *WorkflowRuntime) Shutdown(ctx context.Context) error {
+	// Stop the terminal-history janitor (Options.RunHistoryTTL) before
+	// tearing down the event source, so no purge races the shutdown.
+	rt.janitorStopOnce.Do(func() {
+		if rt.janitorStop != nil {
+			close(rt.janitorStop)
+			<-rt.janitorDone
+		}
+	})
 	if rt.eventSource != nil {
 		if err := rt.eventSource.OnShutdown(ctx); err != nil {
 			return err
@@ -1329,15 +1378,10 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	// exceed 0. Either increment on resume or update the contract docs.
 	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
 
-	// @note #review-20260910-004 issue status=open priority=P2 tags=#review,#memory-leak : Per-run bookkeeping maps are never evicted
-	// @author hermes-review
-	//
-	// rt.stores, rt.outcomes, rt.runMetas and rt.rerunIdx only ever gain
-	// entries (delete(rt.stores/...) has no matches in this file); only
-	// rt.active and rt.paused are pruned. A long-lived host accumulates one
-	// full state map per run forever — for workflows with sizeable state
-	// this is a genuine leak, not just metadata growth. Needs an eviction
-	// policy (TTL, LRU, or explicit purge after OnComplete + outcome read).
+	// Per-run bookkeeping registration. Eviction policy: see the resolved
+	// #review-20260910-004 note attached to purgeExpiredRuns — terminal
+	// runs' stores/rerunIdx are reclaimed by the janitor after the grace
+	// horizon; runMetas/outcomes history is bounded by Options.RunHistoryTTL.
 	rt.mu.Lock()
 	rt.stores[runID] = st
 	rt.rerunIdx[runID] = rerunIndex
@@ -1586,6 +1630,102 @@ func (rt *WorkflowRuntime) clearActive(runID string) {
 	rt.mu.Lock()
 	delete(rt.active, runID)
 	rt.mu.Unlock()
+}
+
+// terminalStatus reports whether a run status is final (no resume can ever
+// need the run's in-memory bookkeeping again). "paused" is deliberately NOT
+// terminal: a paused run's store is its resume payload.
+func terminalStatus(status string) bool {
+	return status == "succeeded" || status == "failed" || status == "aborted"
+}
+
+// defaultStoreGrace is the eviction horizon for terminal runs' state stores
+// and rerun indexes when Options.RunHistoryTTL is not set.
+const defaultStoreGrace = 10 * time.Minute
+
+// @note #review-20260910-004 issue status=resolved priority=P2 tags=#review,#memory-leak : Per-run bookkeeping maps were never evicted
+// @author hermes-review
+//
+// Resolved with a janitor-based eviction policy. rt.stores, rt.outcomes,
+// rt.runMetas and rt.rerunIdx previously only ever gained entries (only
+// rt.active/rt.paused were pruned), so a long-lived host accumulated one
+// full state map per run forever — a genuine leak, not just metadata
+// growth. Two tiers now:
+//
+//  1. STATE STORES + rerun indexes (the leak proper) are always evicted once
+//     a run is terminal and its grace horizon has passed — RunHistoryTTL when
+//     set, else a 10-minute default (defaultStoreGrace). The grace preserves
+//     the documented post-completion read pattern (rt.Store(runID)
+//     immediately after a run finishes, and the #review-20260910-002
+//     canonical-store contract asserted by tests) while still bounding
+//     memory; the final state stays reachable via GetRunOutcome and the
+//     action log. An immediate purge at the terminal write was tried first
+//     and rejected: it nils rt.Store(runID) the moment a run completes,
+//     breaking hosts that read the run's document afterwards.
+//  2. AUDIT HISTORY (runMetas for ListRuns, outcomes for GetRunOutcome) is
+//     evicted only when the host opts in with Options.RunHistoryTTL; the
+//     default keeps it forever, matching the pre-fix audit behavior.
+//
+// Paused and in-flight runs are never touched. Shutdown stops the janitor.
+func (rt *WorkflowRuntime) startHistoryJanitor() {
+	// Tick fast enough for a 10-minute default grace to feel prompt, slow
+	// enough to be invisible; a configured TTL always gets a proportional
+	// interval.
+	interval := rt.runHistoryTTL / 10
+	if interval < time.Minute {
+		interval = time.Minute
+	}
+	rt.janitorStop = make(chan struct{})
+	rt.janitorDone = make(chan struct{})
+	stop, done := rt.janitorStop, rt.janitorDone
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				rt.purgeExpiredRuns()
+			}
+		}
+	}()
+}
+
+// purgeExpiredRuns drops in-memory bookkeeping for terminal runs whose
+// EndTime is older than the applicable horizon: stores + rerun indexes after
+// the store grace (RunHistoryTTL or the 10-minute default), and audit
+// history (runMetas/outcomes) after RunHistoryTTL when the host set one.
+func (rt *WorkflowRuntime) purgeExpiredRuns() {
+	now := time.Now()
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for runID, meta := range rt.runMetas {
+		if meta.Status != timeline.StatusComplete && meta.Status != timeline.StatusFailed {
+			continue
+		}
+		if meta.EndTime == nil {
+			continue
+		}
+		ended := time.UnixMilli(*meta.EndTime)
+
+		// Tier 1: state store + rerun index, after the store grace.
+		storeHorizon := defaultStoreGrace
+		if rt.runHistoryTTL > 0 {
+			storeHorizon = rt.runHistoryTTL
+		}
+		if now.Sub(ended) >= storeHorizon {
+			delete(rt.stores, runID)
+			delete(rt.rerunIdx, runID)
+		}
+
+		// Tier 2: audit history, only with an explicit TTL.
+		if rt.runHistoryTTL > 0 && now.Sub(ended) >= rt.runHistoryTTL {
+			delete(rt.runMetas, runID)
+			delete(rt.outcomes, runID)
+		}
+	}
 }
 
 // initResources initializes workflow-scoped services (cached) and run/transient

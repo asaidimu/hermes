@@ -16,11 +16,11 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// @note #review-20260910-010 todo status=open priority=P2 tags=#review,#style : gofmt -s was not clean — 12 files failed gofmt -s -l at review time
+// @note #review-20260910-010 todo status=resolved priority=P2 tags=#review,#style : gofmt -s was not clean — 12 files failed gofmt -s -l at review time
 // @author hermes-review
 //
-// gofmt -s -l . (go1.27rc1) listed 12 files before this review's mechanical
-// pass: pkg/actionlog/actionlog.go, pkg/effect/effect.go,
+// Resolved: gofmt -s -l . (go1.27rc1) listed 12 files before this review's
+// mechanical pass: pkg/actionlog/actionlog.go, pkg/effect/effect.go,
 // pkg/nodekit/typed_test.go, pkg/nodes/pause/pause_test.go,
 // pkg/pipeline/checkpoint.go, pkg/pipeline/stage.go,
 // pkg/replay/replayer_test.go, pkg/runtime/requirements_test.go,
@@ -28,9 +28,11 @@ import (
 // tests/actionlog_test.go, tests/fork_while_workflow_test.go. This file's
 // step-failure branch (the actLog block inside `if stepErr != nil`) was
 // visibly misindented, and review edits had drifted files to space
-// indentation. The tree has since been normalized with `gofmt -s -w .`;
-// this note now tracks the missing PREVENTION: add a gofmt/goimports (or
-// gofumpt) gate to CI so the drift cannot recur — see #review-20260910-021.
+// indentation. Both halves are closed: the tree was normalized with
+// `gofmt -s -w .` (and stays clean), and the missing PREVENTION is in —
+// `make check` runs a gofmt -s gate and `make test` includes it via
+// vet+race (see the resolved #review-20260910-021), so CI now rejects the
+// drift this note tracked.
 // resolver (optional) resolves run-scoped resource keys ("resource:<id>") into handles.
 // actLog (optional) records every step event for the unified observability log.
 // rerunIndex stamps each entry so retries get separate audit trails.
@@ -129,6 +131,7 @@ func ExecuteStageSteps(
 				actLog.Append(stageCtx, actionlog.Entry{
 					RunID:      runID,
 					RerunIndex: rerunIndex,
+					PipelineID: pipelineID,
 					Kind:       actionlog.KindStepStarted,
 					Type:       "step:start",
 					StageID:    stage.ID,
@@ -160,31 +163,40 @@ func ExecuteStageSteps(
 
 				pCtx := NewPipelineContext(runID, pipelineID, stage.ID, sID, stepPath, logger,
 					WithResourceResolver(resolver), WithRunEnv(runEnv), WithSecretLookup(secretLookup))
-				// @note #review-20260910-009 issue status=open priority=P2 tags=#review,#concurrency,#api : Actions execute while the store read lock is held — Store.Update from an action self-deadlocks
+				// @note #review-20260910-009 issue status=resolved priority=P2 tags=#review,#concurrency,#api : Actions executed while the store read lock was held — Store.Update from an action self-deadlocked
 				// @author hermes-review
 				//
-				// step.Action runs inside st.Read's callback, i.e. under MemoryStore's
-				// RLock (Read hands out the LIVE state map, not a copy). Two hazards:
+				// Resolved: the action now runs on a DEEP-COPIED snapshot,
+				// OUTSIDE the store lock. Previously the action ran inside
+				// st.Read's callback, i.e. under MemoryStore's RLock with
+				// the LIVE state map handed to it. Two hazards:
 				//
-				// 1. NodeRunContext.Store is exposed to runners; any custom node that
-				//    calls nCtx.Store.Update (or pcxt.Write) while executing
-				//    deadlocks itself 100% of the time — RWMutex cannot upgrade a read
-				//    lock to a write lock in the same goroutine. Today's built-in nodes
-				//    only Update from ROUTERS (called outside st.Read), so the engine
-				//    passes its own test suite, but the API invites extension authors
-				//    into a guaranteed deadlock with no documentation of the constraint.
-				// 2. Arbitrary user code (JS sandbox, HTTP retries) runs while the lock
-				//    is held, serializing all concurrent steps in the stage for the
-				//    action's whole duration and stretching the lock hold time.
+				// 1. Arbitrary user code (JS sandbox, HTTP retries) ran while
+				//    the lock was held, serializing all concurrent steps in
+				//    the stage for the action's whole duration and stretching
+				//    the lock hold time.
+				// 2. The live map meant any direct mutation of `state`
+				//    (node bug, JS `state.x = …` — see #review-20260910-011)
+				//    raced concurrent readers of the same map — Go's fatal
+				//    concurrent-map-write panic, unrecoverable by design —
+				//    and mutated store state bypassing the atomic stage
+				//    commit, so recorded deltas diverged from real state.
 				//
-				// Fix direction: snapshot a deep copy for the action (stateSnapshot
-				// already exists), or document + enforce that actions must not touch
-				// the store, and hide Store from NodeRunContext during Run.
+				// The deep copy is taken under the lock (cheap, bounded by
+				// the copy) and the action then runs lock-free on a private
+				// map: concurrent steps no longer serialize behind user
+				// code, direct mutations can no longer touch the store, and
+				// the only write path remains the returned mutator —
+				// committed atomically at stage end, matching the
+				// StepAction contract's "read-only view" wording.
+				var stateCopy map[string]any
 				snapshotErr := st.Read(func(state map[string]any) error {
-					mutator, stepErr = executeStepAttempt(stepAttemptCtx, pCtx, step, state)
+					stateCopy = store.DeepCopyMap(state)
 					return nil
 				})
-				if snapshotErr != nil && stepErr == nil {
+				if snapshotErr == nil {
+					mutator, stepErr = executeStepAttempt(stepAttemptCtx, pCtx, step, stateCopy)
+				} else {
 					stepErr = snapshotErr
 				}
 				if stepCancel != nil {
@@ -215,6 +227,7 @@ func ExecuteStageSteps(
 						actLog.Append(stageCtx, actionlog.Entry{
 							RunID:      runID,
 							RerunIndex: rerunIndex,
+							PipelineID: pipelineID,
 							Kind:       actionlog.KindStepRetry,
 							Type:       "step:retry",
 							StageID:    stage.ID,
@@ -240,6 +253,7 @@ func ExecuteStageSteps(
 					actLog.Append(stageCtx, actionlog.Entry{
 						RunID:      runID,
 						RerunIndex: rerunIndex,
+						PipelineID: pipelineID,
 						Kind:       actionlog.KindStepFailed,
 						Type:       "step:failure",
 						StageID:    stage.ID,
@@ -254,6 +268,7 @@ func ExecuteStageSteps(
 					actLog.Append(stageCtx, actionlog.Entry{
 						RunID:      runID,
 						RerunIndex: rerunIndex,
+						PipelineID: pipelineID,
 						Kind:       actionlog.KindEffectFailed,
 						StageID:    stage.ID,
 						StepID:     sID,
@@ -311,6 +326,7 @@ func ExecuteStageSteps(
 				actLog.Append(stageCtx, actionlog.Entry{
 					RunID:      runID,
 					RerunIndex: rerunIndex,
+					PipelineID: pipelineID,
 					Kind:       actionlog.KindStepCompleted,
 					Type:       "step:success",
 					StageID:    stage.ID,
@@ -328,6 +344,7 @@ func ExecuteStageSteps(
 				actLog.Append(stageCtx, actionlog.Entry{
 					RunID:      runID,
 					RerunIndex: rerunIndex,
+					PipelineID: pipelineID,
 					Kind:       actionlog.KindEffectCompleted,
 					StageID:    stage.ID,
 					StepID:     sID,

@@ -54,14 +54,14 @@ func TestRebuild_PureStepsOnly(t *testing.T) {
 	// Simulate: run the pipeline, get entries in the log (none for pure steps)
 	runID := "run-pure"
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
 	})
 
 	// Rebuild with no entries — pure steps re-execute
-	st, addr, err := rp.Rebuild(ctx, runID)
+	st, addr, err := rp.Rebuild(ctx, runID, def.ID)
 	require.NoError(t, err)
 	require.Empty(t, addr.Stage, "should return empty address (run completed)")
 
@@ -133,13 +133,13 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 	}
 
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
 	})
 
-	st, addr, err := rp.Rebuild(ctx, runID)
+	st, addr, err := rp.Rebuild(ctx, runID, def.ID)
 	require.NoError(t, err)
 	require.Empty(t, addr.Stage, "run should have completed")
 
@@ -203,13 +203,13 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 	}
 
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
 	})
 
-	st, addr, err := rp.Rebuild(ctx, runID)
+	st, addr, err := rp.Rebuild(ctx, runID, def.ID)
 	require.NoError(t, err)
 	require.Equal(t, "stage-2", addr.Stage)
 	require.Equal(t, "http-step-2", addr.Step)
@@ -264,13 +264,13 @@ func TestRebuild_PureBeforeEffectful(t *testing.T) {
 
 	// No entries in the log — effectful step hasn't run yet
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
 	})
 
-	st, addr, err := rp.Rebuild(ctx, runID)
+	st, addr, err := rp.Rebuild(ctx, runID, def.ID)
 	require.NoError(t, err)
 	require.Equal(t, "stage-2", addr.Stage)
 	require.Equal(t, "effectful-step", addr.Step)
@@ -349,7 +349,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 	}
 
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
@@ -358,7 +358,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 	// Routing entry says "finish" — Replayer jumps to "finish" stage,
 	// skipping "middle". "finish" has a pure step that re-executes,
 	// no routing entry, so the run completes.
-	st, addr, err := rp.Rebuild(ctx, runID)
+	st, addr, err := rp.Rebuild(ctx, runID, def.ID)
 	require.NoError(t, err)
 	require.Empty(t, addr.Stage, "run should have completed (jumped to finish)")
 
@@ -378,7 +378,7 @@ func TestRebuild_DefinitionNotFound(t *testing.T) {
 		return nil, false
 	})
 
-	_, _, err := rp.Rebuild(context.Background(), "nonexistent")
+	_, _, err := rp.Rebuild(context.Background(), "nonexistent", "nonexistent-pipeline")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no pipeline definition")
 }
@@ -431,7 +431,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 	}
 
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
@@ -439,7 +439,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 
 	// The failing step IS recorded (KindEffectFailed), so Rebuild
 	// treats it as "completed" and moves to the next stage.
-	st, addr, err := rp.Rebuild(ctx, runID)
+	st, addr, err := rp.Rebuild(ctx, runID, def.ID)
 	require.NoError(t, err)
 	require.Equal(t, "stage-2", addr.Stage)
 	require.Equal(t, "next-step", addr.Step)
@@ -496,21 +496,21 @@ func TestStateAt(t *testing.T) {
 	}
 
 	rp := NewReplayer(log, func(id string) (*pipeline.PipelineDefinition, bool) {
-		if id == runID {
+		if id == def.ID {
 			return def, true
 		}
 		return nil, false
 	})
 
 	// State at "after step-a" — only a should exist
-	state, err := rp.StateAt(ctx, runID, StepAddress{Stage: "stage-1", Step: "step-b"})
+	state, err := rp.StateAt(ctx, runID, def.ID, StepAddress{Stage: "stage-1", Step: "step-b"})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), state["a"])
 	_, hasB := state["b"]
 	require.False(t, hasB)
 
 	// State at "after stage-1" — a and b should exist
-	state, err = rp.StateAt(ctx, runID, StepAddress{Stage: "stage-2"})
+	state, err = rp.StateAt(ctx, runID, def.ID, StepAddress{Stage: "stage-2"})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), state["a"])
 	require.Equal(t, int64(2), state["b"])

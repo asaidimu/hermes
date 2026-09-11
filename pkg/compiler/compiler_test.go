@@ -893,3 +893,22 @@ func TestDistributeRequiresBody(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestCompileRejectsQueryNode pins the resolved #review-20260910-016: the
+// query node is an experimental stub (every execution failed), so workflows
+// using it must fail at COMPILE time — where the canvas is authored — rather
+// than at runtime.
+func TestCompileRejectsQueryNode(t *testing.T) {
+	nodes := []compiler.Node{
+		execNode("trigger-1", "trigger", map[string]any{}),
+		execNode("q-1", "query", map[string]any{"operation": "find"}),
+	}
+	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "q-1", "")}
+	_, err := compiler.Compile(nodes, edges, nil)
+	if err == nil {
+		t.Fatal("expected compile error for experimental query node, got nil")
+	}
+	if !strings.Contains(err.Error(), "not yet implemented") {
+		t.Errorf("error should name the unimplemented node, got: %v", err)
+	}
+}

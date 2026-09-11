@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-10T13:23:57.990043886Z",
+  "generatedAt": "2026-09-11T08:56:39.043659687Z",
   "root": ".",
   "notes": {
     "review-20260822-001": {
@@ -281,9 +281,9 @@
       "body": "Fixed by using comma-ok type assertion to prevent runtime panics\nwhen instruction is not a PauseInstruction.\n",
       "location": {
         "file": "pkg/pipeline/context.go",
-        "startLine": 543,
+        "startLine": 554,
         "startCol": 3,
-        "endLine": 546,
+        "endLine": 557,
         "endCol": 3
       },
       "hash": "e81d4dc1ef034989"
@@ -341,9 +341,9 @@
       "body": "Resolved: Use time.NewTimer with explicit defer timer.Stop().\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1275,
+        "startLine": 1324,
         "startCol": 3,
-        "endLine": 1277,
+        "endLine": 1326,
         "endCol": 3
       },
       "hash": "9b1afa0cbb18acc7"
@@ -356,9 +356,9 @@
       "body": "Resolved: Snapshot toResume candidates, route entries, and workflow records under a single lock acquisition.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 661,
+        "startLine": 689,
         "startCol": 3,
-        "endLine": 663,
+        "endLine": 691,
         "endCol": 3
       },
       "hash": "f1d1814de29a0cef"
@@ -371,9 +371,9 @@
       "body": "Resolved: propagate the error. Register already returns\nerror and is called at workflow-registration time (not from\na hot path), so failing registration outright when a cron\ntrigger can't be scheduled (e.g. invalid cron expression) is\nthe correct behavior — silently registering a workflow whose\ntrigger will never fire is strictly worse than failing loud\nat registration.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 508,
+        "startLine": 536,
         "startCol": 3,
-        "endLine": 516,
+        "endLine": 544,
         "endCol": 3
       },
       "hash": "3d5b648cd2e942d2"
@@ -431,9 +431,9 @@
       "body": "Resolved: log the error instead of silently discarding it.\nContinuing the loop on failure (rather than aborting the\nresume) matches the same \"best-effort but now visible\" choice\nmade for the sibling issue in pause.go's PipelinesRouterFunc\n(review-20260822-046) — failing the whole resume because one\npayload key couldn't be written felt like too large a\nbehavior change to make blind, without tests to confirm nothing\nrelies on partial-success resume semantics.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 910,
+        "startLine": 938,
         "startCol": 3,
-        "endLine": 919,
+        "endLine": 947,
         "endCol": 3
       },
       "hash": "cecd2e6838db90d7"
@@ -446,9 +446,9 @@
       "body": "Resolved: store the cancellable context on jobState and pass it to\nthe callback (js.ctx) instead of a fresh context.Background() at fire\ntime. Cancel()/Shutdown() calling js.cancel() now actually reaches\nthe callback via ctx.Done() / ctx.Err(), instead of being pure dead\ncode that only cancelled a context nothing observed.\n",
       "location": {
         "file": "pkg/scheduler/inmemory.go",
-        "startLine": 35,
+        "startLine": 42,
         "startCol": 3,
-        "endLine": 41,
+        "endLine": 48,
         "endCol": 3
       },
       "hash": "af969fa56856d194"
@@ -521,9 +521,9 @@
       "body": "Resolved: dropped the trailing period per Go convention.\n",
       "location": {
         "file": "pkg/compiler/compiler.go",
-        "startLine": 511,
+        "startLine": 534,
         "startCol": 3,
-        "endLine": 513,
+        "endLine": 536,
         "endCol": 3
       },
       "hash": "dd8f77399ef59ada"
@@ -536,9 +536,9 @@
       "body": "Resolved: dropped the trailing period and lowercased the\nleading word per Go convention.\n",
       "location": {
         "file": "pkg/compiler/compiler.go",
-        "startLine": 518,
+        "startLine": 541,
         "startCol": 3,
-        "endLine": 521,
+        "endLine": 544,
         "endCol": 3
       },
       "hash": "4e6d87a296d45f4b"
@@ -554,9 +554,9 @@
       ],
       "location": {
         "file": "pkg/scheduler/inmemory.go",
-        "startLine": 80,
+        "startLine": 86,
         "startCol": 3,
-        "endLine": 91,
+        "endLine": 97,
         "endCol": 3
       },
       "hash": "28ddd613a2068aaf"
@@ -572,9 +572,9 @@
       ],
       "location": {
         "file": "pkg/pipeline/context.go",
-        "startLine": 982,
+        "startLine": 1009,
         "startCol": 3,
-        "endLine": 995,
+        "endLine": 1022,
         "endCol": 3
       },
       "hash": "3a882f0a577ab836"
@@ -644,9 +644,9 @@
       ],
       "location": {
         "file": "pkg/scheduler/scheduler_test.go",
-        "startLine": 95,
+        "startLine": 96,
         "startCol": 3,
-        "endLine": 105,
+        "endLine": 106,
         "endCol": 3
       },
       "hash": "7e9dda10f85673a4"
@@ -734,9 +734,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1104,
+        "startLine": 1145,
         "startCol": 3,
-        "endLine": 1121,
+        "endLine": 1162,
         "endCol": 3
       },
       "hash": "6b8a8df608701332"
@@ -755,9 +755,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1020,
+        "startLine": 1060,
         "startCol": 3,
-        "endLine": 1032,
+        "endLine": 1072,
         "endCol": 3
       },
       "hash": "53725b1e8fc1d32b"
@@ -766,37 +766,37 @@
       "id": "review-20260910-003",
       "category": "issue",
       "status": "open",
-      "title": "DefinitionResolver answers every id with the root pipeline definition",
-      "body": "The Replayer resolves pipeline definitions by id, but this resolver\nreturns pdef (the run's root pipeline) for ANY resolvedID. Runs that\ncontain subpipelines (fork branches, try-catch bodies, distribute\nchildren, pipeline-ref stages) log entries under child pipeline ids;\nreplaying those entries against the root definition can attribute\nstages to the wrong pipeline and produce wrong resume addresses.\nCombined with #review-20260910-015 (log entries carry no subpipeline\nidentity) event-sourced recovery is only trustworthy for linear,\nsubpipeline-free pipelines today. Consider resolving from the\ncompiled workflow (all pipelines) instead of the single root def.\n",
+      "title": "DefinitionResolver answered every id with the root pipeline definition",
+      "body": "Resolved: the resolver now answers with the definition the id\nactually names, looked up across the whole compiled workflow\n(Workflow.FindPipeline: the trigger-keyed Pipelines map, then\nsubpipeline definitions embedded in stages, recursively).\nPreviously it returned pdef (the run's root pipeline) for ANY\nresolvedID, so runs containing subpipelines (fork branches,\ntry-catch bodies, distribute children, pipeline-ref stages)\nreplayed child entries against the root definition,\nattributing stages to the wrong pipeline and producing wrong\nresume addresses. Combined with the per-pipeline entry\npartitioning from #review-20260910-015 (the resolver now keys\non pipeline id, not run id), event-sourced recovery is\ntrustworthy for subpipeline-bearing pipelines. Dynamic\ndistribute children are runtime-generated and are never\nresolved here — the Replayer regenerates them from the parent\nstage's DynamicPipelines closure.\n",
       "authors": [
         "hermes-review"
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 972,
+        "startLine": 1000,
         "startCol": 3,
-        "endLine": 984,
+        "endLine": 1018,
         "endCol": 3
       },
-      "hash": "cd51821a8eb0e47b"
+      "hash": "3c1b4dc4fb8de79a"
     },
     "review-20260910-004": {
       "id": "review-20260910-004",
       "category": "issue",
       "status": "open",
-      "title": "Per-run bookkeeping maps are never evicted",
-      "body": "rt.stores, rt.outcomes, rt.runMetas and rt.rerunIdx only ever gain\nentries (delete(rt.stores/...) has no matches in this file); only\nrt.active and rt.paused are pruned. A long-lived host accumulates one\nfull state map per run forever — for workflows with sizeable state\nthis is a genuine leak, not just metadata growth. Needs an eviction\npolicy (TTL, LRU, or explicit purge after OnComplete + outcome read).\n",
+      "title": "Per-run bookkeeping maps were never evicted",
+      "body": "Resolved with a janitor-based eviction policy. rt.stores, rt.outcomes,\nrt.runMetas and rt.rerunIdx previously only ever gained entries (only\nrt.active/rt.paused were pruned), so a long-lived host accumulated one\nfull state map per run forever — a genuine leak, not just metadata\ngrowth. Two tiers now:\n\n 1. STATE STORES + rerun indexes (the leak proper) are always evicted once\n    a run is terminal and its grace horizon has passed — RunHistoryTTL when\n    set, else a 10-minute default (defaultStoreGrace). The grace preserves\n    the documented post-completion read pattern (rt.Store(runID)\n    immediately after a run finishes, and the #review-20260910-002\n    canonical-store contract asserted by tests) while still bounding\n    memory; the final state stays reachable via GetRunOutcome and the\n    action log. An immediate purge at the terminal write was tried first\n    and rejected: it nils rt.Store(runID) the moment a run completes,\n    breaking hosts that read the run's document afterwards.\n 2. AUDIT HISTORY (runMetas for ListRuns, outcomes for GetRunOutcome) is\n    evicted only when the host opts in with Options.RunHistoryTTL; the\n    default keeps it forever, matching the pre-fix audit behavior.\n\nPaused and in-flight runs are never touched. Shutdown stops the janitor.\n",
       "authors": [
         "hermes-review"
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1331,
+        "startLine": 1645,
         "startCol": 3,
-        "endLine": 1339,
+        "endLine": 1668,
         "endCol": 3
       },
-      "hash": "9e1c7032e36d594a"
+      "hash": "723f573505519a1d"
     },
     "review-20260910-005": {
       "id": "review-20260910-005",
@@ -809,9 +809,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 315,
+        "startLine": 343,
         "startCol": 3,
-        "endLine": 328,
+        "endLine": 356,
         "endCol": 3
       },
       "hash": "6f95867e8783d9ad"
@@ -827,9 +827,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1318,
+        "startLine": 1367,
         "startCol": 3,
-        "endLine": 1328,
+        "endLine": 1377,
         "endCol": 3
       },
       "hash": "c1ca5199b3487ab6"
@@ -866,9 +866,9 @@
       ],
       "location": {
         "file": "pkg/pipeline/stage.go",
-        "startLine": 70,
+        "startLine": 72,
         "startCol": 3,
-        "endLine": 90,
+        "endLine": 92,
         "endCol": 3
       },
       "hash": "936b2ccfdd66c723"
@@ -877,26 +877,26 @@
       "id": "review-20260910-009",
       "category": "issue",
       "status": "open",
-      "title": "Actions execute while the store read lock is held — Store.Update from an action self-deadlocks",
-      "body": "step.Action runs inside st.Read's callback, i.e. under MemoryStore's\nRLock (Read hands out the LIVE state map, not a copy). Two hazards:\n\n1. NodeRunContext.Store is exposed to runners; any custom node that\n   calls nCtx.Store.Update (or pcxt.Write) while executing\n   deadlocks itself 100% of the time — RWMutex cannot upgrade a read\n   lock to a write lock in the same goroutine. Today's built-in nodes\n   only Update from ROUTERS (called outside st.Read), so the engine\n   passes its own test suite, but the API invites extension authors\n   into a guaranteed deadlock with no documentation of the constraint.\n2. Arbitrary user code (JS sandbox, HTTP retries) runs while the lock\n   is held, serializing all concurrent steps in the stage for the\n   action's whole duration and stretching the lock hold time.\n\nFix direction: snapshot a deep copy for the action (stateSnapshot\nalready exists), or document + enforce that actions must not touch\nthe store, and hide Store from NodeRunContext during Run.\n",
+      "title": "Actions executed while the store read lock was held — Store.Update from an action self-deadlocked",
+      "body": "Resolved: the action now runs on a DEEP-COPIED snapshot,\nOUTSIDE the store lock. Previously the action ran inside\nst.Read's callback, i.e. under MemoryStore's RLock with\nthe LIVE state map handed to it. Two hazards:\n\n1. Arbitrary user code (JS sandbox, HTTP retries) ran while\n   the lock was held, serializing all concurrent steps in\n   the stage for the action's whole duration and stretching\n   the lock hold time.\n2. The live map meant any direct mutation of `state`\n   (node bug, JS `state.x = …` — see #review-20260910-011)\n   raced concurrent readers of the same map — Go's fatal\n   concurrent-map-write panic, unrecoverable by design —\n   and mutated store state bypassing the atomic stage\n   commit, so recorded deltas diverged from real state.\n\nThe deep copy is taken under the lock (cheap, bounded by\nthe copy) and the action then runs lock-free on a private\nmap: concurrent steps no longer serialize behind user\ncode, direct mutations can no longer touch the store, and\nthe only write path remains the returned mutator —\ncommitted atomically at stage end, matching the\nStepAction contract's \"read-only view\" wording.\n",
       "authors": [
         "hermes-review"
       ],
       "location": {
         "file": "pkg/pipeline/stage.go",
-        "startLine": 162,
+        "startLine": 165,
         "startCol": 3,
-        "endLine": 181,
+        "endLine": 190,
         "endCol": 3
       },
-      "hash": "611e6b53ab9197f1"
+      "hash": "d07520132a956f2c"
     },
     "review-20260910-010": {
       "id": "review-20260910-010",
       "category": "todo",
       "status": "open",
       "title": "gofmt -s was not clean — 12 files failed gofmt -s -l at review time",
-      "body": "gofmt -s -l . (go1.27rc1) listed 12 files before this review's mechanical\npass: pkg/actionlog/actionlog.go, pkg/effect/effect.go,\npkg/nodekit/typed_test.go, pkg/nodes/pause/pause_test.go,\npkg/pipeline/checkpoint.go, pkg/pipeline/stage.go,\npkg/replay/replayer_test.go, pkg/runtime/requirements_test.go,\npkg/runtime/runtime.go, pkg/runtime/runtime_test.go,\ntests/actionlog_test.go, tests/fork_while_workflow_test.go. This file's\nstep-failure branch (the actLog block inside `if stepErr != nil`) was\nvisibly misindented, and review edits had drifted files to space\nindentation. The tree has since been normalized with `gofmt -s -w .`;\nthis note now tracks the missing PREVENTION: add a gofmt/goimports (or\ngofumpt) gate to CI so the drift cannot recur — see #review-20260910-021.\nresolver (optional) resolves run-scoped resource keys (\"resource:\u003cid\u003e\") into handles.\nactLog (optional) records every step event for the unified observability log.\nrerunIndex stamps each entry so retries get separate audit trails.\n",
+      "body": "Resolved: gofmt -s -l . (go1.27rc1) listed 12 files before this review's\nmechanical pass: pkg/actionlog/actionlog.go, pkg/effect/effect.go,\npkg/nodekit/typed_test.go, pkg/nodes/pause/pause_test.go,\npkg/pipeline/checkpoint.go, pkg/pipeline/stage.go,\npkg/replay/replayer_test.go, pkg/runtime/requirements_test.go,\npkg/runtime/runtime.go, pkg/runtime/runtime_test.go,\ntests/actionlog_test.go, tests/fork_while_workflow_test.go. This file's\nstep-failure branch (the actLog block inside `if stepErr != nil`) was\nvisibly misindented, and review edits had drifted files to space\nindentation. Both halves are closed: the tree was normalized with\n`gofmt -s -w .` (and stays clean), and the missing PREVENTION is in —\n`make check` runs a gofmt -s gate and `make test` includes it via\nvet+race (see the resolved #review-20260910-021), so CI now rejects the\ndrift this note tracked.\nresolver (optional) resolves run-scoped resource keys (\"resource:\u003cid\u003e\") into handles.\nactLog (optional) records every step event for the unified observability log.\nrerunIndex stamps each entry so retries get separate audit trails.\n",
       "authors": [
         "hermes-review"
       ],
@@ -904,17 +904,17 @@
         "file": "pkg/pipeline/stage.go",
         "startLine": 18,
         "startCol": 3,
-        "endLine": 35,
+        "endLine": 37,
         "endCol": 3
       },
-      "hash": "988ef97417a4a3d2"
+      "hash": "5acad132f025cafb"
     },
     "review-20260910-011": {
       "id": "review-20260910-011",
       "category": "issue",
       "status": "open",
-      "title": "Sandbox receives the live state map — JS can mutate store state directly",
-      "body": "nCtx.State is the live map handed out by store.Read (not a copy), and\ngoja binds Go maps by reference — so user JS like `state.count = 999`\nmutates the run store immediately, bypassing the mutator/atomic-stage-\ncommit model entirely. Two consequences: (1) the step's recorded delta\nand returned patch miss direct mutations, so the action log (and the\nReplayer's injected deltas) diverge from real state; (2) since\nExecuteStageSteps runs the action under the store's read lock, a\ndirect mutation races any concurrent reader of the same map (e.g.\nanother step's sandbox in a multi-step stage) — Go's fatal\nconcurrent-map-write panic, unrecoverable by design. Consider\ndeep-copying state before binding it into the VM (store.DeepCopyMap)\nand merging only the returned patch.\n",
+      "title": "Sandbox received the live state map — JS could mutate store state directly",
+      "body": "Resolved: the sandbox now binds a DEEP COPY of state (store.DeepCopyMap)\nand only the returned patch reaches the store. Previously nCtx.State\nwas bound into the goja VM by reference, so user JS like\n`state.count = 999` mutated whatever map the caller handed over,\nbypassing the mutator/atomic-stage-commit model: the step's recorded\ndelta missed direct mutations (action log / Replayer deltas diverged\nfrom real state), and when the caller was ExecuteStageSteps' read\npath the mutation raced concurrent readers — Go's fatal\nconcurrent-map-write panic, unrecoverable by design.\n\nThe node-level copy is deliberately independent of the step engine's\nown snapshot (#review-20260910-009): the replay path (replayStep) and\nany other caller that passes a live map are covered here too, and the\ncontract is now local to this node rather than an assumption about\nevery caller. Direct JS mutations hit the private copy and are\ndiscarded; the returned patch is the only write path.\n",
       "authors": [
         "hermes-review"
       ],
@@ -922,17 +922,17 @@
         "file": "pkg/nodes/code/code.go",
         "startLine": 37,
         "startCol": 3,
-        "endLine": 51,
+        "endLine": 55,
         "endCol": 3
       },
-      "hash": "bbe082d3103572a4"
+      "hash": "a5a06a3f63f8a907"
     },
     "review-20260910-012": {
       "id": "review-20260910-012",
       "category": "issue",
       "status": "open",
       "title": "Checkpoint persistence failure is silently discarded on pause",
-      "body": "When Persist is set, the checkpoint write is best-effort with the\nerror dropped via `_ =` — yet everything downstream (the emitted\npipeline:pause event, the returned \"paused\" result, the runtime's\npausedRun registration) proceeds as if persistence succeeded. For a\nPersist=true pause whose store write fails, the run reports paused\nbut nothing durable records where to resume; the legacy checkpoint\nresume path then finds no checkpoint (\"no checkpoint found in\ndocument\") and recovery dead-ends. Sibling instances of the same\npattern in this file: the default sub-pipeline state merge and the\nnested-checkpoint write in the Run loop, both `_ = r.store.Update`.\nAt minimum log the failure like review-20260822-033 does; ideally\nfail the pause (return the error) since a lost checkpoint invalidates\nthe whole paused-run contract.\n",
+      "body": "Resolved: a failed Persist checkpoint write now FAILS THE PAUSE.\nEverything downstream (the pipeline:pause event, the \"paused\"\nresult, the runtime's pausedRun registration) used to proceed as\nif persistence had succeeded, so a run whose store write failed\nreported paused with nothing durable recording where to resume —\nthe legacy checkpoint resume path then found no checkpoint and\nrecovery dead-ended. A lost checkpoint invalidates the whole\npaused-run contract, so the error surfaces as a failed stage/run\ninstead of a fake pause. The sibling discarded-update sites in\nthis file (nested-checkpoint bubbling below, default sub-pipeline\nmerge) are best-effort by design and now LOG failures like\nreview-20260822-033 does.\n",
       "authors": [
         "hermes-review"
       ],
@@ -941,19 +941,19 @@
       ],
       "location": {
         "file": "pkg/pipeline/context.go",
-        "startLine": 802,
+        "startLine": 813,
         "startCol": 3,
-        "endLine": 818,
+        "endLine": 828,
         "endCol": 3
       },
-      "hash": "e0ba0d9aece3d03b"
+      "hash": "29adc90892fac582"
     },
     "review-20260910-013": {
       "id": "review-20260910-013",
       "category": "issue",
       "status": "open",
-      "title": "Invalid cron expressions are accepted and silently fire hourly",
-      "body": "Schedule never validates the expression: CronDelay falls back to a\n1-hour delay (after a slog.Warn) for anything it cannot parse, so\nruntime.Register with a typo'd cron trigger — e.g. \"30 * * *\"\n(4 fields) or \"@evry 5m\" — SUCCEEDS and the trigger fires every hour\nforever. This contradicts the resolution of #review-20260822-040,\nwhich states invalid cron expressions fail registration loudly; that\nenforcement never actually happens because the error never reaches\nSchedule's caller. Fix: parse/validate the expression here and return\nan error (Register already propagates Schedule errors), keeping the\n1-hour fallback only for the recursive re-arm path where an error\nreturn is impossible.\n",
+      "title": "Invalid cron expressions were accepted and silently fired hourly",
+      "body": "Resolved: Schedule now VALIDATES the expression (ValidateCron) and\nreturns an error before registering anything, so a typo'd cron\ntrigger — e.g. \"30 * * *\" (4 fields) or \"@evry 5m\" — fails\nregistration loudly (runtime.Register already propagates Schedule\nerrors) instead of succeeding and firing every hour forever. This\nfinally enforces what #review-20260822-040's resolution promised.\nThe 1-hour fallback inside CronDelay remains only for the recursive\nre-arm path (scheduleNextLocked), where an error return is\nimpossible — an expression that reached a timer can only have come\nfrom a validated Schedule.\n",
       "authors": [
         "hermes-review"
       ],
@@ -963,12 +963,12 @@
       ],
       "location": {
         "file": "pkg/scheduler/inmemory.go",
-        "startLine": 47,
+        "startLine": 54,
         "startCol": 3,
-        "endLine": 62,
+        "endLine": 68,
         "endCol": 3
       },
-      "hash": "fe10c5fef7e35468"
+      "hash": "51b97cb730b0f168"
     },
     "review-20260910-014": {
       "id": "review-20260910-014",
@@ -992,8 +992,8 @@
       "id": "review-20260910-015",
       "category": "issue",
       "status": "open",
-      "title": "Log indexing by bare stage/step IDs collapses concurrent subpipeline instances",
-      "body": "indexByStepID/indexByStage key entries by StepID/StageID alone, and\nactionlog.Entry has no subpipeline identity field. Workflows compiled\nwith distribute (and fork) clone the SAME body stages/step ids into N\nconcurrent child pipelines, so N instances of a step share one ID:\nonly the FIRST completion entry survives indexing, deltas from the\nother children are silently dropped, and a routing handle recorded by\none child steers every child's replay. Rebuild/StateAt are therefore\nonly faithful for subpipeline-free pipelines (or children with\nglobally unique stage ids). A durable fix needs a path-qualified\naddress (pipeline id chain + per-instance suffix) in both the log\nentries and this index — a schema change to actionlog.Entry.\nBuild a stage-indexed lookup for jump resolution.\n",
+      "title": "Log indexing by bare stage/step IDs collapsed concurrent subpipeline instances",
+      "body": "Resolved: log entries now carry a PipelineID (schema change to\nactionlog.Entry, stamped by RunContextImpl.appendLog, ExecuteStageSteps\nand the runtime's resume entry), and the Replayer partitions entries per\npipeline (partitionByPipeline) instead of indexing all of a run's entries\nby bare stage/step id. Workflows compiled with distribute (and fork)\nclone the SAME body stage/step ids into N concurrent child pipelines; the\nold flat index kept only the FIRST completion entry per step id, silently\ndropped the other children's deltas, and let one child's routing handle\nsteer every child's replay. Now each child instance's entries are replayed\nagainst its own definition and store (replaySubpipelineStage — child defs\nresolved statically, or regenerated via the stage's DynamicPipelines\nclosure exactly like the runtime does), seeded/cloned like\nExecuteSubPipelines, and merged into the parent with the runtime's\nresultKey/default-merge semantics (mergeChildResult). Child pauses bubble\nas nested EntryAddress.Pipeline resume addresses. Combined with the\nresolver fix in #review-20260910-003, event-sourced recovery is faithful\nfor subpipeline-bearing pipelines, not just linear ones.\n",
       "authors": [
         "hermes-review"
       ],
@@ -1002,19 +1002,19 @@
       ],
       "location": {
         "file": "pkg/replay/replayer.go",
-        "startLine": 75,
+        "startLine": 148,
         "startCol": 3,
-        "endLine": 90,
+        "endLine": 168,
         "endCol": 3
       },
-      "hash": "d4635cfcb15729eb"
+      "hash": "d563a02200b4a6e7"
     },
     "review-20260910-016": {
       "id": "review-20260910-016",
       "category": "issue",
       "status": "open",
-      "title": "Node is an always-failing stub but the README lists it as production-ready",
-      "body": "Every execution returns \"database resource not yet implemented\" —\nyet README.md's Built-in Node Catalog documents `query` as a working\nproduction node (\"Executes queries against a connected service\nresource\"). Users drawn to the catalog will wire dependency edges and\nfail at runtime with no config-time signal (the node validates fine;\nthe failure only surfaces during execution). Also note the lookup key:\nbuildResourcesFor maps resources by source KIND, so the resolved map\nis keyed \"database\" — this works today by coincidence with the kind\nname, not via the \"resource:\u003cid\u003e\" artifact keys the compiler docs\ndescribe. Either implement the node or hide it from the catalog and\nREADME until it works.\n",
+      "title": "The query node was an always-failing stub listed as production-ready",
+      "body": "Resolved: the node is rejected at COMPILE time instead of failing\nat runtime. Every execution of the query node returned \"database\nresource not yet implemented\", yet the README's node catalog\ndocumented it as a working production node — so users wired\ndependency edges and config into it, validated fine at compile\ntime, and only discovered the dead end during execution. Gating\nhere means canvases using `query` cannot compile dead workflows:\nthe failure surfaces where the graph is authored, with an\nactionable message. The node stays registered (its definition and\nhandles still resolve for the editor) but marked experimental in\nthe catalog until a real resource-backed implementation lands\n(together with the database service node, see the resolved\n#review-20260910-017).\n",
       "authors": [
         "hermes-review"
       ],
@@ -1022,20 +1022,20 @@
         "#review-20260910-017"
       ],
       "location": {
-        "file": "pkg/nodes/query/query.go",
-        "startLine": 36,
+        "file": "pkg/compiler/compiler.go",
+        "startLine": 496,
         "startCol": 3,
-        "endLine": 50,
+        "endLine": 512,
         "endCol": 3
       },
-      "hash": "bf54077687a30519"
+      "hash": "9c3ba68313da92ce"
     },
     "review-20260910-017": {
       "id": "review-20260910-017",
       "category": "issue",
       "status": "open",
-      "title": "Resource node never initializes a handle — the database/query pair is inert",
-      "body": "This node has no ResourceInit/ResourceEnd: the compiler wraps resource\nnodes in a pipeline.Service whose Init returns (nil, nil) when\ndef.ResourceInit == nil, so the runtime resolver publishes a nil handle\nunder \"resource:\u003cid\u003e\", and the query node (which reads nCtx.Resources)\nalways takes its error path. The README still advertises \"database +\nquery\" workflows (fetch, enrich, and persist data on recurring\nintervals). Either wire ResourceInit to a real connection (anansi\npersistence per DatabaseName), or mark both kinds as experimental in the\ncatalog so canvases cannot compile dead workflows.\n",
+      "title": "Resource node never initialized a handle — the database/query pair was inert",
+      "body": "Resolved via the \"mark both kinds as experimental in the catalog\" branch\nof this note. The node still has no ResourceInit/ResourceEnd: the compiler\nwraps resource nodes in a pipeline.Service whose Init returns (nil, nil)\nwhen def.ResourceInit == nil, so the runtime resolver published a nil\nhandle under \"resource:\u003cid\u003e\" and any consumer took its error path — while\nthe README advertised \"database + query\" workflows (fetch, enrich, and\npersist data on recurring intervals). Now: (1) the compiler rejects the\n`query` consumer at compile time (#review-20260910-016), so a dead\ndb+query canvas cannot compile; (2) both kinds are marked\n\"[EXPERIMENTAL — ...]\" in their definitions and the README catalog, so\nauthoring surfaces no longer present them as production-ready; (3) the\nREADME's scheduled-pipelines use case no longer implies working database\npersistence. Wiring a real ResourceInit (anansi persistence per\nDatabaseName) remains the future path to un-experimentalize the pair.\n",
       "authors": [
         "hermes-review"
       ],
@@ -1044,12 +1044,12 @@
       ],
       "location": {
         "file": "pkg/nodes/database/database.go",
-        "startLine": 24,
+        "startLine": 28,
         "startCol": 3,
-        "endLine": 36,
+        "endLine": 45,
         "endCol": 3
       },
-      "hash": "5935f9272c0e585f"
+      "hash": "7f6bea66b8aaff9a"
     },
     "review-20260910-018": {
       "id": "review-20260910-018",
@@ -1109,8 +1109,8 @@
       "id": "review-20260910-021",
       "category": "todo",
       "status": "open",
-      "title": "CI runs `make test` without -race, vet, or gofmt gates",
-      "body": ".github/workflows/test.yaml only runs `make test` (go test -v ./...).\nThree gates the project's own docs promise are missing: (1) README's\n\"Testing \u0026 Quality Standard\" says `go test -race ./...` — the race\ndetector has caught real bugs here before (see #review-20260826-001 in\npkg/scheduler) but CI never exercises it; (2) `go vet ./...` is clean\ntoday and cheap to keep clean; (3) `gofmt -s -l .` currently lists 12\nfiles (see #review-20260910-010) and nothing in CI would have stopped\nthe drift. Cheap fix: make test → go vet ./... \u0026\u0026 go test -race ./...,\nplus a gofmt/goimports check step in the workflow.\n",
+      "title": "CI ran `make test` without -race, vet, or gofmt gates",
+      "body": "Resolved: .github/workflows/test.yaml only ran `make test` (go test -v\n./...). Three gates the project's own docs promise were missing: (1)\nREADME's \"Testing \u0026 Quality Standard\" says `go test -race ./...` — the\nrace detector has caught real bugs here before (see #review-20260826-001\nin pkg/scheduler) but CI never exercised it; (2) `go vet ./...` was clean\nand cheap to keep clean; (3) `gofmt -s -l .` had drifted 12 files (see\nthe resolved #review-20260910-010) with nothing to stop it. Now `make\ntest` runs go vet + go test -race, `make check` adds the gofmt -s gate,\nand CI runs both steps — the gates can no longer drift from local builds.\n",
       "authors": [
         "hermes-review"
       ],
@@ -1121,7 +1121,7 @@
         "endLine": 13,
         "endCol": 3
       },
-      "hash": "d2b1b0d75f26d94b"
+      "hash": "f9047bda6060af4d"
     },
     "review-20260910-022": {
       "id": "review-20260910-022",
@@ -1137,9 +1137,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 933,
+        "startLine": 961,
         "startCol": 3,
-        "endLine": 948,
+        "endLine": 976,
         "endCol": 3
       },
       "hash": "95f0fd8a30d48e1d"
@@ -1158,12 +1158,30 @@
       ],
       "location": {
         "file": "pkg/replay/replayer.go",
-        "startLine": 133,
+        "startLine": 358,
         "startCol": 3,
-        "endLine": 148,
+        "endLine": 373,
         "endCol": 3
       },
       "hash": "566f1afad5091ad3"
+    },
+    "review-20260910-024": {
+      "id": "review-20260910-024",
+      "category": "issue",
+      "status": "open",
+      "title": "StateAt result depended on Go's randomized map iteration order",
+      "body": "StateAt walked def.Stages and, inside the target stage, iterated\nstage.Steps (a map) with an early return on the target step. Go\nrandomizes map iteration, so whether a sibling step's recorded\ndelta was folded in before the early return flipped run to run:\nStateAt(…, StepAddress{Stage: \"stage-1\", Step: \"step-b\"}) returned\nstate WITH step-a's delta about half the time and WITHOUT it the\nother half (caught by TestStateAt failing intermittently in the\nfull-suite run). An unrecorded effectful sibling also aborted the\nwhole projection mid-stage, order-dependently.\n\nResolved: steps in a stage run concurrently (Stage.Execute spawns\none goroutine per step), so \"state at step X\" is only stable as\n\"just before X's own delta landed\". The projection now folds in\nevery non-target sibling deterministically — recorded deltas for\neffectful steps, re-execution for pure ones — skipping the\ntarget's own contribution, and treats an unrecorded effectful\nsibling as \"no delta yet\" instead of aborting.\n",
+      "authors": [
+        "hermes-review"
+      ],
+      "location": {
+        "file": "pkg/replay/replayer.go",
+        "startLine": 108,
+        "startCol": 3,
+        "endLine": 127,
+        "endCol": 3
+      },
+      "hash": "98f7dadfd1a476dc"
     },
     "scoped-bus-opportunity-001": {
       "id": "scoped-bus-opportunity-001",
@@ -1188,9 +1206,9 @@
       "body": "Resolved: scope the per-run bus with a real [\"pipeline\", pipelineID, runID]\npath node instead of an empty EventPath{}. This does not add topic-level\nrouting isolation (MemoryScopedBus still dispatches through its own\nsynchronous handlers map, bubbling to parent — see the note on\nscoped-bus-opportunity-001 for why a wholesale ScopedBus swap isn't\nsafe here), but it does give every event a real, inspectable Path\nidentifying which run produced it, instead of an empty placeholder —\nwhich is what PipelineEvent.Path is actually consumed for (the\nfrontend timeline).\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 953,
+        "startLine": 981,
         "startCol": 3,
-        "endLine": 963,
+        "endLine": 991,
         "endCol": 3
       },
       "hash": "b46cb199231d6f07"
@@ -1218,9 +1236,9 @@
       "body": "Resolved: the durable backend is now real and wireable — see\nevents.NewDurableEventBus / events.WithDurableBackend in\npkg/events/durable.go. Deliberately left opt-in rather than\nmade-default here: a caller who hasn't configured storage\nshouldn't suddenly get Pebble files written to an implicit\ndirectory. To get a durable, replayable event log, construct one\nexplicitly and pass it in via Options.Bus:\n\n  bus, closeBus, err := events.WithDurableBackend(events.DurableBusConfig{\n      Durable: true, BaseDir: \"/var/lib/hermes\", BusKey: \"runtime\",\n  })\n  rt := runtime.New(runtime.Options{Bus: bus, ...})\n  defer closeBus()\n\nLeaving Options.Bus unset keeps today's behavior: a purely\nin-memory bus with no underlying go-events backend at all.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 295,
+        "startLine": 323,
         "startCol": 3,
-        "endLine": 312,
+        "endLine": 340,
         "endCol": 3
       },
       "hash": "ca0eb07f1ce20397"
@@ -1231,13 +1249,13 @@
       "hash": "e4de7c320f971516"
     },
     "pkg/actionlog/actionlog.go": {
-      "hash": "32cf1aad51cf9429"
+      "hash": "89b144240d03c91d"
     },
     "pkg/actionlog/actionlog_test.go": {
       "hash": "2cd0c85cb9413d6a"
     },
     "pkg/actionlog/anansi.go": {
-      "hash": "21839c767c42a582",
+      "hash": "5c061b711047a589",
       "noteIds": [
         "review-20260910-014"
       ]
@@ -1246,14 +1264,15 @@
       "hash": "bf2b4ca3ce06b84b"
     },
     "pkg/compiler/compiler.go": {
-      "hash": "04562f5bcbb53495",
+      "hash": "1e15cb92800bebf7",
       "noteIds": [
         "review-20260825-003",
-        "review-20260825-004"
+        "review-20260825-004",
+        "review-20260910-016"
       ]
     },
     "pkg/compiler/compiler_test.go": {
-      "hash": "b21684cbcf2910a9"
+      "hash": "e48cd3f42553dee5"
     },
     "pkg/compiler/samples_test.go": {
       "hash": "b05ba5b5ef312f6b"
@@ -1358,7 +1377,7 @@
       "hash": "f47627d8a4e6a835"
     },
     "pkg/nodes/code/code.go": {
-      "hash": "a1a8755349cc12e0",
+      "hash": "5f74c6e42dd611d4",
       "noteIds": [
         "review-20260910-011"
       ]
@@ -1367,10 +1386,10 @@
       "hash": "a5759359734e7050"
     },
     "pkg/nodes/code/code_test.go": {
-      "hash": "dce6013c858546c6"
+      "hash": "1a379ac4b898e450"
     },
     "pkg/nodes/database/database.go": {
-      "hash": "e92210489cd53c64",
+      "hash": "61059f6a2d73ddd5",
       "noteIds": [
         "review-20260910-017"
       ]
@@ -1446,7 +1465,7 @@
       ]
     },
     "pkg/nodes/pause/pause_test.go": {
-      "hash": "a7b17a973b66f909"
+      "hash": "8e59fd4b0a7a859b"
     },
     "pkg/nodes/pipeline-ref/pipeleref.go": {
       "hash": "bd20e30855aae692",
@@ -1458,10 +1477,7 @@
       "hash": "98e2886349acd162"
     },
     "pkg/nodes/query/query.go": {
-      "hash": "d8c0aeeff03401b1",
-      "noteIds": [
-        "review-20260910-016"
-      ]
+      "hash": "99a4d3be5d0e5e68"
     },
     "pkg/nodes/query/query.ts": {
       "hash": "adf4b838434f7f57"
@@ -1527,7 +1543,7 @@
       "hash": "48bc1965cf8369fa"
     },
     "pkg/pipeline/context.go": {
-      "hash": "a5931117aa21b4be",
+      "hash": "b4222e46d7697c76",
       "noteIds": [
         "review-20260822-033",
         "review-20260822-034",
@@ -1541,13 +1557,16 @@
       "hash": "a3a07075c365dfe7"
     },
     "pkg/pipeline/factory.go": {
-      "hash": "dd4188818af23e84"
+      "hash": "f6efdf4032dedf57"
+    },
+    "pkg/pipeline/pause_persist_test.go": {
+      "hash": "d993af595607580c"
     },
     "pkg/pipeline/router.go": {
       "hash": "419e835bff44cbdb"
     },
     "pkg/pipeline/stage.go": {
-      "hash": "c22e2804453043a0",
+      "hash": "d8466685376409ce",
       "noteIds": [
         "review-20260910-008",
         "review-20260910-009",
@@ -1556,6 +1575,9 @@
     },
     "pkg/pipeline/stage_panic_test.go": {
       "hash": "fbce589abbca4209"
+    },
+    "pkg/pipeline/stage_snapshot_test.go": {
+      "hash": "c2bf1f916ae8c5c3"
     },
     "pkg/pipeline/subpipeline.go": {
       "hash": "1b10b4d7af3a0a7c",
@@ -1567,29 +1589,36 @@
       "hash": "d1591646b87debe0"
     },
     "pkg/pipeline/workflow.go": {
-      "hash": "d80978c1995b3f8c"
+      "hash": "a5edb348a90fdcf2"
     },
     "pkg/registry/registry.go": {
       "hash": "0c285e1b96e3c53a"
     },
+    "pkg/replay/replay_subpipeline_test.go": {
+      "hash": "219f3db6a1001da1"
+    },
     "pkg/replay/replayer.go": {
-      "hash": "df6ab9e93439f119",
+      "hash": "5d6e2f8fe8a8fd64",
       "noteIds": [
         "review-20260910-015",
-        "review-20260910-023"
+        "review-20260910-023",
+        "review-20260910-024"
       ]
     },
     "pkg/replay/replayer_test.go": {
-      "hash": "e319a33ac0927ba5"
+      "hash": "748cd7eee61550c8"
     },
     "pkg/runtime/calc_run_test.go": {
       "hash": "f4fd35ed10097cfe"
     },
     "pkg/runtime/durable_log_test.go": {
-      "hash": "460dc6897842daf7"
+      "hash": "953def730143eab5"
     },
     "pkg/runtime/eventsource.go": {
       "hash": "0cc0cea146fe3190"
+    },
+    "pkg/runtime/eviction_test.go": {
+      "hash": "6b92cb792f8d2d10"
     },
     "pkg/runtime/hestia_eventsource.go": {
       "hash": "38d79fe2bf637d3c"
@@ -1601,7 +1630,7 @@
       "hash": "6416ef56be3267c3"
     },
     "pkg/runtime/runtime.go": {
-      "hash": "73348cf76698d3ec",
+      "hash": "8f3da0d95c5882ed",
       "noteIds": [
         "review-20260822-038",
         "review-20260822-039",
@@ -1630,7 +1659,7 @@
       ]
     },
     "pkg/scheduler/cron.go": {
-      "hash": "b91a85f80801b22e",
+      "hash": "c1a6838dfd5e8692",
       "noteIds": [
         "review-20260822-053"
       ]
@@ -1639,7 +1668,7 @@
       "hash": "c620113326774f92"
     },
     "pkg/scheduler/inmemory.go": {
-      "hash": "1107ab79457be514",
+      "hash": "dabbddc45db1350d",
       "noteIds": [
         "review-20260822-052",
         "review-20260826-001",
@@ -1650,7 +1679,7 @@
       "hash": "e28728a090c9ae5f"
     },
     "pkg/scheduler/scheduler_test.go": {
-      "hash": "0ec7ebd45d8fbed6",
+      "hash": "f2903000b128e649",
       "noteIds": [
         "review-20260826-009"
       ]
@@ -1717,7 +1746,7 @@
       "hash": "d1e74649c4927238"
     },
     "tests/pipeline_test.go": {
-      "hash": "e2ed449bbdfd1d19",
+      "hash": "98112e960f54fefc",
       "noteIds": [
         "review-20260910-021"
       ]
