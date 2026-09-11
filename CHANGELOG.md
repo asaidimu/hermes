@@ -1,3 +1,17 @@
+# [1.2.0](https://github.com/asaidimu/hermes/compare/v1.1.1...v1.2.0) (2026-09-11)
+
+
+### Bug Fixes
+
+* **actionlog:** detach runId from document identity; durable multi-run action log ([afbf9c7](https://github.com/asaidimu/hermes/commit/afbf9c7573d0b41f20130ff12988937112d32a64)), closes [#review-20260910-024](https://github.com/asaidimu/hermes/issues/review-20260910-024)
+* **engine:** resolve all P2 review findings ([5b94c0a](https://github.com/asaidimu/hermes/commit/5b94c0a542cc4d3daa2521fd7599fd16f2b1905d)), closes [#review-20260910-015](https://github.com/asaidimu/hermes/issues/review-20260910-015) [#review-20260910-003](https://github.com/asaidimu/hermes/issues/review-20260910-003) [#review-20260910-004](https://github.com/asaidimu/hermes/issues/review-20260910-004) [#review-20260910-009](https://github.com/asaidimu/hermes/issues/review-20260910-009) [#review-20260910-011](https://github.com/asaidimu/hermes/issues/review-20260910-011) [#review-20260910-012](https://github.com/asaidimu/hermes/issues/review-20260910-012) [#review-20260910-013](https://github.com/asaidimu/hermes/issues/review-20260910-013) [#review-20260910-016](https://github.com/asaidimu/hermes/issues/review-20260910-016) [#review-20260910-017](https://github.com/asaidimu/hermes/issues/review-20260910-017) [#review-20260910-021](https://github.com/asaidimu/hermes/issues/review-20260910-021) [#review-20260910-010](https://github.com/asaidimu/hermes/issues/review-20260910-010)
+* **engine:** resolve P1 review findings and latent resume blockers ([fcc28af](https://github.com/asaidimu/hermes/commit/fcc28afc05fe2f95d5f96ee52d539c8fce44d630))
+
+
+### Features
+
+* **runtime:** add GetActionLog and improve test lifecycle management ([9a2c0d3](https://github.com/asaidimu/hermes/commit/9a2c0d3c2ef0dd632df87272e4e09378371f23b9))
+
 ## [Unreleased]
 
 ### Bug Fixes
