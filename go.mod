@@ -1,6 +1,6 @@
 module github.com/asaidimu/hermes
 
-go 1.27rc1
+go 1.27.0
 
 require (
 	github.com/asaidimu/go-anansi/v8 v8.6.4
