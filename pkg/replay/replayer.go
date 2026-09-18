@@ -71,7 +71,7 @@ func NewReplayer(log actionlog.Store, resolve DefinitionResolver) *Replayer {
 //     Pipeline set addresses a stage inside the Index-th subpipeline of a
 //     pipelines-mode stage (a child that paused mid-run).
 func (rp *Replayer) Rebuild(ctx context.Context, runID, rootPipelineID string) (store.Store, StepAddress, error) {
-	entries, err := rp.latestEntries(ctx, runID)
+	entries, err := rp.allEntries(ctx, runID)
 	if err != nil {
 		return nil, StepAddress{}, fmt.Errorf("actionlog.All: %w", err)
 	}
@@ -126,7 +126,7 @@ func (rp *Replayer) StateAt(ctx context.Context, runID, rootPipelineID string, a
 	// effectful steps, re-execution for pure ones — skipping the
 	// target's own contribution, and treats an unrecorded effectful
 	// sibling as "no delta yet" instead of aborting.
-	entries, err := rp.latestEntries(ctx, runID)
+	entries, err := rp.allEntries(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("actionlog.All: %w", err)
 	}
@@ -599,17 +599,70 @@ func foldStep(ctx context.Context, st store.Store, byStep map[string]actionlog.E
 
 // --- helpers ---
 
-// latestEntries reads the run's most recent attempt (highest rerunIndex).
-// Returns nil when no log exists — the caller then resumes from the start.
-func (rp *Replayer) latestEntries(ctx context.Context, runID string) ([]actionlog.Entry, error) {
-	idx, err := rp.log.LatestRerunIndex(ctx, runID)
+// allEntries reads the run's COMPLETE recorded history: every attempt
+// (rerunIndex 0..latest), stitched in attempt order with monotonically
+// re-baselined Seq values. Returns nil when no log exists — the caller
+// then resumes from the start.
+//
+// @note #review-20260910-025 issue P1 resolved status=resolved priority=P1 tags=#review,#replay,#resume : Replayer rebuilt from only the latest attempt's entries, so every re-paused run resumed at the wrong address
+// @author hermes-review
+// @see #review-20260910-001
+//
+// Resume advances the run's rerunIndex on every resume (deliberately —
+// the resolved #review-20260910-006 note in runtime.go gives each resumed
+// segment its own audit trail), so a multi-pause run's history is SPREAD
+// across several attempts: attempt 0 records the first segment (its
+// effects and pause #1's checkpoint), attempt 1 the first resumed segment
+// (its effects and pause #2's checkpoint), and so on. The old
+// latestEntries read ONLY the highest index, so on the second resume the
+// Replayer was handed a log that began at the first resumed segment: no
+// record of the opening stage's completed effect, no first-pause
+// checkpoint. walkDef then concluded that forward execution starts at the
+// first unrecorded effectful step — the opening stage's — and the resumed
+// run re-executed it, marched into the FIRST pause's router and re-paused
+// on an event that had already been consumed. The run could never make
+// progress: any workflow pausing twice deadlocked on its second resume
+// (TestResumeRepauseSingleEvent / TestResumeRepauseMultiEvent in
+// pkg/runtime/repause_test.go; masked until #review-20260910-007 and
+// -022 unmasked the pause path itself).
+//
+// Stitching is chronological by construction: nextRerunIndex assigns
+// attempt indexes strictly increasing, and every entry of attempt N is
+// appended after every entry of attempt N-1 (the runtime bumps the index
+// before the resumed segment appends anything), so concatenating attempts
+// in index order reproduces execution order.
+//
+// Seq re-baselining: both shipped stores derive Seq per (runID,
+// rerunIndex) — MemoryActionLog counts per (run, index) pair and
+// AnansiStore per document (its Append computes max+1 within the
+// (runID, rerunIndex) document) — so raw Seq restarts at 1 in every
+// attempt. The walk's helpers (checkpointSeq / resumedAfterCheckpoint)
+// compare Seq ACROSS attempts once stitched, so the concatenated entries
+// are renumbered 1..N in stitch order. Range copies make this safe: the
+// renumbered slice is local and never written back to the store.
+func (rp *Replayer) allEntries(ctx context.Context, runID string) ([]actionlog.Entry, error) {
+	latest, err := rp.log.LatestRerunIndex(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
-	if idx < 0 {
+	if latest < 0 {
 		return nil, nil
 	}
-	return rp.log.All(ctx, runID, idx)
+
+	var stitched []actionlog.Entry
+	var nextSeq uint64 = 1
+	for idx := 0; idx <= latest; idx++ {
+		part, err := rp.log.All(ctx, runID, idx)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range part {
+			e.Seq = nextSeq
+			nextSeq++
+			stitched = append(stitched, e)
+		}
+	}
+	return stitched, nil
 }
 
 // indexByStepID builds a map from StepID to the first completed entry.
