@@ -1,3 +1,11 @@
+## [1.2.1](https://github.com/asaidimu/hermes/compare/v1.2.0...v1.2.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **replay:** rebuild from the run's full multi-attempt history ([284e8b1](https://github.com/asaidimu/hermes/commit/284e8b1c02c3460a8779aded50aa69a0adc0a807)), closes [#review-20260910-006](https://github.com/asaidimu/hermes/issues/review-20260910-006)
+* revert async watch-resume callback — broke chained re-pause semantics ([f1e5630](https://github.com/asaidimu/hermes/commit/f1e5630dceed6936eba3b528bd06120bf92488bb)), closes [#review-20260910-005](https://github.com/asaidimu/hermes/issues/review-20260910-005)
+
 # [1.2.0](https://github.com/asaidimu/hermes/compare/v1.1.1...v1.2.0) (2026-09-11)
 
 
