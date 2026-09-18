@@ -9,24 +9,32 @@ import (
 	ifnode "github.com/asaidimu/hermes/pkg/nodes/if"
 )
 
-// @note #review-20260910-020 todo status=open priority=P3 tags=#review,#testing : Assertion-free debug test — passes unconditionally
+// @note #review-20260910-020 todo P3 resolved status=resolved priority=P3 tags=#review,#testing : Assertion-free debug test — passes unconditionally
 // @author hermes-review
 //
-// TestIfDbg (and its sibling TestIfDbg2 in ifdbg2_test.go) only t.Logf the
-// values under inspection and contain zero assertions, so they can never
-// fail and add permanent green noise to every CI run. They look like
-// leftover scratch work from debugging the if-node router. Either delete
-// them or promote the observations to real assertions (e.g. assert the
-// routed handle for less_than/greater_than against expectations, which is
-// exactly what their names hint at).
+// Resolved: promoted the observations to real assertions on the routed
+// handle, matching what less_than/greater_than are supposed to produce
+// for state.total=76 against the threshold value "70".
 func TestIfDbg(t *testing.T) {
-	for _, op := range []string{"less_than", "greater_than"} {
+	cases := []struct {
+		op     string
+		expect string
+	}{
+		{"less_than", "else"},
+		{"greater_than", "if"},
+	}
+	for _, tc := range cases {
 		h, err := ifnode.Node.Router(context.Background(), nodekit.NodeRunContext{
 			Config: map[string]any{"conditions": []any{
-				map[string]any{"field": "total", "operator": op, "value": "70"},
+				map[string]any{"field": "total", "operator": tc.op, "value": "70"},
 			}},
 			State: map[string]any{"total": float64(76)},
 		})
-		t.Logf("field=total op=%s -> handle=%q err=%v", op, h, err)
+		if err != nil {
+			t.Fatalf("field=total op=%s: unexpected error: %v", tc.op, err)
+		}
+		if h != tc.expect {
+			t.Errorf("field=total op=%s: got handle %q, want %q", tc.op, h, tc.expect)
+		}
 	}
 }

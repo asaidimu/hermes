@@ -26,7 +26,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[DatabaseConfig]{
 	HandlesJS: `() => [{"type":"source","id":"db","kind":"resource"}]`,
 })
 
-// @note #review-20260910-017 issue status=resolved priority=P2 tags=#review,#docs,#resources : Resource node never initialized a handle — the database/query pair was inert
+// @note #review-20260910-017 issue P2 resolved status=resolved priority=P2 tags=#review,#docs,#resources : Resource node never initialized a handle — the database/query pair was inert
 // @author hermes-review
 // @see #review-20260910-016
 //

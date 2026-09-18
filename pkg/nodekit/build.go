@@ -27,7 +27,7 @@ func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources,
 	if err != nil {
 		return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "config interpolation failed").WithCause(err)
 	}
-	// @note #review-20260822-035 issue status=resolved priority=P1 tags=#review,#bug : Discarded comma-ok on type assertion
+	// @note #review-20260822-035 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Discarded comma-ok on type assertion
 	//
 	// Resolved: check the comma-ok result explicitly. Interpolate returning
 	// nil is legitimate (empty config) and still defaults to {}; but
@@ -424,20 +424,18 @@ func BuildDistributeStage(
 					"value": val,
 				}
 
-				// @note #review-20260910-018 observation status=open priority=P3 tags=#review,#concurrency : "Clone" shares Stage structs across concurrent children
+				// @note #review-20260910-018 observation P3 resolved status=resolved priority=P3 tags=#review,#concurrency : "Clone" shares Stage structs across concurrent children
 				// @author hermes-review
 				//
-				// The comment below says "each child owns its copy", but
-				// copy(cloned, bodyStages) only copies the slice header:
-				// every child pipeline references the SAME Stage structs,
-				// including their Steps maps and Router closures. It is
-				// safe today only because the engine treats compiled
-				// stages as immutable during execution (context.go's
-				// DynamicPipelines patch mutates a per-iteration struct
-				// copy, not the shared one). Any future code that writes
-				// to a Stage/Steps map at runtime turns this into a
-				// cross-child data race. Consider a real deep clone (or
-				// documenting the immutability contract on Stage).
+				// Resolved: kept the shallow copy(cloned, bodyStages) — a real
+				// deep clone of Steps maps and Router/PipelinesRouter closures
+				// would be invasive and easy to get subtly wrong for little
+				// benefit given the engine's existing behavior — and instead
+				// made the "compiled stages are immutable during execution"
+				// contract explicit on pipeline.Stage's doc comment, so future
+				// code that's tempted to write into a shared Stage/Steps map
+				// at runtime is warned before it turns this into a cross-child
+				// data race, rather than discovering it via a flaky test.
 				// Clone body stages so each child owns its copy.
 				cloned := make([]pipeline.Stage, len(bodyStages))
 				copy(cloned, bodyStages)

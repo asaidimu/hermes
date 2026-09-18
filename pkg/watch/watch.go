@@ -20,7 +20,7 @@ type WatchEvent struct {
 	// Keys are dot-separated state paths (e.g., "entry.status") and values are
 	// the new values to set.
 	Patch map[string]any
-	// @note #review-20260822-010 issue status=resolved priority=P3 tags=#review,#documentation : Payload and Patch lack doc comments
+	// @note #review-20260822-010 issue P3 resolved status=resolved priority=P3 tags=#review,#documentation : Payload and Patch lack doc comments
 	//
 	// Fixed by adding doc comments explaining that Payload contains matched event
 	// data and Patch contains state updates to apply on resume.
@@ -90,7 +90,7 @@ type WatchDescriptor struct {
 
 // WatchService is the interface for the watch service.
 type WatchService interface {
-	// @note #review-20260822-013 issue status=resolved priority=P2 tags=#review,#interface : WatchService has no error returns
+	// @note #review-20260822-013 issue P2 resolved status=resolved priority=P2 tags=#review,#interface : WatchService has no error returns
 	//
 	// Resolved: Register now returns error (validates runID and
 	// EventTypes — the two conditions the single real implementation,

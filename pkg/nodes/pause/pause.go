@@ -18,7 +18,7 @@ type PauseConfig struct {
 	Timeout       float64  `config:"timeout" anansi:"default=0"`
 }
 
-// @note #review-20260827-003 todo status=resolved priority=P2 tags=#review,#refactoring,#typesafety : Migrate pause node from untyped NodeDefinition to TypedDefinition[PauseConfig]
+// @note #review-20260827-003 todo P2 resolved status=resolved priority=P2 tags=#review,#refactoring,#typesafety : Migrate pause node from untyped NodeDefinition to TypedDefinition[PauseConfig]
 // @author antigravity
 //
 // Resolved: migrated to nodekit.Define(nodekit.TypedDefinition[PauseConfig]{...})
@@ -48,7 +48,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {
-			// @note #review-20260822-003 observation status=resolved priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
+			// @note #review-20260822-003 observation P2 resolved status=resolved priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
 			//
 			// Resolved: log a warning instead of returning silently. Still
 			// returns (nil, nil) rather than a hard error — a pause node
@@ -79,7 +79,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 			eventTypes = []string{"__pause__"}
 		}
 
-		// @note #review-20260910-007 issue status=resolved priority=P1 tags=#review,#concurrency,#watch : Watch registered under the node id instead of the run id
+		// @note #review-20260910-007 issue P1 resolved status=resolved priority=P1 tags=#review,#concurrency,#watch : Watch registered under the node id instead of the run id
 		// @author hermes-review
 		// @see #review-20260910-005
 		//
@@ -128,7 +128,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 		// Get the WatchService from resources
 		wsRaw, ok := nCtx.Resources["resource:watch-service"]
 		if !ok {
-			// @note #review-20260822-002 observation status=resolved priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
+			// @note #review-20260822-002 observation P2 resolved status=resolved priority=P2 tags=#review,#robustness : Silent nil return when WatchService unavailable
 			//
 			// Resolved: log a warning (see the matching note in Run above
 			// for why this stays a no-op rather than a hard error).
@@ -150,7 +150,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 		if bufferedEvent, found := watchService.PeekBufferedEvent(nCtx.RunID); found {
 			// Buffered event found - merge payload into state and route to onResume
 			for k, v := range bufferedEvent.Patch {
-				// @note #review-20260822-046 issue status=resolved priority=P1 tags=#review,#error-handling : Store update errors silently discarded
+				// @note #review-20260822-046 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Store update errors silently discarded
 				//
 				// Resolved: log the error instead of silently discarding
 				// it. Still continues to onResume on failure rather than
@@ -178,7 +178,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 	},
 })
 
-// @note #review-20260822-045 issue status=resolved priority=P1 tags=#review,#bug : Double registration of pause node
+// @note #review-20260822-045 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Double registration of pause node
 //
 // Resolved: removed the init() that duplicated the registration nodes.go
 // already performs. Node ownership is now single: nodes.go's registry-wiring

@@ -12,7 +12,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// @note #review-20260827-001 observation status=open priority=P1 tags=#review,#api,#typesafety : Dual RunContext types and field shadowing in TypedRunContext
+// @note #review-20260827-001 observation P1 status=open priority=P1 tags=#review,#api,#typesafety : Dual RunContext types and field shadowing in TypedRunContext
 // @author antigravity
 //
 // TypedRunContext[C] embeds NodeRunContext while also declaring Config *C. In Go struct
@@ -72,7 +72,7 @@ type TypedDefinition[C any] struct {
 	Effect Effect
 }
 
-// @note #review-20260827-002 observation status=open priority=P2 tags=#review,#performance,#architecture : Type erasure and per-execution map-to-struct binding overhead in Define
+// @note #review-20260827-002 observation P2 status=open priority=P2 tags=#review,#performance,#architecture : Type erasure and per-execution map-to-struct binding overhead in Define
 // @author antigravity
 //
 // Define[C] derives the schema at registration time but immediately erases type C into

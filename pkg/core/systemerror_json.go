@@ -8,7 +8,7 @@ import (
 // status/action triple used in the serialized JSON shape.
 func systemErrorMeta(code string) (category string, httpStatus int, action string) {
 	switch code {
-	// @note #review-20260822-026 issue status=resolved priority=P2 tags=#review,#naming : INTERNAL_ERROR code not defined in errors.go constants
+	// @note #review-20260822-026 issue P2 resolved status=resolved priority=P2 tags=#review,#naming : INTERNAL_ERROR code not defined in errors.go constants
 	//
 	// Resolved: added ErrCodeInternal = "INTERNAL_ERROR" to errors.go and
 	// switched the two direct string literals in trycatch.go to use it, so
@@ -19,7 +19,7 @@ func systemErrorMeta(code string) (category string, httpStatus int, action strin
 		return "validation", 400, "validate"
 	case "RESOURCE_NOT_FOUND", "NOT_FOUND":
 		return "not_found", 404, "find"
-	// @note #review-20260822-024 issue status=resolved priority=P2 tags=#review,#bug : UNAUTHORIZED conflated with PERMISSION_DENIED (401 vs 403)
+	// @note #review-20260822-024 issue P2 resolved status=resolved priority=P2 tags=#review,#bug : UNAUTHORIZED conflated with PERMISSION_DENIED (401 vs 403)
 	//
 	// Resolved: split UNAUTHORIZED into its own case mapped to 401/authenticate
 	// (no credentials presented), keeping PERMISSION_DENIED at 403/authorize
@@ -31,7 +31,7 @@ func systemErrorMeta(code string) (category string, httpStatus int, action strin
 		return "auth", 403, "authorize"
 	case "RESOURCE_LOCKED", "CONFLICT":
 		return "conflict", 409, "lock"
-	// @note #review-20260822-025 issue status=wontfix priority=P2 tags=#review,#naming : HTTP status 499 is non-standard
+	// @note #review-20260822-025 issue P2 wontfix status=wontfix priority=P2 tags=#review,#naming : HTTP status 499 is non-standard
 	//
 	// Considered remapping to 408/409, but 499 is this codebase's
 	// established (if nginx-borrowed) convention for "the client went
@@ -148,7 +148,7 @@ func SystemErrorJSON(err error) map[string]any {
 		"path":       se.Path,
 		"trace":      trace,
 		"action":     action,
-		// @note #review-20260822-027 issue status=wontfix priority=P2 tags=#review,#bug : Timestamp uses serialization time, not error creation time
+		// @note #review-20260822-027 issue P2 wontfix status=wontfix priority=P2 tags=#review,#bug : Timestamp uses serialization time, not error creation time
 		//
 		// go-anansi's common.SystemError (checked directly against the
 		// upstream source) has no Timestamp/CreatedAt field to fall back to
@@ -159,7 +159,7 @@ func SystemErrorJSON(err error) map[string]any {
 		// Left as serialization-time and documented here so callers know
 		// not to treat it as authoritative for log correlation.
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		// @note #review-20260822-028 issue status=resolved priority=P3 tags=#review,#documentation : Stack field is always empty string
+		// @note #review-20260822-028 issue P3 resolved status=resolved priority=P3 tags=#review,#documentation : Stack field is always empty string
 		//
 		// Resolved (differently than my first attempt): keep the "stack"
 		// key present at empty string, not omitted. My first pass removed

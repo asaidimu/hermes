@@ -16,7 +16,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// @note #review-20260910-010 todo status=resolved priority=P2 tags=#review,#style : gofmt -s was not clean — 12 files failed gofmt -s -l at review time
+// @note #review-20260910-010 todo P2 resolved status=resolved priority=P2 tags=#review,#style : gofmt -s was not clean — 12 files failed gofmt -s -l at review time
 // @author hermes-review
 //
 // Resolved: gofmt -s -l . (go1.27rc1) listed 12 files before this review's
@@ -70,7 +70,7 @@ func ExecuteStageSteps(
 	var errsMu sync.Mutex
 	stepErrs := make([]error, 0, len(stage.Steps))
 
-	// @note #review-20260910-008 issue status=resolved priority=P1 tags=#review,#robustness,#panic : Step goroutines have no panic recovery — a panicking action kills the host process
+	// @note #review-20260910-008 issue P1 resolved status=resolved priority=P1 tags=#review,#robustness,#panic : Step goroutines have no panic recovery — a panicking action kills the host process
 	// @author hermes-review
 	//
 	// Resolved: panics are recovered at three layers, each converting into
@@ -163,7 +163,7 @@ func ExecuteStageSteps(
 
 				pCtx := NewPipelineContext(runID, pipelineID, stage.ID, sID, stepPath, logger,
 					WithResourceResolver(resolver), WithRunEnv(runEnv), WithSecretLookup(secretLookup))
-				// @note #review-20260910-009 issue status=resolved priority=P2 tags=#review,#concurrency,#api : Actions executed while the store read lock was held — Store.Update from an action self-deadlocked
+				// @note #review-20260910-009 issue P2 resolved status=resolved priority=P2 tags=#review,#concurrency,#api : Actions executed while the store read lock was held — Store.Update from an action self-deadlocked
 				// @author hermes-review
 				//
 				// Resolved: the action now runs on a DEEP-COPIED snapshot,

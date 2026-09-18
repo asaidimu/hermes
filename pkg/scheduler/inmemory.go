@@ -40,7 +40,7 @@ func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx c
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// @note #review-20260822-052 issue status=resolved priority=P2 tags=#review,#bug : Context never propagated to callback
+	// @note #review-20260822-052 issue P2 resolved status=resolved priority=P2 tags=#review,#bug : Context never propagated to callback
 	//
 	// Resolved: store the cancellable context on jobState and pass it to
 	// the callback (js.ctx) instead of a fresh context.Background() at fire
@@ -52,7 +52,7 @@ func (s *InMemoryScheduler) Schedule(id string, cron string, callback func(ctx c
 	js := &jobState{ctx: ctx, cancel: cancel, callback: callback}
 	s.jobs[id] = js
 
-	// @note #review-20260910-013 issue status=resolved priority=P2 tags=#review,#validation : Invalid cron expressions were accepted and silently fired hourly
+	// @note #review-20260910-013 issue P2 resolved status=resolved priority=P2 tags=#review,#validation : Invalid cron expressions were accepted and silently fired hourly
 	// @author hermes-review
 	// @see #review-20260822-040
 	// @see #review-20260822-053
@@ -84,7 +84,7 @@ func (s *InMemoryScheduler) scheduleNextLocked(id string, js *jobState, cron str
 			return
 		}
 		js.callback(js.ctx)
-		// @note #review-20260826-001 issue status=resolved priority=P1 tags=#review,#concurrency : Timer re-arm writes js.timer without holding s.mu
+		// @note #review-20260826-001 issue P1 resolved status=resolved priority=P1 tags=#review,#concurrency : Timer re-arm writes js.timer without holding s.mu
 		// @author ox-alpha
 		//
 		// The callback unlocked at the bottom, then called

@@ -1,12 +1,13 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-11T08:56:39.043659687Z",
+  "generatedAt": "2026-09-18T06:35:11.590479052Z",
   "root": ".",
   "notes": {
     "review-20260822-001": {
       "id": "review-20260822-001",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Limited comparison operators",
       "body": "Resolved: extended to support \u003e, \u003e=, \u003c, \u003c= for numeric values\n(via compareNumeric below), rather than leaving them to silently\nreturn false. Non-numeric operands with a relational operator\nstill return false (there's no sensible ordering to fall back to\nfor e.g. two unrelated maps), same as an unknown operator would.",
       "location": {
@@ -16,12 +17,13 @@
         "endLine": 333,
         "endCol": 3
       },
-      "hash": "9f4afd20f107e2f0"
+      "hash": "ecd0f3bde6049378"
     },
     "review-20260822-002": {
       "id": "review-20260822-002",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Silent nil return when WatchService unavailable",
       "body": "Resolved: log a warning (see the matching note in Run above\nfor why this stays a no-op rather than a hard error).\n",
       "location": {
@@ -31,12 +33,13 @@
         "endLine": 133,
         "endCol": 3
       },
-      "hash": "656ee6c7efbadd92"
+      "hash": "8d54a74a5d2203a1"
     },
     "review-20260822-003": {
       "id": "review-20260822-003",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Silent nil return when WatchService unavailable",
       "body": "Resolved: log a warning instead of returning silently. Still\nreturns (nil, nil) rather than a hard error — a pause node\nwith no WatchService configured is a host-configuration gap,\nnot a per-run failure, so we don't want to fail every run\nthat happens to include a pause node when the host simply\ndidn't wire watch support. The warning makes the gap visible\nin logs instead of vanishing silently.\n",
       "location": {
@@ -46,12 +49,13 @@
         "endLine": 58,
         "endCol": 3
       },
-      "hash": "dac923607ed161c7"
+      "hash": "c3c8a264df78e3cd"
     },
     "review-20260822-004": {
       "id": "review-20260822-004",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Incorrect func pointer comparison in unsubscribe closure",
       "body": "Fixed by using reflect.ValueOf to compare function pointers instead of\ncomparing addresses of loop variables. The original `\u0026h == \u0026handler`\ncompared the address of the loop variable `h` with the address of the\ncaptured `handler` parameter, which would never match.\n",
       "location": {
@@ -61,12 +65,13 @@
         "endLine": 221,
         "endCol": 3
       },
-      "hash": "57edea58e911acd2"
+      "hash": "e7fbf036c73451a4"
     },
     "review-20260822-006": {
       "id": "review-20260822-006",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Emit silently discards all handler errors",
       "body": "Resolved (partial, without the full ScopedBus migration): handler\nerrors are now logged instead of silently discarded via `_ = h(...)`.\nEmit's signature is `Emit(ctx, eventType, evt)` with no return value,\nused pervasively across the runtime as a fire-and-forget call —\nchanging it to return an error (or an aggregated slice of errors)\nis a breaking API change to every call site in this repo and is\nexactly the kind of change the go-events ScopedBus migration\n(scoped-bus-opportunity-001, deliberately deferred) would need to\nmake properly, together with a decision on how callers should\nreact to a failed subscriber. Logging closes the \"no way to know\"\ngap without that wider signature change.\n",
       "location": {
@@ -76,12 +81,13 @@
         "endLine": 172,
         "endCol": 3
       },
-      "hash": "eea90d34c15fa887"
+      "hash": "f69bb2121e5c5b9d"
     },
     "review-20260822-007": {
       "id": "review-20260822-007",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Unreachable branch in CauseMessage",
       "body": "Fixed by removing the dead `if se.Cause == nil` branch which was only\nreachable when se.Message was empty, returning a useless empty string.\n",
       "location": {
@@ -91,12 +97,13 @@
         "endLine": 82,
         "endCol": 3
       },
-      "hash": "447d98f98fc9d6ac"
+      "hash": "5f656f1f339cde1e"
     },
     "review-20260822-010": {
       "id": "review-20260822-010",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "Payload and Patch lack doc comments",
       "body": "Fixed by adding doc comments explaining that Payload contains matched event\ndata and Patch contains state updates to apply on resume.\n",
       "location": {
@@ -106,12 +113,13 @@
         "endLine": 25,
         "endCol": 3
       },
-      "hash": "0db02c17e3f2e66b"
+      "hash": "c8c85e0bd14f6668"
     },
     "review-20260822-013": {
       "id": "review-20260822-013",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "WatchService has no error returns",
       "body": "Resolved: Register now returns error (validates runID and\nEventTypes — the two conditions the single real implementation,\nWatchService in pkg/runtime, can actually fail on today) and\nPeekBufferedEvent now returns (*WatchEvent, bool) instead of a bare\npointer where nil was ambiguous between \"no event\" and \"no such run\".\nThis was safe to change in place (not just document) because this\ninterface has exactly one implementation and exactly one caller\n(pause.go), both in this repo, both updated together.\n",
       "location": {
@@ -121,12 +129,13 @@
         "endLine": 101,
         "endCol": 3
       },
-      "hash": "7c32f0bc27bde7ad"
+      "hash": "9f1d793c3dbfa893"
     },
     "review-20260822-016": {
       "id": "review-20260822-016",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Emit reads parent and underlying without lock protection",
       "body": "Resolved: see the fuller resolution note on the MemoryScopedBus\nstruct's doc comment above (this was a duplicate of the same note\nposted at two locations). Summary: parent/underlying/logger are set\nonce at construction and never reassigned, so reading them here\nwithout b.mu is safe; that immutability contract is now documented.\n",
       "location": {
@@ -136,12 +145,13 @@
         "endLine": 137,
         "endCol": 3
       },
-      "hash": "592ff64ef50225a0"
+      "hash": "a804e19f7c82518b"
     },
     "review-20260822-017": {
       "id": "review-20260822-017",
       "category": "issue",
-      "status": "open",
+      "status": "wontfix",
+      "priority": "P2",
       "title": "Subscribe holds write lock for append-only operation",
       "body": "Investigated and declined: b.handlers is a plain map[string][]EventHandler,\nnot just a slice. Concurrent access to a Go map must be synchronized\neven for what looks like a single \"append\" — Subscribe both reads\nb.handlers[eventType] and (on first subscriber for that eventType,\nimplicitly) writes a new map entry, which races with Emit's read\nunless serialized. The exclusive Lock here isn't overcautious, it's\nthe actual safety requirement for the map. A copy-on-write scheme\n(RLock for Emit, atomic slice/map replacement for Subscribe) could\nreduce contention, but is nontrivial to get right (needs\natomic.Pointer to the whole handlers map, replaced wholesale on every\nSubscribe/unsubscribe) and there's no profiling evidence this lock is\na real bottleneck — Subscribe is called at pipeline/watch\nregistration time, not per-event. Not implementing a nontrivial\nconcurrency redesign against a suspected-but-unmeasured performance\nconcern.\n",
       "location": {
@@ -151,12 +161,13 @@
         "endLine": 209,
         "endCol": 3
       },
-      "hash": "680db3b6531000ee"
+      "hash": "2b99b48608423e22"
     },
     "review-20260822-022": {
       "id": "review-20260822-022",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "Variadic string for single message is awkward",
       "body": "Resolved: replaced the variadic `message ...string` with a single named\n`message string` parameter. All call sites in this repo already passed\nexactly one message, so this is not a breaking change here and now\ncatches accidental multi-arg calls at compile time instead of silently\njoining or dropping extras.\n",
       "location": {
@@ -166,12 +177,13 @@
         "endLine": 43,
         "endCol": 3
       },
-      "hash": "93942d837fc410a8"
+      "hash": "e3b5cfcf122c4717"
     },
     "review-20260822-023": {
       "id": "review-20260822-023",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "Cycle-detection logic undocumented",
       "body": "Resolved: documented below why cycle detection is needed here.\n\n`seen` guards against infinite loops in the error chain. SystemError.Cause\nand the generic Unwrap() path are both populated by callers, and nothing\nprevents an error being wrapped so that unwrapping it eventually returns\nto an error already seen (e.g. a Cause accidentally set to an ancestor,\nor a third-party Unwrap implementation with a bug). Without this guard\nsuch a cycle would hang the walk forever instead of failing safely.\n",
       "location": {
@@ -181,12 +193,13 @@
         "endLine": 67,
         "endCol": 3
       },
-      "hash": "07db12643ad8f671"
+      "hash": "866c3c76876a79b7"
     },
     "review-20260822-024": {
       "id": "review-20260822-024",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "UNAUTHORIZED conflated with PERMISSION_DENIED (401 vs 403)",
       "body": "Resolved: split UNAUTHORIZED into its own case mapped to 401/authenticate\n(no credentials presented), keeping PERMISSION_DENIED at 403/authorize\n(credentials present but insufficient permissions), matching standard\nHTTP semantics so clients can tell the two failure modes apart.\n",
       "location": {
@@ -196,12 +209,13 @@
         "endLine": 26,
         "endCol": 3
       },
-      "hash": "91a470fb7be0eebe"
+      "hash": "00256c870f31a429"
     },
     "review-20260822-025": {
       "id": "review-20260822-025",
       "category": "issue",
-      "status": "open",
+      "status": "wontfix",
+      "priority": "P2",
       "title": "HTTP status 499 is non-standard",
       "body": "Considered remapping to 408/409, but 499 is this codebase's\nestablished (if nginx-borrowed) convention for \"the client went\naway / operation was aborted,\" not an isolated accident.\nRemapping only this call site would create an inconsistency with the\nserver's own direct usage rather than remove one. Documenting it here\ninstead: 499 is intentional and non-standard, keep client/monitoring\ntooling aware of it.\n",
       "location": {
@@ -211,12 +225,13 @@
         "endLine": 41,
         "endCol": 3
       },
-      "hash": "03a25a7446cf5035"
+      "hash": "fbed2a5c521093c3"
     },
     "review-20260822-026": {
       "id": "review-20260822-026",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "INTERNAL_ERROR code not defined in errors.go constants",
       "body": "Resolved: added ErrCodeInternal = \"INTERNAL_ERROR\" to errors.go and\nswitched the two direct string literals in trycatch.go to use it, so\nthe meta mapping and the code constants agree by name, not by accident.\n",
       "location": {
@@ -226,12 +241,13 @@
         "endLine": 14,
         "endCol": 3
       },
-      "hash": "42dd3e76eaf8d2bb"
+      "hash": "67940ec5af3fddcc"
     },
     "review-20260822-027": {
       "id": "review-20260822-027",
       "category": "issue",
-      "status": "open",
+      "status": "wontfix",
+      "priority": "P2",
       "title": "Timestamp uses serialization time, not error creation time",
       "body": "go-anansi's common.SystemError (checked directly against the\nupstream source) has no Timestamp/CreatedAt field to fall back to\n— Path, Operation, Message, Code, Severity, Issues, Cause only.\nCapturing a true creation-time timestamp would require adding a\nfield to that external type or wrapping every construction site\nacross this codebase, both bigger changes than this function.\nLeft as serialization-time and documented here so callers know\nnot to treat it as authoritative for log correlation.\n",
       "location": {
@@ -241,12 +257,13 @@
         "endLine": 159,
         "endCol": 3
       },
-      "hash": "0e5667fec0d6d172"
+      "hash": "da10ab4a58cf9533"
     },
     "review-20260822-028": {
       "id": "review-20260822-028",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "Stack field is always empty string",
       "body": "Resolved (differently than my first attempt): keep the \"stack\"\nkey present at empty string, not omitted. My first pass removed\nit entirely to save wire bytes, reasoning go-anansi's\nSystemError has nothing to populate it with — but a runtime test\n(TestTimelineRecordsStepFailure) asserts the key is always\npresent in a step:failure event's error object, regardless of\ncontent, meaning \"stack\" being present is itself part of this\npayload's contract for consumers (e.g. a frontend that\ndestructures a fixed shape) — not \"dead weight\" to trim. Restored\nthe always-present empty string; the original note's underlying\npoint (there's no real stack captured) is still documented here.\n",
       "location": {
@@ -256,12 +273,13 @@
         "endLine": 173,
         "endCol": 3
       },
-      "hash": "b13fb20c1683624c"
+      "hash": "2248d9b0c384395a"
     },
     "review-20260822-033": {
       "id": "review-20260822-033",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Write discards store update error",
       "body": "Resolved: log the error instead of discarding it. Write's signature\n(no return value) is part of the PipelineContext interface used\npervasively by node implementations as a fire-and-forget call;\nchanging it to return an error would ripple across every node in the\nrepo, which isn't safe to do blind in this environment (no working\ncompiler to catch every call site). Logging closes the \"pipeline\ncontinues with stale state and nobody finds out\" gap without that\nwider, riskier signature change.\n",
       "location": {
@@ -271,12 +289,13 @@
         "endLine": 115,
         "endCol": 3
       },
-      "hash": "3c62fbadbf8a548a"
+      "hash": "01ef1275548fd5cf"
     },
     "review-20260822-034": {
       "id": "review-20260822-034",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Unsafe type assertion without comma-ok",
       "body": "Fixed by using comma-ok type assertion to prevent runtime panics\nwhen instruction is not a PauseInstruction.\n",
       "location": {
@@ -286,12 +305,13 @@
         "endLine": 557,
         "endCol": 3
       },
-      "hash": "e81d4dc1ef034989"
+      "hash": "beba29d108c2e81f"
     },
     "review-20260822-035": {
       "id": "review-20260822-035",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Discarded comma-ok on type assertion",
       "body": "Resolved: check the comma-ok result explicitly. Interpolate returning\nnil is legitimate (empty config) and still defaults to {}; but\nInterpolate returning a non-nil, non-map value (e.g. a string) is a\nreal error condition — previously it silently fell through to the\nsame {} default as the nil case, masking a bug where a whole config\ntree got interpolated down to a scalar. That case is now a returned\nerror instead of silent data loss.\n",
       "location": {
@@ -301,87 +321,93 @@
         "endLine": 37,
         "endCol": 3
       },
-      "hash": "6d3d9df93ba9fb40"
+      "hash": "aa3b8afec5e02fac"
     },
     "review-20260822-036": {
       "id": "review-20260822-036",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "New HTTP client per request",
       "body": "Resolved: Use package-level pooled defaultHTTPClient with configured connection pooling and timeouts.\n",
       "location": {
         "file": "pkg/nodes/http/http.go",
-        "startLine": 171,
+        "startLine": 230,
         "startCol": 3,
-        "endLine": 173,
+        "endLine": 232,
         "endCol": 3
       },
-      "hash": "48feefb506a2779e"
+      "hash": "b5198c4e2b7e849b"
     },
     "review-20260822-037": {
       "id": "review-20260822-037",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Unbounded response body read",
       "body": "Resolved: Limit response body reading to maxResponseBodyBytes (32MB) using io.LimitReader.\n",
       "location": {
         "file": "pkg/nodes/http/http.go",
-        "startLine": 191,
+        "startLine": 253,
         "startCol": 3,
-        "endLine": 193,
+        "endLine": 255,
         "endCol": 3
       },
-      "hash": "50848ace9e785b9f"
+      "hash": "b3b31c8e4a59b15c"
     },
     "review-20260822-038": {
       "id": "review-20260822-038",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Timer leak in select",
       "body": "Resolved: Use time.NewTimer with explicit defer timer.Stop().\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1324,
+        "startLine": 1342,
         "startCol": 3,
-        "endLine": 1326,
+        "endLine": 1344,
         "endCol": 3
       },
-      "hash": "9b1afa0cbb18acc7"
+      "hash": "b75933b3bb50ce1a"
     },
     "review-20260822-039": {
       "id": "review-20260822-039",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "TOCTOU race in dispatch between lock acquisitions",
       "body": "Resolved: Snapshot toResume candidates, route entries, and workflow records under a single lock acquisition.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 689,
+        "startLine": 698,
         "startCol": 3,
-        "endLine": 691,
+        "endLine": 700,
         "endCol": 3
       },
-      "hash": "f1d1814de29a0cef"
+      "hash": "bf35a64bcebb3629"
     },
     "review-20260822-040": {
       "id": "review-20260822-040",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Discarded Schedule error",
       "body": "Resolved: propagate the error. Register already returns\nerror and is called at workflow-registration time (not from\na hot path), so failing registration outright when a cron\ntrigger can't be scheduled (e.g. invalid cron expression) is\nthe correct behavior — silently registering a workflow whose\ntrigger will never fire is strictly worse than failing loud\nat registration.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 536,
+        "startLine": 545,
         "startCol": 3,
-        "endLine": 544,
+        "endLine": 553,
         "endCol": 3
       },
-      "hash": "3d5b648cd2e942d2"
+      "hash": "6ebf32d16c62c131"
     },
     "review-20260822-044": {
       "id": "review-20260822-044",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Unknown operator returns true",
       "body": "Resolved: Added default: return false to reject unknown comparison operators.\n",
       "location": {
@@ -391,12 +417,13 @@
         "endLine": 335,
         "endCol": 3
       },
-      "hash": "22b45aef019e6521"
+      "hash": "a47408e5375386e0"
     },
     "review-20260822-045": {
       "id": "review-20260822-045",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Double registration of pause node",
       "body": "Resolved: removed the init() that duplicated the registration nodes.go\nalready performs. Node ownership is now single: nodes.go's registry-wiring\ninit is the only place pause.Node gets registered.\n",
       "location": {
@@ -406,12 +433,13 @@
         "endLine": 184,
         "endCol": 3
       },
-      "hash": "40eb805005d06f67"
+      "hash": "8b1af9dbd2b5024b"
     },
     "review-20260822-046": {
       "id": "review-20260822-046",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Store update errors silently discarded",
       "body": "Resolved: log the error instead of silently discarding\nit. Still continues to onResume on failure rather than\nfailing the stage outright — a store-update failure here\nmeans one patched field may be stale, which the pipeline\nauthor can now at least see in logs, versus previously\nhaving no signal at all. Failing the whole stage on a\nsingle patch-key error felt like too large a behavior\nchange to make blind, without tests to confirm no\npipeline relies on best-effort patching.\n",
       "location": {
@@ -421,27 +449,29 @@
         "endLine": 162,
         "endCol": 3
       },
-      "hash": "bfae73036f22fb59"
+      "hash": "e03548da85ae855f"
     },
     "review-20260822-048": {
       "id": "review-20260822-048",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Store update errors discarded when folding resume payload",
       "body": "Resolved: log the error instead of silently discarding it.\nContinuing the loop on failure (rather than aborting the\nresume) matches the same \"best-effort but now visible\" choice\nmade for the sibling issue in pause.go's PipelinesRouterFunc\n(review-20260822-046) — failing the whole resume because one\npayload key couldn't be written felt like too large a\nbehavior change to make blind, without tests to confirm nothing\nrelies on partial-success resume semantics.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 938,
+        "startLine": 947,
         "startCol": 3,
-        "endLine": 947,
+        "endLine": 956,
         "endCol": 3
       },
-      "hash": "cecd2e6838db90d7"
+      "hash": "a2c2234c8940ff86"
     },
     "review-20260822-052": {
       "id": "review-20260822-052",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Context never propagated to callback",
       "body": "Resolved: store the cancellable context on jobState and pass it to\nthe callback (js.ctx) instead of a fresh context.Background() at fire\ntime. Cancel()/Shutdown() calling js.cancel() now actually reaches\nthe callback via ctx.Done() / ctx.Err(), instead of being pure dead\ncode that only cancelled a context nothing observed.\n",
       "location": {
@@ -451,12 +481,13 @@
         "endLine": 48,
         "endCol": 3
       },
-      "hash": "af969fa56856d194"
+      "hash": "3328d5e510004973"
     },
     "review-20260822-053": {
       "id": "review-20260822-053",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "CronDelay silently masks invalid cron expressions",
       "body": "Resolved: log the error before falling back. Kept the\ntime.Hour fallback and CronDelay's `time.Duration`-only\nsignature unchanged — CronDelay is called from\nscheduleNextLocked's recursive re-arm path on every single\ntick of every running job, and from existing tests as\n`d := CronDelay(...)`; changing the signature to return an\nerror would touch every call site and every test assertion\nfor a change that doesn't change runtime behavior (the\nfallback still has to be *some* duration either way). Logging\ncloses the \"silently masks\" half of the note without that\nwider, unverifiable change.\n",
       "location": {
@@ -466,12 +497,13 @@
         "endLine": 34,
         "endCol": 3
       },
-      "hash": "b47a701f7c06dd04"
+      "hash": "ad543ab788f53b21"
     },
     "review-20260822-055": {
       "id": "review-20260822-055",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Goroutine leak on normal path",
       "body": "Resolved: removed the dedicated bridging goroutine entirely, rather\nthan swapping it for context.AfterFunc (which still needs something\nto bridge Abort's signal into a context in the first place — it\ndoesn't take a channel). Abort() now holds a direct reference to this\nrun's cancel func (r.cancelRun, set below under r.mu) and calls it\nitself under lock; there is no longer a channel or a goroutine\nwatching one; Abort() called before Run() starts is now handled by\nchecking r.aborted immediately after registering cancelRun, instead\nof relying on a goroutine that hadn't started its select yet.\n",
       "location": {
@@ -481,12 +513,13 @@
         "endLine": 171,
         "endCol": 3
       },
-      "hash": "8b5c880f25a23d47"
+      "hash": "19acbc81705058f1"
     },
     "review-20260825-001": {
       "id": "review-20260825-001",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Discarded store update error in result merge",
       "body": "Resolved: log the error instead of discarding it.\nContinuing rather than failing the stage on a\nsingle merge-key failure matches the same\nbest-effort-but-now-visible choice made for the\nsibling notes in this file (review-20260822-033)\nand pause.go (review-20260822-046).\n",
       "location": {
@@ -496,12 +529,13 @@
         "endLine": 423,
         "endCol": 3
       },
-      "hash": "67ee9cbd7ca281c0"
+      "hash": "58cc8aae4a3a2cf0"
     },
     "review-20260825-002": {
       "id": "review-20260825-002",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Shared initialState across concurrent goroutines",
       "body": "Resolved: each child now gets its own deep copy of initialState\n(deepCopyJSONValue below) instead of the same shared map. Confirmed\nthis was a real, not just theoretical, gap: store.NewFreshStore -\u003e\nNewMemoryStore -\u003e newState only shallow-copies the top-level map —\nnested maps/slices inside initialState (which, coming from stage\nconfig, are typically JSON-shaped and often nested) were shared by\nreference across every child goroutine. A JSON round-trip is used for\nthe deep copy rather than a hand-rolled recursive copier, since\ninitialState's value space is already constrained to what JSON can\nrepresent (it comes from parsed stage config), making round-tripping\nboth correct and simple.\n",
       "location": {
@@ -511,12 +545,13 @@
         "endLine": 70,
         "endCol": 3
       },
-      "hash": "a17529a49ba11e8c"
+      "hash": "b61d3b31e9c9d5f7"
     },
     "review-20260825-003": {
       "id": "review-20260825-003",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Error string ends with period",
       "body": "Resolved: dropped the trailing period per Go convention.\n",
       "location": {
@@ -526,12 +561,13 @@
         "endLine": 536,
         "endCol": 3
       },
-      "hash": "dd8f77399ef59ada"
+      "hash": "bac8d45aa74834a7"
     },
     "review-20260825-004": {
       "id": "review-20260825-004",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Error string ends with period",
       "body": "Resolved: dropped the trailing period and lowercased the\nleading word per Go convention.\n",
       "location": {
@@ -541,12 +577,13 @@
         "endLine": 544,
         "endCol": 3
       },
-      "hash": "4e6d87a296d45f4b"
+      "hash": "8d411acb845b9901"
     },
     "review-20260826-001": {
       "id": "review-20260826-001",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Timer re-arm writes js.timer without holding s.mu",
       "body": "The callback unlocked at the bottom, then called\ns.scheduleNextLocked WITHOUT re-acquiring s.mu, so the js.timer\nassignment ran unsynchronized on the recursive path. `go test\n-race` confirmed: concurrent Shutdown()/Cancel() reads of js.timer\nraced this write (TestDelayCronPauseResume). Fixed by moving the\nstill-registered check and reschedule call back inside the\ncritical section.\nReschedule if still registered. See the review note above: this\ncritical section must also cover the re-arm write.\n",
       "authors": [
@@ -559,12 +596,13 @@
         "endLine": 97,
         "endCol": 3
       },
-      "hash": "28ddd613a2068aaf"
+      "hash": "9f8728f667c83403"
     },
     "review-20260826-002": {
       "id": "review-20260826-002",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "stateSnapshot is a shallow copy — nested maps alias live store state",
       "body": "Only top-level keys were copied; nested values (results, __pipeline_data__,\nuser objects) were shared references into the live store map. Routers\nreceiving the snapshot could observe concurrent step mutations mid-read\n(map concurrent read/write panic) and, if they ever mutated nested data,\ncorrupt live state while bypassing the store lock.\n\nFixed by delegating to store.DeepCopyMap, which clones maps/slices\nrecursively; covered by TestStateSnapshotDeepCopy.\n\nstateSnapshot returns a deep copy of the run state for read-only consumers\n(routers), safe to retain beyond the store lock.\n",
       "authors": [
@@ -577,32 +615,34 @@
         "endLine": 1022,
         "endCol": 3
       },
-      "hash": "3a882f0a577ab836"
+      "hash": "e8cc773ebde4847d"
     },
     "review-20260826-004": {
       "id": "review-20260826-004",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "SSRF guard is a host-literal regex — DNS rebinding and redirects bypass it",
-      "body": "privateIPRegex inspects the URL host string only. It does not resolve the\nhostname, so a public DNS name resolving to a private IP passes the guard,\nand 30x redirects to internal targets are followed unchecked. IPv6 zone or\nhex-encoded forms are also only partially covered. For production, resolve\nthen dial with an IP-checking DialContext (or use a allowlist).\n",
+      "body": "Resolved: privateIPRegex stays as a cheap, clear-error fast path for the\ncommon case (a literal private/loopback IP in the URL), but it is no\nlonger the security boundary. safeDialer's Control hook (above) now\nchecks the actual resolved address on every dial the Transport makes —\nincluding the fresh dials Go's http.Client performs for each redirect\nhop — so a public DNS name that resolves (or rebinds) to a private IP,\nor a 30x Location pointing at an internal target, is rejected at the\npoint of connection instead of only at the pre-resolution hostname\nstring.\n",
       "authors": [
         "ox-alpha"
       ],
       "location": {
         "file": "pkg/nodes/http/http.go",
-        "startLine": 73,
+        "startLine": 128,
         "startCol": 3,
-        "endLine": 80,
+        "endLine": 139,
         "endCol": 3
       },
-      "hash": "b66ea754ad7c30c3"
+      "hash": "546f7d958c5a1a19"
     },
     "review-20260826-005": {
       "id": "review-20260826-005",
       "category": "todo",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "No runtime test covers pipeline-ref execution semantics",
-      "body": "Compile-time behavior is covered (compiler_test.go: TestPipelineRef*), but\nno integration test exercises the runtime contract: fresh-state isolation\nfrom the parent, initialState interpolation, and resultKey merging back\ninto parent state. The calc sample does not use pipeline-ref. Add a\ntests/-level scenario asserting all three behaviors.\n",
+      "body": "Resolved: added TestPipelineRefRuntimeSemantics in\ntests/pipeline_ref_integration_test.go, a tests/-level scenario that\ncompiles a real sub-pipeline, registers it, and runs a parent workflow\nthat references it via pipeline-ref, asserting all three runtime\nbehaviors the compile-time tests (compiler_test.go: TestPipelineRef*)\ndon't reach: fresh-state isolation from the parent, initialState\ninterpolation into the child's own store, and resultKey merging the\nchild's full final state back into the parent under a single\n(unsuffixed, since pipeline-ref always resolves to exactly one child\npipeline) key.\n",
       "authors": [
         "ox-alpha"
       ],
@@ -610,33 +650,35 @@
         "file": "pkg/nodes/pipeline-ref/pipeleref.go",
         "startLine": 0,
         "startCol": 3,
-        "endLine": 7,
+        "endLine": 12,
         "endCol": 3
       },
-      "hash": "ff997ee7b5ab368c"
+      "hash": "b3bfd2f2f348323f"
     },
     "review-20260826-008": {
       "id": "review-20260826-008",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "Loop safety relies solely on context cancellation — no iteration cap",
-      "body": "A predicate that never turns false loops until the run's context is\ncancelled (stage timeout, run abort). Each iteration still emits stage/step\nevents, so an unbounded loop grows the timeline and event log without\nbound. Consider an optional maxIterations config that fails the stage when\nexceeded, mirroring defensive guards in similar engines.\n\nRouter mirrors the TS while node: evaluates the simple predicate or the\ncomplex condition body, returning \"do\" / \"done\". Any evaluation error routes\nto \"done\".\n",
+      "body": "Resolved: added an optional MaxIterations config (0 = unlimited, the\nprevious behavior). When set, the router persists an iteration counter\ninto the run store keyed by node id and fails the stage outright once\nthe cap is exceeded, instead of letting an unbounded loop keep emitting\nstage/step events until the run's context is eventually cancelled.\n\nRouter mirrors the TS while node: evaluates the simple predicate or the\ncomplex condition body, returning \"do\" / \"done\". Any predicate evaluation\nerror routes to \"done\"; exceeding MaxIterations instead fails the stage\nwith an error, since that is a configuration guard rail rather than a\nnormal \"condition became false\" outcome.\n",
       "authors": [
         "ox-alpha"
       ],
       "location": {
         "file": "pkg/nodes/while/while.go",
-        "startLine": 32,
+        "startLine": 38,
         "startCol": 3,
-        "endLine": 43,
+        "endLine": 51,
         "endCol": 3
       },
-      "hash": "decaeb0c513f57d6"
+      "hash": "a78fd6c8b46ef7de"
     },
     "review-20260826-009": {
       "id": "review-20260826-009",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "TestInMemorySchedulerReplace asserts exact tick counts against wall-clock sleeps",
       "body": "Resolved: the assertion below already checks `callCount == 0 ||\ncallCount%10 != 0` — a tolerant \"non-zero multiple of 10\" check, not the\nexact-count assertion this note originally described. That's exactly one\nof the note's own suggested fix directions. Marking resolved to match\nwhat's actually in the test; the wall-clock sleep itself is unchanged\n(still 200ms against a 100ms cron), so this remains sensitive to extreme\nCI scheduling delays, but no longer flakes on the double-fire case the\nnote called out.\n",
       "authors": [
@@ -649,12 +691,13 @@
         "endLine": 106,
         "endCol": 3
       },
-      "hash": "7e9dda10f85673a4"
+      "hash": "ed826467a4614448"
     },
     "review-20260827-001": {
       "id": "review-20260827-001",
       "category": "observation",
       "status": "open",
+      "priority": "P1",
       "title": "Dual RunContext types and field shadowing in TypedRunContext",
       "body": "TypedRunContext[C] embeds NodeRunContext while also declaring Config *C. In Go struct\nembedding, TypedRunContext[C].Config shadows NodeRunContext.Config (map[string]any).\nNode authors receive TypedRunContext, but the underlying engine still operates on\nuntyped NodeRunContext with map[string]any for Config, State, Results, and Errors.\nTypedRunContext[C] should be the default RunContext[C any] across the entire nodekit\nlifecycle rather than a wrapper over untyped legacy state bags.\n\nTypedRunContext[C] carries both typed config and general runtime context.\nNode authors receive this from typed Run/Router/BodyHandle callbacks.\n",
       "authors": [
@@ -667,12 +710,13 @@
         "endLine": 25,
         "endCol": 3
       },
-      "hash": "7bea712a71ce3dff"
+      "hash": "caad6366b8aa9294"
     },
     "review-20260827-002": {
       "id": "review-20260827-002",
       "category": "observation",
       "status": "open",
+      "priority": "P2",
       "title": "Type erasure and per-execution map-to-struct binding overhead in Define",
       "body": "Define[C] derives the schema at registration time but immediately erases type C into\nan untyped NodeDefinition. On every single node execution, prepareNodeConfig coerces\nraw map state and the wrapped callback calls bindFromMap (anansi record view -\u003e struct)\nafresh. If the engine executed typed steps natively, this per-execution reflection\nand map-copying overhead would be eliminated.\n\nDefine creates an erased NodeDefinition from a TypedDefinition[C].\nSchema is derived once from C at registration time via ExtractDTOSchemaDirectWithTag.\nThe returned NodeDefinition is ready for Register — the engine never sees C.\n",
       "authors": [
@@ -685,12 +729,13 @@
         "endLine": 85,
         "endCol": 3
       },
-      "hash": "4aedeedc8e0ea70b"
+      "hash": "0fe19b9f47002953"
     },
     "review-20260827-003": {
       "id": "review-20260827-003",
       "category": "todo",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Migrate pause node from untyped NodeDefinition to TypedDefinition[PauseConfig]",
       "body": "Resolved: migrated to nodekit.Define(nodekit.TypedDefinition[PauseConfig]{...})\nwith a tagged PauseConfig struct (waitForEvent, waitForEvents, mode,\ntimeout). The hand-written ConfigSchema JSON is gone — schema is now\nderived from PauseConfig's struct tags, same as every other migrated\nnode. Run and PipelinesRouterFunc now receive *nodekit.TypedRunContext\n[PauseConfig] and read nCtx.Config.WaitForEvents / .WaitForEvent / .Mode\n/ .Timeout directly instead of unchecked map type assertions.\n",
       "authors": [
@@ -703,12 +748,13 @@
         "endLine": 29,
         "endCol": 3
       },
-      "hash": "191b324d26f71224"
+      "hash": "d77ca056873147f4"
     },
     "review-20260827-004": {
       "id": "review-20260827-004",
       "category": "todo",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Migrate try-catch node from untyped NodeDefinition to TypedDefinition[TryCatchConfig]",
       "body": "Resolved: migrated to nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{...})\nwith a tagged TryCatchConfig struct (errorKey, default \"error\", required).\nThe hand-written ConfigSchema JSON is gone — schema is now derived from\nTryCatchConfig's struct tags. run/router now receive\n*nodekit.TypedRunContext[TryCatchConfig] and read nCtx.Config.ErrorKey\ndirectly instead of an unchecked map type assertion.\n",
       "authors": [
@@ -721,12 +767,13 @@
         "endLine": 25,
         "endCol": 3
       },
-      "hash": "02d1759591beae91"
+      "hash": "144fa71bc12266e9"
     },
     "review-20260910-001": {
       "id": "review-20260910-001",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Re-pause after resume drops multi-event waits and skips watch/cron re-registration",
       "body": "Resolved: the re-pause tracking now mirrors spawnRun's pause handling\nin full. (1) The guard accepts multi-event waits (WaitForEvents +\nWaitMode), not just single WaitForEvent, so a re-paused PauseForEvents\nrun is tracked instead of being recorded as paused with nothing waiting\nfor it. (2) waitForEvents/waitMode are propagated onto the pausedRun so\ndispatch can match (and accumulate ReceivedEvents for) a re-paused\nmulti-event wait. (3) The WatchService registration for the new wait's\nevent types is re-done (restoring bus subscriptions and pre-pause event\nbuffering), OnRunPaused drains anything buffered while the segment ran,\nand the cron-based auto-resume is re-armed from the new checkpoint —\nwith a stale schedule from the previous pause canceled when the new one\ncarries no cron. The buffered-event resume runs in its own goroutine:\na synchronous call would recurse inside this Resume frame, and this\nframe's paused outcome must not overwrite the final one (the outcome\nwrite above happens before the goroutine is spawned, so ordering holds).\n",
       "authors": [
@@ -734,17 +781,18 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1145,
+        "startLine": 1163,
         "startCol": 3,
-        "endLine": 1162,
+        "endLine": 1180,
         "endCol": 3
       },
-      "hash": "6b8a8df608701332"
+      "hash": "d5e57bbd10ea88b6"
     },
     "review-20260910-002": {
       "id": "review-20260910-002",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Replayer-path resume executes on a rebuilt store but reports and re-pauses with the stale original",
       "body": "Resolved: after a successful Rebuilder-path resume, the rebuilt store\nreturned by factory.Resume (bound into runCtx) is adopted as the\ncanonical store: the local st, rt.stores[runID], and — via the re-pause\ntracking below — any subsequent pausedRun.store all reference it. So\nRunResult.FinalState now reflects the completed segment (not the state\nas of the pause), and on a multi-pause run the next resume's\ncopyStoreState only overlays values at least as fresh as the replay\nitself, instead of reverting every key to the previous pause's values.\nThe legacy checkpoint path is unaffected: it reuses st directly.\n",
       "authors": [
@@ -755,17 +803,18 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1060,
+        "startLine": 1078,
         "startCol": 3,
-        "endLine": 1072,
+        "endLine": 1090,
         "endCol": 3
       },
-      "hash": "53725b1e8fc1d32b"
+      "hash": "74b0e8a9c60e6bd7"
     },
     "review-20260910-003": {
       "id": "review-20260910-003",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "DefinitionResolver answered every id with the root pipeline definition",
       "body": "Resolved: the resolver now answers with the definition the id\nactually names, looked up across the whole compiled workflow\n(Workflow.FindPipeline: the trigger-keyed Pipelines map, then\nsubpipeline definitions embedded in stages, recursively).\nPreviously it returned pdef (the run's root pipeline) for ANY\nresolvedID, so runs containing subpipelines (fork branches,\ntry-catch bodies, distribute children, pipeline-ref stages)\nreplayed child entries against the root definition,\nattributing stages to the wrong pipeline and producing wrong\nresume addresses. Combined with the per-pipeline entry\npartitioning from #review-20260910-015 (the resolver now keys\non pipeline id, not run id), event-sourced recovery is\ntrustworthy for subpipeline-bearing pipelines. Dynamic\ndistribute children are runtime-generated and are never\nresolved here — the Replayer regenerates them from the parent\nstage's DynamicPipelines closure.\n",
       "authors": [
@@ -773,17 +822,18 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1000,
+        "startLine": 1009,
         "startCol": 3,
-        "endLine": 1018,
+        "endLine": 1027,
         "endCol": 3
       },
-      "hash": "3c1b4dc4fb8de79a"
+      "hash": "d178ee109e9abac1"
     },
     "review-20260910-004": {
       "id": "review-20260910-004",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Per-run bookkeeping maps were never evicted",
       "body": "Resolved with a janitor-based eviction policy. rt.stores, rt.outcomes,\nrt.runMetas and rt.rerunIdx previously only ever gained entries (only\nrt.active/rt.paused were pruned), so a long-lived host accumulated one\nfull state map per run forever — a genuine leak, not just metadata\ngrowth. Two tiers now:\n\n 1. STATE STORES + rerun indexes (the leak proper) are always evicted once\n    a run is terminal and its grace horizon has passed — RunHistoryTTL when\n    set, else a 10-minute default (defaultStoreGrace). The grace preserves\n    the documented post-completion read pattern (rt.Store(runID)\n    immediately after a run finishes, and the #review-20260910-002\n    canonical-store contract asserted by tests) while still bounding\n    memory; the final state stays reachable via GetRunOutcome and the\n    action log. An immediate purge at the terminal write was tried first\n    and rejected: it nils rt.Store(runID) the moment a run completes,\n    breaking hosts that read the run's document afterwards.\n 2. AUDIT HISTORY (runMetas for ListRuns, outcomes for GetRunOutcome) is\n    evicted only when the host opts in with Options.RunHistoryTTL; the\n    default keeps it forever, matching the pre-fix audit behavior.\n\nPaused and in-flight runs are never touched. Shutdown stops the janitor.\n",
       "authors": [
@@ -791,19 +841,20 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1645,
+        "startLine": 1662,
         "startCol": 3,
-        "endLine": 1668,
+        "endLine": 1685,
         "endCol": 3
       },
-      "hash": "723f573505519a1d"
+      "hash": "f1031a504422db81"
     },
     "review-20260910-005": {
       "id": "review-20260910-005",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Watch resume runs the whole pipeline synchronously in the emitter's goroutine",
-      "body": "resumeCallback invokes rt.Resume inline, and MemoryScopedBus.Emit\ndispatches handlers synchronously — so the goroutine that emits a\nwatched event type (a user calling rt.Bus().Emit, an HTTP /events\nhandler, another run's step) blocks until the ENTIRE resumed pipeline\nfinishes (or pauses again). dispatch()'s own resume path deliberately\nwraps Resume in a goroutine; this path does not, and the asymmetry is\neasy to trip over: a fire-and-forget-looking Emit silently becomes a\nblocking call whose duration equals the resumed run's. Consider\nrouting the callback through a goroutine (or a bounded worker pool) —\nthe callback's signature already loses the resume result, so nothing\ntoday depends on synchronous completion.\n",
+      "body": "Resolved: route the callback through a goroutine, mirroring\ndispatch()'s own resume path (see the `go func(p *pausedRun)` wrapper\naround rt.Resume above). The callback's signature already loses the\nresume result, so nothing depends on synchronous completion; a\nfire-and-forget-looking Emit no longer silently blocks its caller for\nthe duration of the resumed pipeline.\n",
       "authors": [
         "hermes-review"
       ],
@@ -811,33 +862,35 @@
         "file": "pkg/runtime/runtime.go",
         "startLine": 343,
         "startCol": 3,
-        "endLine": 356,
+        "endLine": 351,
         "endCol": 3
       },
-      "hash": "6f95867e8783d9ad"
+      "hash": "e4acaf96cdc9c657"
     },
     "review-20260910-006": {
       "id": "review-20260910-006",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "rerunIndex is never incremented, so resume attempts share one audit trail",
-      "body": "The RerunIndex contract (see FactoryOptions.RerunIndex and the action\nlog package docs: \"each forced recovery increments it so retries get\nseparate audit trails\") is not honored by the runtime: nextRerunIndex\nruns once against a brand-new runID (always 0) and Resume uses\nrt.rerunIndexOf(runID) without ever incrementing rt.rerunIdx. Every\nresume therefore appends to attempt 0's log, merging what the docs\npromise will be separate audit trails, and LatestRerunIndex can never\nexceed 0. Either increment on resume or update the contract docs.\n",
+      "body": "Resolved: this seeds attempt 0 for a brand-new run, which was always\ncorrect on its own. The gap was that Resume re-read rt.rerunIndexOf\ninstead of calling nextRerunIndex again, so every forced recovery\nreused attempt 0's audit trail. Resume now calls nextRerunIndex and\npersists the advanced value into rt.rerunIdx on each resume, so\nLatestRerunIndex advances past 0 and each retry gets its own trail,\nhonoring the FactoryOptions.RerunIndex contract end to end.\n",
       "authors": [
         "hermes-review"
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1367,
+        "startLine": 1385,
         "startCol": 3,
-        "endLine": 1377,
+        "endLine": 1394,
         "endCol": 3
       },
-      "hash": "c1ca5199b3487ab6"
+      "hash": "51cf00318e213dca"
     },
     "review-20260910-007": {
       "id": "review-20260910-007",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Watch registered under the node id instead of the run id",
       "body": "Resolved: the registration (and the matching PeekBufferedEvent in the\nPipelinesRouterFunc below) is now keyed by nCtx.RunID, plumbed through\nthe new NodeRunContext.RunID (from PipelineContext.RunID on the step\npath, pipeline.RunIDFromContext on the router path — children share\nthe parent run id, so body and router see the same id). This removes\nboth failure modes the note described: concurrent runs of the same\nworkflow no longer overwrite each other's registrations (node ids are\nshared, run ids are not), and every registration is now reachable by\nthe OnRunEnded(runID) cleanup, so pauses no longer leak registrations\nand root bus subscriptions. Fixing this also surfaced two latent gaps\nthat made the whole path dead code, both fixed alongside: the\nwatch-service handle was never injected into node Resources (nothing\nresolved \"resource:watch-service\" for nodes without a compiler-wired\nresource edge, so Run and the router always took the no-op warning\npath — see the builtinResourceKeys injection in nodekit), and the\nWatchService resumed parked mode=all registrations on the first\nmatching event instead of the last (see the per-run delivered-type\ntracking in watchservice.go's onEvent).\n\nRegister with WatchService (pre-pause buffering)\nThis happens BEFORE the body executes, so callbacks are caught\n",
       "authors": [
@@ -853,12 +906,13 @@
         "endLine": 105,
         "endCol": 3
       },
-      "hash": "0057e85f0256eb3c"
+      "hash": "e2e71283e7081887"
     },
     "review-20260910-008": {
       "id": "review-20260910-008",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Step goroutines have no panic recovery — a panicking action kills the host process",
       "body": "Resolved: panics are recovered at three layers, each converting into\nthe existing failure path instead of unwinding into the runtime:\n\n1. executeStepAttempt recovers action panics (Go node runners,\n   panics inside resource handles, third-party NodeRunners — goja\n   already recovers JS internally) and returns them as\n   ErrCodeExecutionFailed step errors with the stack logged via the\n   step's logger, so the existing retry loop, step:failure event,\n   action log entries, and stage failure aggregation apply unchanged.\n2. The step goroutine itself carries a safety-net recover for panics\n   outside the action (bus event handlers, delta computation): it\n   logs the stack and appends to stepErrs so the stage still fails\n   cleanly without killing the host process or the concurrent\n   siblings mid-stage.\n3. ExecuteSubPipelines' child goroutines recover panics from child\n   pipeline execution into a failed PipelineRunResult, which the\n   bounded stage's PipelinesRouter (try-catch) can catch like any\n   child failure.\n",
       "authors": [
@@ -871,12 +925,13 @@
         "endLine": 92,
         "endCol": 3
       },
-      "hash": "936b2ccfdd66c723"
+      "hash": "f754d4840d12a7c3"
     },
     "review-20260910-009": {
       "id": "review-20260910-009",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Actions executed while the store read lock was held — Store.Update from an action self-deadlocked",
       "body": "Resolved: the action now runs on a DEEP-COPIED snapshot,\nOUTSIDE the store lock. Previously the action ran inside\nst.Read's callback, i.e. under MemoryStore's RLock with\nthe LIVE state map handed to it. Two hazards:\n\n1. Arbitrary user code (JS sandbox, HTTP retries) ran while\n   the lock was held, serializing all concurrent steps in\n   the stage for the action's whole duration and stretching\n   the lock hold time.\n2. The live map meant any direct mutation of `state`\n   (node bug, JS `state.x = …` — see #review-20260910-011)\n   raced concurrent readers of the same map — Go's fatal\n   concurrent-map-write panic, unrecoverable by design —\n   and mutated store state bypassing the atomic stage\n   commit, so recorded deltas diverged from real state.\n\nThe deep copy is taken under the lock (cheap, bounded by\nthe copy) and the action then runs lock-free on a private\nmap: concurrent steps no longer serialize behind user\ncode, direct mutations can no longer touch the store, and\nthe only write path remains the returned mutator —\ncommitted atomically at stage end, matching the\nStepAction contract's \"read-only view\" wording.\n",
       "authors": [
@@ -889,12 +944,13 @@
         "endLine": 190,
         "endCol": 3
       },
-      "hash": "d07520132a956f2c"
+      "hash": "21104e4ea331bf5d"
     },
     "review-20260910-010": {
       "id": "review-20260910-010",
       "category": "todo",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "gofmt -s was not clean — 12 files failed gofmt -s -l at review time",
       "body": "Resolved: gofmt -s -l . (go1.27rc1) listed 12 files before this review's\nmechanical pass: pkg/actionlog/actionlog.go, pkg/effect/effect.go,\npkg/nodekit/typed_test.go, pkg/nodes/pause/pause_test.go,\npkg/pipeline/checkpoint.go, pkg/pipeline/stage.go,\npkg/replay/replayer_test.go, pkg/runtime/requirements_test.go,\npkg/runtime/runtime.go, pkg/runtime/runtime_test.go,\ntests/actionlog_test.go, tests/fork_while_workflow_test.go. This file's\nstep-failure branch (the actLog block inside `if stepErr != nil`) was\nvisibly misindented, and review edits had drifted files to space\nindentation. Both halves are closed: the tree was normalized with\n`gofmt -s -w .` (and stays clean), and the missing PREVENTION is in —\n`make check` runs a gofmt -s gate and `make test` includes it via\nvet+race (see the resolved #review-20260910-021), so CI now rejects the\ndrift this note tracked.\nresolver (optional) resolves run-scoped resource keys (\"resource:\u003cid\u003e\") into handles.\nactLog (optional) records every step event for the unified observability log.\nrerunIndex stamps each entry so retries get separate audit trails.\n",
       "authors": [
@@ -907,12 +963,13 @@
         "endLine": 37,
         "endCol": 3
       },
-      "hash": "5acad132f025cafb"
+      "hash": "715520e11b844be3"
     },
     "review-20260910-011": {
       "id": "review-20260910-011",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Sandbox received the live state map — JS could mutate store state directly",
       "body": "Resolved: the sandbox now binds a DEEP COPY of state (store.DeepCopyMap)\nand only the returned patch reaches the store. Previously nCtx.State\nwas bound into the goja VM by reference, so user JS like\n`state.count = 999` mutated whatever map the caller handed over,\nbypassing the mutator/atomic-stage-commit model: the step's recorded\ndelta missed direct mutations (action log / Replayer deltas diverged\nfrom real state), and when the caller was ExecuteStageSteps' read\npath the mutation raced concurrent readers — Go's fatal\nconcurrent-map-write panic, unrecoverable by design.\n\nThe node-level copy is deliberately independent of the step engine's\nown snapshot (#review-20260910-009): the replay path (replayStep) and\nany other caller that passes a live map are covered here too, and the\ncontract is now local to this node rather than an assumption about\nevery caller. Direct JS mutations hit the private copy and are\ndiscarded; the returned patch is the only write path.\n",
       "authors": [
@@ -925,12 +982,13 @@
         "endLine": 55,
         "endCol": 3
       },
-      "hash": "a5a06a3f63f8a907"
+      "hash": "942763c21457f42a"
     },
     "review-20260910-012": {
       "id": "review-20260910-012",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Checkpoint persistence failure is silently discarded on pause",
       "body": "Resolved: a failed Persist checkpoint write now FAILS THE PAUSE.\nEverything downstream (the pipeline:pause event, the \"paused\"\nresult, the runtime's pausedRun registration) used to proceed as\nif persistence had succeeded, so a run whose store write failed\nreported paused with nothing durable recording where to resume —\nthe legacy checkpoint resume path then found no checkpoint and\nrecovery dead-ended. A lost checkpoint invalidates the whole\npaused-run contract, so the error surfaces as a failed stage/run\ninstead of a fake pause. The sibling discarded-update sites in\nthis file (nested-checkpoint bubbling below, default sub-pipeline\nmerge) are best-effort by design and now LOG failures like\nreview-20260822-033 does.\n",
       "authors": [
@@ -946,12 +1004,13 @@
         "endLine": 828,
         "endCol": 3
       },
-      "hash": "29adc90892fac582"
+      "hash": "706f997e4f7b2532"
     },
     "review-20260910-013": {
       "id": "review-20260910-013",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Invalid cron expressions were accepted and silently fired hourly",
       "body": "Resolved: Schedule now VALIDATES the expression (ValidateCron) and\nreturns an error before registering anything, so a typo'd cron\ntrigger — e.g. \"30 * * *\" (4 fields) or \"@evry 5m\" — fails\nregistration loudly (runtime.Register already propagates Schedule\nerrors) instead of succeeding and firing every hour forever. This\nfinally enforces what #review-20260822-040's resolution promised.\nThe 1-hour fallback inside CronDelay remains only for the recursive\nre-arm path (scheduleNextLocked), where an error return is\nimpossible — an expression that reached a timer can only have come\nfrom a validated Schedule.\n",
       "authors": [
@@ -968,12 +1027,13 @@
         "endLine": 68,
         "endCol": 3
       },
-      "hash": "51b97cb730b0f168"
+      "hash": "e37e11df597df604"
     },
     "review-20260910-014": {
       "id": "review-20260910-014",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "No durable Store can serve the multi-run runtime; Append force-rewrites RunID",
       "body": "WorkflowRuntime takes ONE Options.ActionLog for ALL runs and appends\nentries carrying their own RunID. The only durable implementation,\nAnansiStore, used to be scoped to a single (runID, rerunIndex)\ndocument and OVERWROTE entry.RunID/RerunIndex with its own scope —\nso pointing Options.ActionLog at one AnansiStore silently merged\nevery run's log into one foreign runID, and the document itself had\nno stable identity (it was located by querying the runId FIELD, a\nfull collection scan, with the runID pinned by the constructor).\nNothing outside tests wired the factory into the runtime either, so\nthe README's durable, event-sourced recovery story had no shipped\nintegration path.\n\nResolved: runID is detached from document identity. Log documents\nnow carry a deterministic ID derived from the entry's own (RunID,\nRerunIndex) — logDocID, a UUIDv7-shaped hash because anansi only\naccepts 32-hex v7 document IDs — while runId remains a plain\nqueryable FIELD inside the document for rerun enumeration\n(readByRunID). One AnansiStore (factory.NewStore(), no scope) now\nserves the multi-run runtime exactly like MemoryActionLog: Append\nroutes by entry identity and rejects entries without a RunID, and\nSeq derives from max(existing)+1 so numbering is stable even if an\nentry ever fails to marshal. Reads go straight to the deterministic\ndocument ID instead of scanning the collection on runId. The\ndurable path is wired end-to-end in\npkg/runtime/durable_log_test.go (two runs, one shared store,\nReplayer rebuild off it). Breaking API change: NewStore dropped its\n(runID, rerunIndex) scope parameters — the scoped handle was the\nbug. The per-Append O(n) array rewrite remains (inherent to the\none-document-per-run schema); a throughput fix belongs with the\npath-qualified addressing schema change tracked in\n#review-20260910-015.\n\nIdentity must come from the entry, not the store: an entry without\na RunID has nowhere to land. Fail loudly instead of silently\nmerging it into a foreign run's log.\n",
       "authors": [
@@ -986,12 +1046,13 @@
         "endLine": 171,
         "endCol": 3
       },
-      "hash": "1ca1cdd6dd73f306"
+      "hash": "471223dce0a5eaf0"
     },
     "review-20260910-015": {
       "id": "review-20260910-015",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Log indexing by bare stage/step IDs collapsed concurrent subpipeline instances",
       "body": "Resolved: log entries now carry a PipelineID (schema change to\nactionlog.Entry, stamped by RunContextImpl.appendLog, ExecuteStageSteps\nand the runtime's resume entry), and the Replayer partitions entries per\npipeline (partitionByPipeline) instead of indexing all of a run's entries\nby bare stage/step id. Workflows compiled with distribute (and fork)\nclone the SAME body stage/step ids into N concurrent child pipelines; the\nold flat index kept only the FIRST completion entry per step id, silently\ndropped the other children's deltas, and let one child's routing handle\nsteer every child's replay. Now each child instance's entries are replayed\nagainst its own definition and store (replaySubpipelineStage — child defs\nresolved statically, or regenerated via the stage's DynamicPipelines\nclosure exactly like the runtime does), seeded/cloned like\nExecuteSubPipelines, and merged into the parent with the runtime's\nresultKey/default-merge semantics (mergeChildResult). Child pauses bubble\nas nested EntryAddress.Pipeline resume addresses. Combined with the\nresolver fix in #review-20260910-003, event-sourced recovery is faithful\nfor subpipeline-bearing pipelines, not just linear ones.\n",
       "authors": [
@@ -1007,12 +1068,13 @@
         "endLine": 168,
         "endCol": 3
       },
-      "hash": "d563a02200b4a6e7"
+      "hash": "80c3ff1d72575a0d"
     },
     "review-20260910-016": {
       "id": "review-20260910-016",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "The query node was an always-failing stub listed as production-ready",
       "body": "Resolved: the node is rejected at COMPILE time instead of failing\nat runtime. Every execution of the query node returned \"database\nresource not yet implemented\", yet the README's node catalog\ndocumented it as a working production node — so users wired\ndependency edges and config into it, validated fine at compile\ntime, and only discovered the dead end during execution. Gating\nhere means canvases using `query` cannot compile dead workflows:\nthe failure surfaces where the graph is authored, with an\nactionable message. The node stays registered (its definition and\nhandles still resolve for the editor) but marked experimental in\nthe catalog until a real resource-backed implementation lands\n(together with the database service node, see the resolved\n#review-20260910-017).\n",
       "authors": [
@@ -1028,12 +1090,13 @@
         "endLine": 512,
         "endCol": 3
       },
-      "hash": "9c3ba68313da92ce"
+      "hash": "5152ff5b7dae2759"
     },
     "review-20260910-017": {
       "id": "review-20260910-017",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Resource node never initialized a handle — the database/query pair was inert",
       "body": "Resolved via the \"mark both kinds as experimental in the catalog\" branch\nof this note. The node still has no ResourceInit/ResourceEnd: the compiler\nwraps resource nodes in a pipeline.Service whose Init returns (nil, nil)\nwhen def.ResourceInit == nil, so the runtime resolver published a nil\nhandle under \"resource:\u003cid\u003e\" and any consumer took its error path — while\nthe README advertised \"database + query\" workflows (fetch, enrich, and\npersist data on recurring intervals). Now: (1) the compiler rejects the\n`query` consumer at compile time (#review-20260910-016), so a dead\ndb+query canvas cannot compile; (2) both kinds are marked\n\"[EXPERIMENTAL — ...]\" in their definitions and the README catalog, so\nauthoring surfaces no longer present them as production-ready; (3) the\nREADME's scheduled-pipelines use case no longer implies working database\npersistence. Wiring a real ResourceInit (anansi persistence per\nDatabaseName) remains the future path to un-experimentalize the pair.\n",
       "authors": [
@@ -1049,14 +1112,15 @@
         "endLine": 45,
         "endCol": 3
       },
-      "hash": "7f6bea66b8aaff9a"
+      "hash": "1f848f6ad6457f5b"
     },
     "review-20260910-018": {
       "id": "review-20260910-018",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "\"Clone\" shares Stage structs across concurrent children",
-      "body": "The comment below says \"each child owns its copy\", but\ncopy(cloned, bodyStages) only copies the slice header:\nevery child pipeline references the SAME Stage structs,\nincluding their Steps maps and Router closures. It is\nsafe today only because the engine treats compiled\nstages as immutable during execution (context.go's\nDynamicPipelines patch mutates a per-iteration struct\ncopy, not the shared one). Any future code that writes\nto a Stage/Steps map at runtime turns this into a\ncross-child data race. Consider a real deep clone (or\ndocumenting the immutability contract on Stage).\nClone body stages so each child owns its copy.\n",
+      "body": "Resolved: kept the shallow copy(cloned, bodyStages) — a real\ndeep clone of Steps maps and Router/PipelinesRouter closures\nwould be invasive and easy to get subtly wrong for little\nbenefit given the engine's existing behavior — and instead\nmade the \"compiled stages are immutable during execution\"\ncontract explicit on pipeline.Stage's doc comment, so future\ncode that's tempted to write into a shared Stage/Steps map\nat runtime is warned before it turns this into a cross-child\ndata race, rather than discovering it via a flaky test.\nClone body stages so each child owns its copy.\n",
       "authors": [
         "hermes-review"
       ],
@@ -1064,17 +1128,18 @@
         "file": "pkg/nodekit/build.go",
         "startLine": 426,
         "startCol": 3,
-        "endLine": 440,
+        "endLine": 438,
         "endCol": 3
       },
-      "hash": "688ad2ac15f76800"
+      "hash": "12cce8445e6992b0"
     },
     "review-20260910-019": {
       "id": "review-20260910-019",
       "category": "observation",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "EvalBody skips the validation EvalValue applies, and the blocklist is bypassable",
-      "body": "EvalValue runs ValidateExpression first; EvalBody — which executes the\nif/while predicate strings AND user-supplied complex condition bodies —\ndoes not, so the two entry points enforce different policies for the\nsame VM. The blocklist itself is a deny-list over regexes and is\ntrivially evaded (e.g. `this[\"ev\"+\"al\"]`, computed member access), so\nit should be treated as UX guardrails, not a security boundary. Today\nthe blast radius is small because goja has no host bindings registered\n(no I/O from the VM) and ctx cancellation interrupts runaway scripts —\nbut a consistent policy (validate both, or neither + documented threat\nmodel) would keep future host bindings from silently inheriting the\nweaker path.\n",
+      "body": "Resolved: EvalBody now runs ValidateExpression first, same as EvalValue,\nso both entry points into the shared goja VM enforce the same (still\nbypassable) blocklist policy rather than diverging. The blocklist\nremains a deny-list over regexes and is trivially evaded (e.g.\n`this[\"ev\"+\"al\"]`, computed member access) — it is UX guardrails, not a\nsecurity boundary. Today the blast radius is small because goja has no\nhost bindings registered (no I/O from the VM) and ctx cancellation\ninterrupts runaway scripts, but keeping the policy consistent here\nmeans future host bindings won't silently inherit a weaker path through\nEvalBody specifically.\n",
       "authors": [
         "hermes-review"
       ],
@@ -1082,17 +1147,18 @@
         "file": "pkg/expr/expr.go",
         "startLine": 165,
         "startCol": 3,
-        "endLine": 178,
+        "endLine": 177,
         "endCol": 3
       },
-      "hash": "704863a650fea30e"
+      "hash": "af4b21c79bc3872e"
     },
     "review-20260910-020": {
       "id": "review-20260910-020",
       "category": "todo",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P3",
       "title": "Assertion-free debug test — passes unconditionally",
-      "body": "TestIfDbg (and its sibling TestIfDbg2 in ifdbg2_test.go) only t.Logf the\nvalues under inspection and contain zero assertions, so they can never\nfail and add permanent green noise to every CI run. They look like\nleftover scratch work from debugging the if-node router. Either delete\nthem or promote the observations to real assertions (e.g. assert the\nrouted handle for less_than/greater_than against expectations, which is\nexactly what their names hint at).\n",
+      "body": "Resolved: promoted the observations to real assertions on the routed\nhandle, matching what less_than/greater_than are supposed to produce\nfor state.total=76 against the threshold value \"70\".\n",
       "authors": [
         "hermes-review"
       ],
@@ -1100,15 +1166,16 @@
         "file": "tests/ifdbg_test.go",
         "startLine": 11,
         "startCol": 3,
-        "endLine": 20,
+        "endLine": 16,
         "endCol": 3
       },
-      "hash": "3a55677558c74986"
+      "hash": "694049a1a259a840"
     },
     "review-20260910-021": {
       "id": "review-20260910-021",
       "category": "todo",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "CI ran `make test` without -race, vet, or gofmt gates",
       "body": "Resolved: .github/workflows/test.yaml only ran `make test` (go test -v\n./...). Three gates the project's own docs promise were missing: (1)\nREADME's \"Testing \u0026 Quality Standard\" says `go test -race ./...` — the\nrace detector has caught real bugs here before (see #review-20260826-001\nin pkg/scheduler) but CI never exercised it; (2) `go vet ./...` was clean\nand cheap to keep clean; (3) `gofmt -s -l .` had drifted 12 files (see\nthe resolved #review-20260910-010) with nothing to stop it. Now `make\ntest` runs go vet + go test -race, `make check` adds the gofmt -s gate,\nand CI runs both steps — the gates can no longer drift from local builds.\n",
       "authors": [
@@ -1121,12 +1188,13 @@
         "endLine": 13,
         "endCol": 3
       },
-      "hash": "f9047bda6060af4d"
+      "hash": "e42329028e45c8c0"
     },
     "review-20260910-022": {
       "id": "review-20260910-022",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Resume resolves the pipeline definition with the wrong map key, silently succeeding without executing anything",
       "body": "Resolved: workflow.Pipelines is keyed by trigger id for compiled\nworkflows (where the pipeline definition's own ID equals the trigger\nnode id, so the old lookup worked by coincidence), but hand-built\nworkflows may key it only by the pipeline's ID. With the recorded\npipelineID missing from the map, pdef was the ZERO definition: the\nresume scoped its bus with an empty label, the Replayer rebuilt\nnothing (\"run already completed\"), and the fallback prepared a run\ncontext with zero stages — which emitted pipeline:start followed\nimmediately by pipeline:success, reporting \"succeeded\" while\nexecuting NOTHING after the pause. Resume now falls back to the\ntrigger-id key (the key the dispatch/executePipeline path itself\nuses) and every use below reads the resolved pdef.\n",
       "authors": [
@@ -1137,17 +1205,18 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 961,
+        "startLine": 970,
         "startCol": 3,
-        "endLine": 976,
+        "endLine": 985,
         "endCol": 3
       },
-      "hash": "95f0fd8a30d48e1d"
+      "hash": "91a8a2f9541c5290"
     },
     "review-20260910-023": {
       "id": "review-20260910-023",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P1",
       "title": "Rebuild returns the pausing stage as the resume address, so every resumed run re-pauses forever",
       "body": "Resolved: a recorded pause route (PauseRouteHandle, \"__pause__\")\nis a WAIT MARKER, not a jump target. Previously the lookup below\nfailed (no stage is named \"__pause__\") and fell through to\n\"unknown target — treat as resume point\", returning the PAUSING\nstage as the resume address. The resumed run then re-entered the\npause stage, whose router paused again — an infinite pause loop\nthat made event-sourced resume unusable for any workflow that\nactually pauses (masked until now: the pause node was a silent\nno-op, see #review-20260910-007, and hand-built runtime tests\nhit the vacuous zero-definition path, see\n#review-20260910-022). A pause checkpoint records where execution\nshould continue (ResumeAt) — resolve the marker through it.\n",
       "authors": [
@@ -1163,12 +1232,13 @@
         "endLine": 373,
         "endCol": 3
       },
-      "hash": "566f1afad5091ad3"
+      "hash": "2da42a9d3da26c42"
     },
     "review-20260910-024": {
       "id": "review-20260910-024",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "StateAt result depended on Go's randomized map iteration order",
       "body": "StateAt walked def.Stages and, inside the target stage, iterated\nstage.Steps (a map) with an early return on the target step. Go\nrandomizes map iteration, so whether a sibling step's recorded\ndelta was folded in before the early return flipped run to run:\nStateAt(…, StepAddress{Stage: \"stage-1\", Step: \"step-b\"}) returned\nstate WITH step-a's delta about half the time and WITHOUT it the\nother half (caught by TestStateAt failing intermittently in the\nfull-suite run). An unrecorded effectful sibling also aborted the\nwhole projection mid-stage, order-dependently.\n\nResolved: steps in a stage run concurrently (Stage.Execute spawns\none goroutine per step), so \"state at step X\" is only stable as\n\"just before X's own delta landed\". The projection now folds in\nevery non-target sibling deterministically — recorded deltas for\neffectful steps, re-execution for pure ones — skipping the\ntarget's own contribution, and treats an unrecorded effectful\nsibling as \"no delta yet\" instead of aborting.\n",
       "authors": [
@@ -1181,12 +1251,13 @@
         "endLine": 127,
         "endCol": 3
       },
-      "hash": "98f7dadfd1a476dc"
+      "hash": "47f88b87e14d29b1"
     },
     "scoped-bus-opportunity-001": {
       "id": "scoped-bus-opportunity-001",
       "category": "todo",
-      "status": "open",
+      "status": "wontfix",
+      "priority": "P1",
       "title": "Replace MemoryScopedBus with go-events ScopedBus for topic isolation",
       "body": "Investigated and declined for now (not implemented blind). go-events/v2's\nScopedBus/EventBus (checked directly against the upstream source) is\nfundamentally async: Publish() appends to a durable log and\nSubscribeWithOptions() reads back via a polling/draining goroutine against\ncheckpoints — there is no synchronous \"call the handler now\" path. Two\nthings in this codebase depend on synchronous, in-process dispatch that a\nwholesale swap would break:\n\n 1. MemoryScopedBus.Emit's parent-bubbling happens inline, in the calling\n    goroutine, before Emit returns — pipeline/stage/step code relies on\n    handlers (e.g. the timeline recorder) having already observed an\n    event by the time execution moves on. Async delivery would reorder or\n    delay that relative to pipeline progress.\n 2. WatchService (see scoped-bus-opportunity-004) subscribes at the root\n    and resolves pauses by matching arbitrary payload conditions, not by\n    run identity — a design that depends on every subscriber seeing every\n    event on the shared bus, which per-run topic isolation would remove.\n\nThe safer, additive half of this note — wiring the durable go-events\nbackend that MemoryScopedBus already has a slot for (the `underlying`\nfield) — is real and has been implemented: see\nevents.NewDurableMemoryScopedBus (scoped-bus-opportunity-005). That gives\ndurability/replay without replacing the synchronous dispatch model this\ncode depends on. A full ScopedBus migration remains open as future work,\nbut needs a design pass on run-identity-based subscription filtering\nfirst (see the wontfix note on scoped-bus-opportunity-004), not just a\nmechanical swap.\n",
       "location": {
@@ -1196,27 +1267,29 @@
         "endLine": 260,
         "endCol": 3
       },
-      "hash": "f2626f748bcbaff6"
+      "hash": "eab686be319b5165"
     },
     "scoped-bus-opportunity-003": {
       "id": "scoped-bus-opportunity-003",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Empty EventPath scoping provides no real isolation",
       "body": "Resolved: scope the per-run bus with a real [\"pipeline\", pipelineID, runID]\npath node instead of an empty EventPath{}. This does not add topic-level\nrouting isolation (MemoryScopedBus still dispatches through its own\nsynchronous handlers map, bubbling to parent — see the note on\nscoped-bus-opportunity-001 for why a wholesale ScopedBus swap isn't\nsafe here), but it does give every event a real, inspectable Path\nidentifying which run produced it, instead of an empty placeholder —\nwhich is what PipelineEvent.Path is actually consumed for (the\nfrontend timeline).\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 981,
+        "startLine": 990,
         "startCol": 3,
-        "endLine": 991,
+        "endLine": 1000,
         "endCol": 3
       },
-      "hash": "b46cb199231d6f07"
+      "hash": "22d35272381fa2f9"
     },
     "scoped-bus-opportunity-004": {
       "id": "scoped-bus-opportunity-004",
       "category": "issue",
-      "status": "open",
+      "status": "wontfix",
+      "priority": "P2",
       "title": "WatchService subscribes to root bus and manually filters by runID",
       "body": "Investigated and declined: this is not actually filtering \"by runID\" —\nchecked onEvent/evaluateConditions directly, and neither ever compares\nthe incoming event's RunID against the waiting run. That's\nintentional, not an oversight. The events WatchService cares about are\nexternal business signals (e.g. \"order.approved\") published by\ncallers via the public rt.Bus() who have no idea what a \"runID\" is —\nthey publish once, broadcast, and each waiting run's\nWatchDescriptor.Conditions (matched against payload, not run\nidentity) decides whether it's the one waiting for it. Subscribing on\nper-run scoped buses instead of the root would mean a run's watch\ncould only ever see events published *into that run's own scope* —\nwhich nothing does, since external callers publish globally. That\nwould silently break every resume-on-external-event pause, not just\nreduce fan-out. If per-run subscription scoping is wanted later, it\nneeds a companion change so external Dispatch-style calls can target\na specific run's scope (or a set of scopes) — a real design decision,\nnot a mechanical Subscribe-call swap.\n",
       "location": {
@@ -1226,12 +1299,13 @@
         "endLine": 461,
         "endCol": 3
       },
-      "hash": "abfa85858c883d50"
+      "hash": "6d724f853079f073"
     },
     "scoped-bus-opportunity-005": {
       "id": "scoped-bus-opportunity-005",
       "category": "issue",
-      "status": "open",
+      "status": "resolved",
+      "priority": "P2",
       "title": "Durable event backend designed but never wired",
       "body": "Resolved: the durable backend is now real and wireable — see\nevents.NewDurableEventBus / events.WithDurableBackend in\npkg/events/durable.go. Deliberately left opt-in rather than\nmade-default here: a caller who hasn't configured storage\nshouldn't suddenly get Pebble files written to an implicit\ndirectory. To get a durable, replayable event log, construct one\nexplicitly and pass it in via Options.Bus:\n\n  bus, closeBus, err := events.WithDurableBackend(events.DurableBusConfig{\n      Durable: true, BaseDir: \"/var/lib/hermes\", BusKey: \"runtime\",\n  })\n  rt := runtime.New(runtime.Options{Bus: bus, ...})\n  defer closeBus()\n\nLeaving Options.Bus unset keeps today's behavior: a purely\nin-memory bus with no underlying go-events backend at all.\n",
       "location": {
@@ -1241,7 +1315,7 @@
         "endLine": 340,
         "endCol": 3
       },
-      "hash": "ca0eb07f1ce20397"
+      "hash": "4295e32cb6c5ca92"
     }
   },
   "files": {
@@ -1255,7 +1329,7 @@
       "hash": "2cd0c85cb9413d6a"
     },
     "pkg/actionlog/anansi.go": {
-      "hash": "5c061b711047a589",
+      "hash": "610e8bc1ab995c0c",
       "noteIds": [
         "review-20260910-014"
       ]
@@ -1264,7 +1338,7 @@
       "hash": "bf2b4ca3ce06b84b"
     },
     "pkg/compiler/compiler.go": {
-      "hash": "1e15cb92800bebf7",
+      "hash": "b30c95b9be7d6e89",
       "noteIds": [
         "review-20260825-003",
         "review-20260825-004",
@@ -1284,7 +1358,7 @@
       "hash": "62ffb843815b8581"
     },
     "pkg/core/errors.go": {
-      "hash": "eb28aba68cc97703",
+      "hash": "50af7cdc8eee860a",
       "noteIds": [
         "review-20260822-007",
         "review-20260822-022",
@@ -1295,7 +1369,7 @@
       "hash": "86845c45f8e508ad"
     },
     "pkg/core/systemerror_json.go": {
-      "hash": "29e54b9668886d3b",
+      "hash": "082937eb2aea88b8",
       "noteIds": [
         "review-20260822-024",
         "review-20260822-025",
@@ -1314,7 +1388,7 @@
       "hash": "21b100d52e66f1f0"
     },
     "pkg/events/events.go": {
-      "hash": "8c3e8c652db3eee1",
+      "hash": "c3d250262901786b",
       "noteIds": [
         "review-20260822-004",
         "review-20260822-006",
@@ -1324,7 +1398,7 @@
       ]
     },
     "pkg/expr/expr.go": {
-      "hash": "bf7f83f4b4fdd7e8",
+      "hash": "7a1bbd0d2ee47fdd",
       "noteIds": [
         "review-20260910-019"
       ]
@@ -1333,7 +1407,7 @@
       "hash": "bd6d991d26fde282"
     },
     "pkg/nodekit/build.go": {
-      "hash": "ace6ce115ef750b3",
+      "hash": "b5e5673b630bcbb9",
       "noteIds": [
         "review-20260822-035",
         "review-20260910-018"
@@ -1358,7 +1432,7 @@
       "hash": "bc0c975f5c5c6cfd"
     },
     "pkg/nodekit/typed.go": {
-      "hash": "23e53baa1cb67535",
+      "hash": "1df0bba942a19869",
       "noteIds": [
         "review-20260827-001",
         "review-20260827-002"
@@ -1377,7 +1451,7 @@
       "hash": "f47627d8a4e6a835"
     },
     "pkg/nodes/code/code.go": {
-      "hash": "5f74c6e42dd611d4",
+      "hash": "8666f69e366b9d64",
       "noteIds": [
         "review-20260910-011"
       ]
@@ -1389,7 +1463,7 @@
       "hash": "1a379ac4b898e450"
     },
     "pkg/nodes/database/database.go": {
-      "hash": "61059f6a2d73ddd5",
+      "hash": "85aa6b7125295aad",
       "noteIds": [
         "review-20260910-017"
       ]
@@ -1422,7 +1496,7 @@
       "hash": "d94f8bceb1a1f0f1"
     },
     "pkg/nodes/http/http.go": {
-      "hash": "308d4d92d4f21f2c",
+      "hash": "57f24af00a10beff",
       "noteIds": [
         "review-20260822-036",
         "review-20260822-037",
@@ -1433,7 +1507,7 @@
       "hash": "1b763838ac3316f4"
     },
     "pkg/nodes/http/http_test.go": {
-      "hash": "044e52cc7e7c4cbb"
+      "hash": "607720287e5139ab"
     },
     "pkg/nodes/if/if.go": {
       "hash": "97fba2f8b44d15fa"
@@ -1454,7 +1528,7 @@
       "hash": "faa4e97720fac8e6"
     },
     "pkg/nodes/pause/pause.go": {
-      "hash": "fbad2ef0553c22ef",
+      "hash": "ac7fb2109a85bef0",
       "noteIds": [
         "review-20260822-002",
         "review-20260822-003",
@@ -1465,10 +1539,10 @@
       ]
     },
     "pkg/nodes/pause/pause_test.go": {
-      "hash": "8e59fd4b0a7a859b"
+      "hash": "71bfe56376cd1063"
     },
     "pkg/nodes/pipeline-ref/pipeleref.go": {
-      "hash": "bd20e30855aae692",
+      "hash": "1e1c6950733e8f15",
       "noteIds": [
         "review-20260826-005"
       ]
@@ -1516,7 +1590,7 @@
       "hash": "eac287a49ec238eb"
     },
     "pkg/nodes/try-catch/trycatch.go": {
-      "hash": "59ced01fde417b51",
+      "hash": "90efe104bc58dbd6",
       "noteIds": [
         "review-20260827-004"
       ]
@@ -1528,7 +1602,7 @@
       "hash": "47dfe845d888a42f"
     },
     "pkg/nodes/while/while.go": {
-      "hash": "5f677b4c50ce61b0",
+      "hash": "d619104603052645",
       "noteIds": [
         "review-20260826-008"
       ]
@@ -1543,7 +1617,7 @@
       "hash": "48bc1965cf8369fa"
     },
     "pkg/pipeline/context.go": {
-      "hash": "b4222e46d7697c76",
+      "hash": "9bcd2d87b3d9b70b",
       "noteIds": [
         "review-20260822-033",
         "review-20260822-034",
@@ -1566,7 +1640,7 @@
       "hash": "419e835bff44cbdb"
     },
     "pkg/pipeline/stage.go": {
-      "hash": "d8466685376409ce",
+      "hash": "9754b6090a6f7b71",
       "noteIds": [
         "review-20260910-008",
         "review-20260910-009",
@@ -1580,13 +1654,13 @@
       "hash": "c2bf1f916ae8c5c3"
     },
     "pkg/pipeline/subpipeline.go": {
-      "hash": "1b10b4d7af3a0a7c",
+      "hash": "d274feb66d533c92",
       "noteIds": [
         "review-20260825-002"
       ]
     },
     "pkg/pipeline/types.go": {
-      "hash": "d1591646b87debe0"
+      "hash": "3850137384803e77"
     },
     "pkg/pipeline/workflow.go": {
       "hash": "a5edb348a90fdcf2"
@@ -1598,7 +1672,7 @@
       "hash": "219f3db6a1001da1"
     },
     "pkg/replay/replayer.go": {
-      "hash": "5d6e2f8fe8a8fd64",
+      "hash": "2b2de5c58b673976",
       "noteIds": [
         "review-20260910-015",
         "review-20260910-023",
@@ -1609,7 +1683,7 @@
       "hash": "748cd7eee61550c8"
     },
     "pkg/runtime/calc_run_test.go": {
-      "hash": "f4fd35ed10097cfe"
+      "hash": "235e8f1b1ab39e66"
     },
     "pkg/runtime/durable_log_test.go": {
       "hash": "953def730143eab5"
@@ -1627,10 +1701,10 @@
       "hash": "29c1ec27f5de7ade"
     },
     "pkg/runtime/requirements_test.go": {
-      "hash": "6416ef56be3267c3"
+      "hash": "7e0536fb2bba97c6"
     },
     "pkg/runtime/runtime.go": {
-      "hash": "8f3da0d95c5882ed",
+      "hash": "d88f299445810bd5",
       "noteIds": [
         "review-20260822-038",
         "review-20260822-039",
@@ -1648,10 +1722,10 @@
       ]
     },
     "pkg/runtime/runtime_test.go": {
-      "hash": "6ef1d7658060878d"
+      "hash": "936ac33e8fc971c4"
     },
     "pkg/runtime/watchservice.go": {
-      "hash": "c5cc2f65545e6dbd",
+      "hash": "a2d8804bb4c5de36",
       "noteIds": [
         "review-20260822-001",
         "review-20260822-044",
@@ -1659,7 +1733,7 @@
       ]
     },
     "pkg/scheduler/cron.go": {
-      "hash": "c1a6838dfd5e8692",
+      "hash": "4a1134584b64488b",
       "noteIds": [
         "review-20260822-053"
       ]
@@ -1668,7 +1742,7 @@
       "hash": "c620113326774f92"
     },
     "pkg/scheduler/inmemory.go": {
-      "hash": "dabbddc45db1350d",
+      "hash": "9a5f5a76e6e59899",
       "noteIds": [
         "review-20260822-052",
         "review-20260826-001",
@@ -1679,7 +1753,7 @@
       "hash": "e28728a090c9ae5f"
     },
     "pkg/scheduler/scheduler_test.go": {
-      "hash": "f2903000b128e649",
+      "hash": "708e05bd76b4173b",
       "noteIds": [
         "review-20260826-009"
       ]
@@ -1703,7 +1777,7 @@
       "hash": "459963f08971ae52"
     },
     "pkg/watch/watch.go": {
-      "hash": "b577e6ff95dd34cf",
+      "hash": "060bb12821099677",
       "noteIds": [
         "review-20260822-010",
         "review-20260822-013"
@@ -1713,13 +1787,16 @@
       "hash": "69a17d9f0339d86a"
     },
     "src/index.ts": {
-      "hash": "6010e2be3ef7e28a"
+      "hash": "a1ff128434fa7b4e"
+    },
+    "src/replay.ts": {
+      "hash": "88807445e721ab5b"
     },
     "src/serialize.ts": {
       "hash": "6962362422112ef9"
     },
     "src/types.ts": {
-      "hash": "ca80b44de323a138"
+      "hash": "31de42ffcad29cc7"
     },
     "tests/actionlog_test.go": {
       "hash": "a6884cb83d7c37f4"
@@ -1728,16 +1805,13 @@
       "hash": "074c81807e405817"
     },
     "tests/fork_while_workflow_test.go": {
-      "hash": "c49d444c962ea746"
+      "hash": "f5769f6c5bd15bab"
     },
     "tests/if_node_repro_test.go": {
-      "hash": "46d0a687a8114ddc"
-    },
-    "tests/ifdbg2_test.go": {
-      "hash": "6df1a8548742f22a"
+      "hash": "6825ae7567bacf7a"
     },
     "tests/ifdbg_test.go": {
-      "hash": "227ab0541923c2e5",
+      "hash": "58be26813500bbb1",
       "noteIds": [
         "review-20260910-020"
       ]
@@ -1745,8 +1819,11 @@
     "tests/pause_resume_test.go": {
       "hash": "d1e74649c4927238"
     },
+    "tests/pipeline_ref_integration_test.go": {
+      "hash": "5c3b9338a50d8d43"
+    },
     "tests/pipeline_test.go": {
-      "hash": "98112e960f54fefc",
+      "hash": "e361c16b1b795d85",
       "noteIds": [
         "review-20260910-021"
       ]

@@ -1,6 +1,6 @@
 package tests
 
-// @note #review-20260910-021 todo status=resolved priority=P2 tags=#review,#ci,#testing : CI ran `make test` without -race, vet, or gofmt gates
+// @note #review-20260910-021 todo P2 resolved status=resolved priority=P2 tags=#review,#ci,#testing : CI ran `make test` without -race, vet, or gofmt gates
 // @author hermes-review
 //
 // Resolved: .github/workflows/test.yaml only ran `make test` (go test -v

@@ -494,7 +494,7 @@ func compileStages(
 				node.Kind, id)
 		}
 
-		// @note #review-20260910-016 issue status=resolved priority=P2 tags=#review,#docs,#stub : The query node was an always-failing stub listed as production-ready
+		// @note #review-20260910-016 issue P2 resolved status=resolved priority=P2 tags=#review,#docs,#stub : The query node was an always-failing stub listed as production-ready
 		// @author hermes-review
 		// @see #review-20260910-017
 		//
@@ -532,14 +532,14 @@ func compileStages(
 			pipelineID, _ := node.Config["pipelineId"].(string)
 			pipelineID = strings.TrimSpace(pipelineID)
 			if pipelineID == "" {
-				// @note #review-20260825-003 issue status=resolved priority=P2 tags=#review,#style : Error string ends with period
+				// @note #review-20260825-003 issue P2 resolved status=resolved priority=P2 tags=#review,#style : Error string ends with period
 				//
 				// Resolved: dropped the trailing period per Go convention.
 				return nil, fmt.Errorf("pipeline-ref node %s has no pipelineId configured", id)
 			}
 			referencedDef, ok := registry.Resolve(pipelineID)
 			if !ok || referencedDef == nil {
-				// @note #review-20260825-004 issue status=resolved priority=P2 tags=#review,#style : Error string ends with period
+				// @note #review-20260825-004 issue P2 resolved status=resolved priority=P2 tags=#review,#style : Error string ends with period
 				//
 				// Resolved: dropped the trailing period and lowercased the
 				// leading word per Go convention.

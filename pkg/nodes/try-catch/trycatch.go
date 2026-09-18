@@ -15,7 +15,7 @@ type TryCatchConfig struct {
 	ErrorKey string `config:"errorKey" anansi:"default=error,required=true"`
 }
 
-// @note #review-20260827-004 todo status=resolved priority=P2 tags=#review,#refactoring,#typesafety : Migrate try-catch node from untyped NodeDefinition to TypedDefinition[TryCatchConfig]
+// @note #review-20260827-004 todo P2 resolved status=resolved priority=P2 tags=#review,#refactoring,#typesafety : Migrate try-catch node from untyped NodeDefinition to TypedDefinition[TryCatchConfig]
 // @author antigravity
 //
 // Resolved: migrated to nodekit.Define(nodekit.TypedDefinition[TryCatchConfig]{...})

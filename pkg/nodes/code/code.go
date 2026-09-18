@@ -35,7 +35,7 @@ func run(ctx context.Context, nCtx *nodekit.TypedRunContext[CodeConfig]) (store.
 		return nil, nil
 	}
 
-	// @note #review-20260910-011 issue status=resolved priority=P2 tags=#review,#concurrency,#sandbox : Sandbox received the live state map — JS could mutate store state directly
+	// @note #review-20260910-011 issue P2 resolved status=resolved priority=P2 tags=#review,#concurrency,#sandbox : Sandbox received the live state map — JS could mutate store state directly
 	// @author hermes-review
 	//
 	// Resolved: the sandbox now binds a DEEP COPY of state (store.DeepCopyMap)

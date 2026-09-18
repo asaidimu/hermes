@@ -20,7 +20,7 @@ func CronDelay(expr string) time.Duration {
 	if strings.HasPrefix(expr, "@every ") {
 		d, err := time.ParseDuration(expr[7:])
 		if err != nil {
-			// @note #review-20260822-053 issue status=resolved priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
+			// @note #review-20260822-053 issue P2 resolved status=resolved priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
 			//
 			// Resolved: log the error before falling back. Kept the
 			// time.Hour fallback and CronDelay's `time.Duration`-only

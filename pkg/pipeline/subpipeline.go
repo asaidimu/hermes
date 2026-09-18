@@ -56,7 +56,7 @@ func ExecuteSubPipelines(
 		}
 	}
 
-	// @note #review-20260825-002 issue status=resolved priority=P2 tags=#review,#concurrency : Shared initialState across concurrent goroutines
+	// @note #review-20260825-002 issue P2 resolved status=resolved priority=P2 tags=#review,#concurrency : Shared initialState across concurrent goroutines
 	//
 	// Resolved: each child now gets its own deep copy of initialState
 	// (deepCopyJSONValue below) instead of the same shared map. Confirmed

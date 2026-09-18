@@ -1,11 +1,16 @@
-// @note #review-20260826-005 todo status=open priority=P2 tags=#review,#testing : No runtime test covers pipeline-ref execution semantics
+// @note #review-20260826-005 todo P2 resolved status=resolved priority=P2 tags=#review,#testing : No runtime test covers pipeline-ref execution semantics
 // @author ox-alpha
 //
-// Compile-time behavior is covered (compiler_test.go: TestPipelineRef*), but
-// no integration test exercises the runtime contract: fresh-state isolation
-// from the parent, initialState interpolation, and resultKey merging back
-// into parent state. The calc sample does not use pipeline-ref. Add a
-// tests/-level scenario asserting all three behaviors.
+// Resolved: added TestPipelineRefRuntimeSemantics in
+// tests/pipeline_ref_integration_test.go, a tests/-level scenario that
+// compiles a real sub-pipeline, registers it, and runs a parent workflow
+// that references it via pipeline-ref, asserting all three runtime
+// behaviors the compile-time tests (compiler_test.go: TestPipelineRef*)
+// don't reach: fresh-state isolation from the parent, initialState
+// interpolation into the child's own store, and resultKey merging the
+// child's full final state back into the parent under a single
+// (unsuffixed, since pipeline-ref always resolves to exactly one child
+// pipeline) key.
 package pipeleref
 
 import (

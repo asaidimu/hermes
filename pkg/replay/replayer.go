@@ -106,7 +106,7 @@ func (rp *Replayer) Rebuild(ctx context.Context, runID, rootPipelineID string) (
 // (child entries replayed and merged, mirroring runtime merge semantics),
 // but an address INSIDE a subpipeline instance is not supported.
 func (rp *Replayer) StateAt(ctx context.Context, runID, rootPipelineID string, addr StepAddress) (map[string]any, error) {
-	// @note #review-20260910-024 issue status=resolved priority=P2 tags=#review,#replay,#determinism : StateAt result depended on Go's randomized map iteration order
+	// @note #review-20260910-024 issue P2 resolved status=resolved priority=P2 tags=#review,#replay,#determinism : StateAt result depended on Go's randomized map iteration order
 	// @author hermes-review
 	//
 	// StateAt walked def.Stages and, inside the target stage, iterated
@@ -146,7 +146,7 @@ func (rp *Replayer) StateAt(ctx context.Context, runID, rootPipelineID string, a
 	return exportState(st)
 }
 
-// @note #review-20260910-015 issue status=resolved priority=P2 tags=#review,#replay,#concurrency : Log indexing by bare stage/step IDs collapsed concurrent subpipeline instances
+// @note #review-20260910-015 issue P2 resolved status=resolved priority=P2 tags=#review,#replay,#concurrency : Log indexing by bare stage/step IDs collapsed concurrent subpipeline instances
 // @author hermes-review
 // @see #review-20260910-003
 //
@@ -356,7 +356,7 @@ func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinitio
 				currentIdx = targetIdx
 				continue
 			}
-			// @note #review-20260910-023 issue status=resolved priority=P1 tags=#review,#replay,#resume : Rebuild returns the pausing stage as the resume address, so every resumed run re-pauses forever
+			// @note #review-20260910-023 issue P1 resolved status=resolved priority=P1 tags=#review,#replay,#resume : Rebuild returns the pausing stage as the resume address, so every resumed run re-pauses forever
 			// @author hermes-review
 			// @see #review-20260910-001
 			//

@@ -129,7 +129,7 @@ func (b *MemoryScopedBus) Underlying() gevents.SimpleEventBus[PipelineEvent] {
 
 // Emit broadcasts the event to local subscribers, forwards to go-events if present, and bubbles up to parent.
 func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt PipelineEvent) {
-	// @note #review-20260822-016 issue status=resolved priority=P2 tags=#review,#concurrency : Emit reads parent and underlying without lock protection
+	// @note #review-20260822-016 issue P2 resolved status=resolved priority=P2 tags=#review,#concurrency : Emit reads parent and underlying without lock protection
 	//
 	// Resolved: see the fuller resolution note on the MemoryScopedBus
 	// struct's doc comment above (this was a duplicate of the same note
@@ -158,7 +158,7 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 	b.mu.RUnlock()
 
 	for _, h := range toCall {
-		// @note #review-20260822-006 issue status=resolved priority=P1 tags=#review,#error-handling : Emit silently discards all handler errors
+		// @note #review-20260822-006 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Emit silently discards all handler errors
 		//
 		// Resolved (partial, without the full ScopedBus migration): handler
 		// errors are now logged instead of silently discarded via `_ = h(...)`.
@@ -191,7 +191,7 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (unsubscribe func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	// @note #review-20260822-017 issue status=wontfix priority=P2 tags=#review,#concurrency : Subscribe holds write lock for append-only operation
+	// @note #review-20260822-017 issue P2 wontfix status=wontfix priority=P2 tags=#review,#concurrency : Subscribe holds write lock for append-only operation
 	//
 	// Investigated and declined: b.handlers is a plain map[string][]EventHandler,
 	// not just a slice. Concurrent access to a Go map must be synchronized
@@ -214,7 +214,7 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		list := b.handlers[eventType]
-		// @note #review-20260822-004 issue status=resolved priority=P1 tags=#review,#bug : Incorrect func pointer comparison in unsubscribe closure
+		// @note #review-20260822-004 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Incorrect func pointer comparison in unsubscribe closure
 		//
 		// Fixed by using reflect.ValueOf to compare function pointers instead of
 		// comparing addresses of loop variables. The original `&h == &handler`
@@ -230,7 +230,7 @@ func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (uns
 	}
 }
 
-// @note #scoped-bus-opportunity-001 todo status=wontfix priority=P1 tags=#event-bus,#architecture : Replace MemoryScopedBus with go-events ScopedBus for topic isolation
+// @note #scoped-bus-opportunity-001 todo P1 wontfix status=wontfix priority=P1 tags=#event-bus,#architecture : Replace MemoryScopedBus with go-events ScopedBus for topic isolation
 //
 // Investigated and declined for now (not implemented blind). go-events/v2's
 // ScopedBus/EventBus (checked directly against the upstream source) is

@@ -94,7 +94,7 @@ func TestInMemorySchedulerShutdown(t *testing.T) {
 	}
 }
 
-// @note #review-20260826-009 issue status=resolved priority=P2 tags=#review,#testing,#flaky : TestInMemorySchedulerReplace asserts exact tick counts against wall-clock sleeps
+// @note #review-20260826-009 issue P2 resolved status=resolved priority=P2 tags=#review,#testing,#flaky : TestInMemorySchedulerReplace asserts exact tick counts against wall-clock sleeps
 // @author ox-alpha
 //
 // Resolved: the assertion below already checks `callCount == 0 ||

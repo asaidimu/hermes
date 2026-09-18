@@ -72,6 +72,16 @@ func httpRun(ctx context.Context, nodeID string, config map[string]any) (func(ma
 	return run(ctx, nCtx)
 }
 
+// allowLoopbackForTest disables the SSRF dial guard for the duration of a
+// single test, since httptest.NewServer necessarily binds to a loopback
+// address (127.0.0.1 / ::1) — exactly what the guard exists to block for
+// real workflow runs. See ssrfGuardDisabledForTests in http.go.
+func allowLoopbackForTest(t *testing.T) {
+	t.Helper()
+	ssrfGuardDisabledForTests = true
+	t.Cleanup(func() { ssrfGuardDisabledForTests = false })
+}
+
 func TestSSRFBlock(t *testing.T) {
 	cases := []string{
 		"http://127.0.0.1:8000/x",
@@ -90,6 +100,7 @@ func TestSSRFBlock(t *testing.T) {
 }
 
 func TestRunAgainstTestServer(t *testing.T) {
+	allowLoopbackForTest(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Custom", "yes")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -129,6 +140,7 @@ func TestRunAgainstTestServer(t *testing.T) {
 }
 
 func TestCustomKeyAndThrowOnError(t *testing.T) {
+	allowLoopbackForTest(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("bad"))
@@ -161,6 +173,7 @@ func TestCustomKeyAndThrowOnError(t *testing.T) {
 }
 
 func TestConnectionPoolingAndReuse(t *testing.T) {
+	allowLoopbackForTest(t)
 	requestCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++

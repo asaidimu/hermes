@@ -104,7 +104,7 @@ func (r *RunContextImpl) ResolveResource(key string) (any, bool) {
 }
 
 func (r *RunContextImpl) Write(mutator store.Mutator) {
-	// @note #review-20260822-033 issue status=resolved priority=P1 tags=#review,#error-handling : Write discards store update error
+	// @note #review-20260822-033 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Write discards store update error
 	//
 	// Resolved: log the error instead of discarding it. Write's signature
 	// (no return value) is part of the PipelineContext interface used
@@ -159,7 +159,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		runCtx = context.WithValue(runCtx, resourceResolverContextKey{}, r.resourceResolver)
 	}
 	defer cancel()
-	// @note #review-20260822-055 issue status=resolved priority=P1 tags=#review,#performance,#memory-leak : Goroutine leak on normal path
+	// @note #review-20260822-055 issue P1 resolved status=resolved priority=P1 tags=#review,#performance,#memory-leak : Goroutine leak on normal path
 	//
 	// Resolved: removed the dedicated bridging goroutine entirely, rather
 	// than swapping it for context.AfterFunc (which still needs something
@@ -414,7 +414,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 							if len(resolvedPipelines) > 1 {
 								key = resultKey + ":" + pipelineID
 							}
-							// @note #review-20260825-001 issue status=resolved priority=P1 tags=#review,#error-handling : Discarded store update error in result merge
+							// @note #review-20260825-001 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Discarded store update error in result merge
 							//
 							// Resolved: log the error instead of discarding it.
 							// Continuing rather than failing the stage on a
@@ -552,7 +552,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			return r.failStage(ctx, pipePath, stage, stageStart, startTime, evalErr)
 		}
 		if shouldPause {
-			// @note #review-20260822-034 issue status=resolved priority=P1 tags=#review,#bug : Unsafe type assertion without comma-ok
+			// @note #review-20260822-034 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Unsafe type assertion without comma-ok
 			//
 			// Fixed by using comma-ok type assertion to prevent runtime panics
 			// when instruction is not a PauseInstruction.
@@ -811,7 +811,7 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 		Cron:          pauseInst.Cron,
 	}
 
-	// @note #review-20260910-012 issue status=resolved priority=P2 tags=#review,#error-handling : Checkpoint persistence failure is silently discarded on pause
+	// @note #review-20260910-012 issue P2 resolved status=resolved priority=P2 tags=#review,#error-handling : Checkpoint persistence failure is silently discarded on pause
 	// @author hermes-review
 	// @see #review-20260822-033
 	//
@@ -1007,7 +1007,7 @@ func routingHandle(inst RoutingInstruction) string {
 	}
 }
 
-// @note #review-20260826-002 issue status=resolved priority=P1 tags=#review,#concurrency,#bug : stateSnapshot is a shallow copy — nested maps alias live store state
+// @note #review-20260826-002 issue P1 resolved status=resolved priority=P1 tags=#review,#concurrency,#bug : stateSnapshot is a shallow copy — nested maps alias live store state
 // @author ox-alpha
 //
 // Only top-level keys were copied; nested values (results, __pipeline_data__,

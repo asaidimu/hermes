@@ -197,6 +197,20 @@ type StepStageRouter func(ctx context.Context, state map[string]any, st store.St
 type PipelineStageRouter func(ctx context.Context, state map[string]any, results []PipelineRunResult, st store.Store) (RoutingInstruction, error)
 
 // Stage represents a sequential step/subpipeline block within a Pipeline.
+//
+// Immutability contract: once a Stage is compiled (e.g. returned from the
+// distribute node's DynamicPipelines fan-out in pkg/nodekit/build.go), the
+// engine treats it — and everything it transitively owns (the Steps map,
+// Router/PipelinesRouter closures, nested Pipelines) — as read-only for the
+// rest of that run. Concurrent children of a distribute/fork are handed
+// shallow copies of the SAME underlying Stage values (see
+// #review-20260910-018): this is safe only because nothing writes into a
+// Stage's fields, its Steps map, or values captured by its closures at
+// runtime. context.go's DynamicPipelines patch path mutates a
+// per-iteration struct copy, never the shared original. Any new code that
+// writes to a Stage or its Steps map after compilation turns concurrent
+// distribute/fork children into a data race — build a fresh Stage (or a
+// real deep clone) instead of mutating a shared one.
 type Stage struct {
 	ID              string
 	Order           int

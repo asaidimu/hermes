@@ -35,7 +35,7 @@ var (
 
 // NewSystemError creates a new SystemError using go-anansi's constructor.
 func NewSystemError(code string, message string) *SystemError {
-	// @note #review-20260822-022 issue status=resolved priority=P3 tags=#review,#naming : Variadic string for single message is awkward
+	// @note #review-20260822-022 issue P3 resolved status=resolved priority=P3 tags=#review,#naming : Variadic string for single message is awkward
 	//
 	// Resolved: replaced the variadic `message ...string` with a single named
 	// `message string` parameter. All call sites in this repo already passed
@@ -56,7 +56,7 @@ func CauseMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	// @note #review-20260822-023 issue status=resolved priority=P3 tags=#review,#documentation : Cycle-detection logic undocumented
+	// @note #review-20260822-023 issue P3 resolved status=resolved priority=P3 tags=#review,#documentation : Cycle-detection logic undocumented
 	//
 	// Resolved: documented below why cycle detection is needed here.
 	//
@@ -77,7 +77,7 @@ func CauseMessage(err error) string {
 			if se.Message != "" && se.Cause == nil {
 				return se.Message
 			}
-			// @note #review-20260822-007 issue status=resolved priority=P1 tags=#review,#bug : Unreachable branch in CauseMessage
+			// @note #review-20260822-007 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Unreachable branch in CauseMessage
 			//
 			// Fixed by removing the dead `if se.Cause == nil` branch which was only
 			// reachable when se.Message was empty, returning a useless empty string.

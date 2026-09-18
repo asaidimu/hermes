@@ -132,7 +132,7 @@ type AnansiStore struct {
 var _ Store = (*AnansiStore)(nil)
 
 func (s *AnansiStore) Append(ctx context.Context, entry Entry) (uint64, error) {
-	// @note #review-20260910-014 issue status=resolved priority=P2 tags=#review,#durability,#integration : No durable Store can serve the multi-run runtime; Append force-rewrites RunID
+	// @note #review-20260910-014 issue P2 resolved status=resolved priority=P2 tags=#review,#durability,#integration : No durable Store can serve the multi-run runtime; Append force-rewrites RunID
 	// @author hermes-review
 	//
 	// WorkflowRuntime takes ONE Options.ActionLog for ALL runs and appends

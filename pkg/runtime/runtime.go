@@ -321,7 +321,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	}
 	rt.bus = opts.Bus
 	if rt.bus == nil {
-		// @note #scoped-bus-opportunity-005 issue status=resolved priority=P2 tags=#event-bus,#durability : Durable event backend designed but never wired
+		// @note #scoped-bus-opportunity-005 issue P2 resolved status=resolved priority=P2 tags=#event-bus,#durability : Durable event backend designed but never wired
 		//
 		// Resolved: the durable backend is now real and wireable — see
 		// events.NewDurableEventBus / events.WithDurableBackend in
@@ -341,22 +341,17 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		// in-memory bus with no underlying go-events backend at all.
 		rt.bus = events.NewMemoryScopedBus()
 	}
-	// @note #review-20260910-005 observation status=open priority=P2 tags=#review,#concurrency,#api : Watch resume runs the whole pipeline synchronously in the emitter's goroutine
+	// @note #review-20260910-005 observation P2 resolved status=resolved priority=P2 tags=#review,#concurrency,#api : Watch resume runs the whole pipeline synchronously in the emitter's goroutine
 	// @author hermes-review
 	//
-	// resumeCallback invokes rt.Resume inline, and MemoryScopedBus.Emit
-	// dispatches handlers synchronously — so the goroutine that emits a
-	// watched event type (a user calling rt.Bus().Emit, an HTTP /events
-	// handler, another run's step) blocks until the ENTIRE resumed pipeline
-	// finishes (or pauses again). dispatch()'s own resume path deliberately
-	// wraps Resume in a goroutine; this path does not, and the asymmetry is
-	// easy to trip over: a fire-and-forget-looking Emit silently becomes a
-	// blocking call whose duration equals the resumed run's. Consider
-	// routing the callback through a goroutine (or a bounded worker pool) —
-	// the callback's signature already loses the resume result, so nothing
-	// today depends on synchronous completion.
+	// Resolved: route the callback through a goroutine, mirroring
+	// dispatch()'s own resume path (see the `go func(p *pausedRun)` wrapper
+	// around rt.Resume above). The callback's signature already loses the
+	// resume result, so nothing depends on synchronous completion; a
+	// fire-and-forget-looking Emit no longer silently blocks its caller for
+	// the duration of the resumed pipeline.
 	rt.watchService = NewWatchService(rt.bus, func(runID string, patch map[string]any) {
-		rt.Resume(runID, patch)
+		go rt.Resume(runID, patch)
 	})
 	rt.bus.Subscribe(AbortEvent, func(ctx context.Context, evt events.PipelineEvent) error {
 		if runID, ok := evt.Payload["run"].(string); ok && runID != "" {
@@ -548,7 +543,7 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 		// Schedule cron-based recurring triggers.
 		if trigger.Cron != "" {
 			scheduleID := wf.ID + ":" + triggerID
-			// @note #review-20260822-040 issue status=resolved priority=P1 tags=#review,#error-handling : Discarded Schedule error
+			// @note #review-20260822-040 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Discarded Schedule error
 			//
 			// Resolved: propagate the error. Register already returns
 			// error and is called at workflow-registration time (not from
@@ -701,7 +696,7 @@ func (rt *WorkflowRuntime) releaseBusSubscriptionLocked(eventType string) {
 // the background (mirrors WorkflowRuntime.dispatch + spawnRun). It also resumes
 // any paused runs that are waiting for this event type.
 func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) {
-	// @note #review-20260822-039 issue status=resolved priority=P1 tags=#review,#concurrency : TOCTOU race in dispatch between lock acquisitions
+	// @note #review-20260822-039 issue P1 resolved status=resolved priority=P1 tags=#review,#concurrency : TOCTOU race in dispatch between lock acquisitions
 	//
 	// Resolved: Snapshot toResume candidates, route entries, and workflow records under a single lock acquisition.
 	type matchedRoute struct {
@@ -950,7 +945,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// data is accessible without overwriting previous payloads.
 	if payload != nil {
 		for key, val := range payload {
-			// @note #review-20260822-048 issue status=resolved priority=P2 tags=#review,#error-handling : Store update errors discarded when folding resume payload
+			// @note #review-20260822-048 issue P2 resolved status=resolved priority=P2 tags=#review,#error-handling : Store update errors discarded when folding resume payload
 			//
 			// Resolved: log the error instead of silently discarding it.
 			// Continuing the loop on failure (rather than aborting the
@@ -973,7 +968,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 
 	pdef := record.workflow.Pipelines[paused.pipelineID]
 	if len(pdef.Stages) == 0 {
-		// @note #review-20260910-022 issue status=resolved priority=P1 tags=#review,#resume,#bug : Resume resolves the pipeline definition with the wrong map key, silently succeeding without executing anything
+		// @note #review-20260910-022 issue P1 resolved status=resolved priority=P1 tags=#review,#resume,#bug : Resume resolves the pipeline definition with the wrong map key, silently succeeding without executing anything
 		// @author hermes-review
 		// @see #review-20260910-001
 		//
@@ -993,7 +988,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 			pdef = alt
 		}
 	}
-	// @note #scoped-bus-opportunity-003 issue status=resolved priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
+	// @note #scoped-bus-opportunity-003 issue P2 resolved status=resolved priority=P2 tags=#event-bus,#isolation : Empty EventPath scoping provides no real isolation
 	//
 	// Resolved: scope the per-run bus with a real ["pipeline", pipelineID, runID]
 	// path node instead of an empty EventPath{}. This does not add topic-level
@@ -1012,7 +1007,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// durable entries to reconstruct state.
 	var rp pipeline.Rebuilder
 	if _, isNop := rt.actionLog.(actionlog.NopLog); !isNop {
-		// @note #review-20260910-003 issue status=resolved priority=P2 tags=#review,#replay : DefinitionResolver answered every id with the root pipeline definition
+		// @note #review-20260910-003 issue P2 resolved status=resolved priority=P2 tags=#review,#replay : DefinitionResolver answered every id with the root pipeline definition
 		// @author hermes-review
 		//
 		// Resolved: the resolver now answers with the definition the id
@@ -1044,11 +1039,20 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		rp = replay.NewReplayer(rt.actionLog, definitionResolver)
 	}
 
+	// Advance the rerun index for this attempt — see the resolved
+	// #review-20260910-006 note on executePipeline's rerunIndex seed above
+	// for why this must be recomputed here rather than re-read via
+	// rerunIndexOf.
+	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
+	rt.mu.Lock()
+	rt.rerunIdx[runID] = rerunIndex
+	rt.mu.Unlock()
+
 	factory := pipeline.NewFactory(pdef, pdef.Schema, pipeline.FactoryOptions{
 		Logger:       rt.logger,
 		ActionLog:    rt.actionLog,
 		Rebuilder:    rp,
-		RerunIndex:   rt.rerunIndexOf(runID),
+		RerunIndex:   rerunIndex,
 		RunEnv:       rt.env,
 		SecretLookup: rt.secretLookup(),
 	})
@@ -1072,7 +1076,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
 	}
 
-	// @note #review-20260910-002 issue status=resolved priority=P1 tags=#review,#replay,#state : Replayer-path resume executes on a rebuilt store but reports and re-pauses with the stale original
+	// @note #review-20260910-002 issue P1 resolved status=resolved priority=P1 tags=#review,#replay,#state : Replayer-path resume executes on a rebuilt store but reports and re-pauses with the stale original
 	// @author hermes-review
 	// @see #review-20260910-015
 	//
@@ -1157,7 +1161,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	rt.mu.Unlock()
 	rt.setRunStatus(runID, result.Status)
 
-	// @note #review-20260910-001 issue status=resolved priority=P1 tags=#review,#resume,#bug : Re-pause after resume drops multi-event waits and skips watch/cron re-registration
+	// @note #review-20260910-001 issue P1 resolved status=resolved priority=P1 tags=#review,#resume,#bug : Re-pause after resume drops multi-event waits and skips watch/cron re-registration
 	// @author hermes-review
 	//
 	// Resolved: the re-pause tracking now mirrors spawnRun's pause handling
@@ -1336,7 +1340,7 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	// @note #review-20260822-038 issue status=resolved priority=P1 tags=#review,#bug : Timer leak in select
+	// @note #review-20260822-038 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Timer leak in select
 	//
 	// Resolved: Use time.NewTimer with explicit defer timer.Stop().
 	timer := time.NewTimer(timeout)
@@ -1379,17 +1383,16 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	}
 	runID := st.ID()
 
-	// @note #review-20260910-006 observation status=open priority=P3 tags=#review,#audit : rerunIndex is never incremented, so resume attempts share one audit trail
+	// @note #review-20260910-006 observation P3 resolved status=resolved priority=P3 tags=#review,#audit : rerunIndex is never incremented, so resume attempts share one audit trail
 	// @author hermes-review
 	//
-	// The RerunIndex contract (see FactoryOptions.RerunIndex and the action
-	// log package docs: "each forced recovery increments it so retries get
-	// separate audit trails") is not honored by the runtime: nextRerunIndex
-	// runs once against a brand-new runID (always 0) and Resume uses
-	// rt.rerunIndexOf(runID) without ever incrementing rt.rerunIdx. Every
-	// resume therefore appends to attempt 0's log, merging what the docs
-	// promise will be separate audit trails, and LatestRerunIndex can never
-	// exceed 0. Either increment on resume or update the contract docs.
+	// Resolved: this seeds attempt 0 for a brand-new run, which was always
+	// correct on its own. The gap was that Resume re-read rt.rerunIndexOf
+	// instead of calling nextRerunIndex again, so every forced recovery
+	// reused attempt 0's audit trail. Resume now calls nextRerunIndex and
+	// persists the advanced value into rt.rerunIdx on each resume, so
+	// LatestRerunIndex advances past 0 and each retry gets its own trail,
+	// honoring the FactoryOptions.RerunIndex contract end to end.
 	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
 
 	// Per-run bookkeeping registration. Eviction policy: see the resolved
@@ -1657,7 +1660,7 @@ func terminalStatus(status string) bool {
 // and rerun indexes when Options.RunHistoryTTL is not set.
 const defaultStoreGrace = 10 * time.Minute
 
-// @note #review-20260910-004 issue status=resolved priority=P2 tags=#review,#memory-leak : Per-run bookkeeping maps were never evicted
+// @note #review-20260910-004 issue P2 resolved status=resolved priority=P2 tags=#review,#memory-leak : Per-run bookkeeping maps were never evicted
 // @author hermes-review
 //
 // Resolved with a janitor-based eviction policy. rt.stores, rt.outcomes,

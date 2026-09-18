@@ -324,14 +324,14 @@ func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, pay
 		if value == nil {
 			return false
 		}
-		// @note #review-20260822-001 observation status=resolved priority=P2 tags=#review,#design : Limited comparison operators
+		// @note #review-20260822-001 observation P2 resolved status=resolved priority=P2 tags=#review,#design : Limited comparison operators
 		//
 		// Resolved: extended to support >, >=, <, <= for numeric values
 		// (via compareNumeric below), rather than leaving them to silently
 		// return false. Non-numeric operands with a relational operator
 		// still return false (there's no sensible ordering to fall back to
 		// for e.g. two unrelated maps), same as an unknown operator would.
-		// @note #review-20260822-044 issue status=resolved priority=P1 tags=#review,#bug : Unknown operator returns true
+		// @note #review-20260822-044 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Unknown operator returns true
 		//
 		// Resolved: Added default: return false to reject unknown comparison operators.
 		switch cond.Op {
@@ -441,7 +441,7 @@ func (s *WatchService) acquireBusSubscriptionLocked(eventType string) {
 	if _, ok := s.busSubs[eventType]; ok {
 		return
 	}
-	// @note #scoped-bus-opportunity-004 issue status=wontfix priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
+	// @note #scoped-bus-opportunity-004 issue P2 wontfix status=wontfix priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
 	//
 	// Investigated and declined: this is not actually filtering "by runID" —
 	// checked onEvent/evaluateConditions directly, and neither ever compares
