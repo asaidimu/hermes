@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-18T06:41:56.629813469Z",
+  "generatedAt": "2026-09-18T18:05:27.299151744Z",
   "root": ".",
   "notes": {
     "module-pins-an-unreleased-go-rel-d81f850c": {
@@ -462,9 +462,9 @@
       "body": "Resolved: Use time.NewTimer with explicit defer timer.Stop().\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1366,
+        "startLine": 1385,
         "startCol": 3,
-        "endLine": 1368,
+        "endLine": 1387,
         "endCol": 3
       },
       "hash": "b75933b3bb50ce1a"
@@ -478,9 +478,9 @@
       "body": "Resolved: Snapshot toResume candidates, route entries, and workflow records under a single lock acquisition.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 722,
+        "startLine": 741,
         "startCol": 3,
-        "endLine": 724,
+        "endLine": 743,
         "endCol": 3
       },
       "hash": "bf35a64bcebb3629"
@@ -494,9 +494,9 @@
       "body": "Resolved: propagate the error. Register already returns\nerror and is called at workflow-registration time (not from\na hot path), so failing registration outright when a cron\ntrigger can't be scheduled (e.g. invalid cron expression) is\nthe correct behavior — silently registering a workflow whose\ntrigger will never fire is strictly worse than failing loud\nat registration.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 569,
+        "startLine": 588,
         "startCol": 3,
-        "endLine": 577,
+        "endLine": 596,
         "endCol": 3
       },
       "hash": "6ebf32d16c62c131"
@@ -558,9 +558,9 @@
       "body": "Resolved: log the error instead of silently discarding it.\nContinuing the loop on failure (rather than aborting the\nresume) matches the same \"best-effort but now visible\" choice\nmade for the sibling issue in pause.go's PipelinesRouterFunc\n(review-20260822-046) — failing the whole resume because one\npayload key couldn't be written felt like too large a\nbehavior change to make blind, without tests to confirm nothing\nrelies on partial-success resume semantics.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 971,
+        "startLine": 990,
         "startCol": 3,
-        "endLine": 980,
+        "endLine": 999,
         "endCol": 3
       },
       "hash": "a2c2234c8940ff86"
@@ -879,9 +879,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1187,
+        "startLine": 1206,
         "startCol": 3,
-        "endLine": 1204,
+        "endLine": 1223,
         "endCol": 3
       },
       "hash": "d5e57bbd10ea88b6"
@@ -901,9 +901,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1102,
+        "startLine": 1121,
         "startCol": 3,
-        "endLine": 1114,
+        "endLine": 1133,
         "endCol": 3
       },
       "hash": "74b0e8a9c60e6bd7"
@@ -920,9 +920,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1033,
+        "startLine": 1052,
         "startCol": 3,
-        "endLine": 1051,
+        "endLine": 1070,
         "endCol": 3
       },
       "hash": "d178ee109e9abac1"
@@ -939,9 +939,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1686,
+        "startLine": 1705,
         "startCol": 3,
-        "endLine": 1709,
+        "endLine": 1728,
         "endCol": 3
       },
       "hash": "f1031a504422db81"
@@ -952,7 +952,7 @@
       "status": "resolved",
       "priority": "P2",
       "title": "Watch resume runs the whole pipeline synchronously in the emitter's goroutine",
-      "body": "Resolved: route the callback through a goroutine, mirroring\ndispatch()'s own resume path (see the `go func(p *pausedRun)` wrapper\naround rt.Resume above). The callback's signature already loses the\nresume result, so nothing depends on synchronous completion; a\nfire-and-forget-looking Emit no longer silently blocks its caller for\nthe duration of the resumed pipeline.\n",
+      "body": "Reopened and re-resolved: the earlier fix here wrapped this callback\nin a goroutine to stop a fire-and-forget Emit from blocking for the\nwhole resumed pipeline's duration. That broke chained re-pause\nsemantics: TestResumeRepauseSingleEvent/MultiEvent in\nrepause_test.go rely on ms.Emit(\"evt:1\", ...) returning only after\nthe run has resumed AND re-paused on stage:pause2's watch — so that\nthe immediately-following ms.Emit(\"evt:2\", ...) lands on a watch\nregistration that already exists. Made async, Emit returns before\nResume even starts; awaitPaused's `len(rt.paused) == 1` check then\npasses vacuously against the STALE first pause, the test emits\nevt:2 into a watch that doesn't exist yet, and the run hangs forever\nwaiting for an event that was already dropped.\n\nKept synchronous, matching the original code and the line ~1241\nbuffered-redelivery path's contract (which also depends on\nrt.paused being updated before it fires further work): chained\npause -\u003e resume -\u003e re-pause within one external event must complete\nbefore the triggering Emit call returns, so a caller who then emits\nthe NEXT expected event finds the watch already registered. This\ndoes mean a workflow-internal bus.Emit (or an HTTP webhook handler\nbuilt on one) blocks for the resumed segment's duration — that's\nthe tradeoff the test suite pins down as correct today. A safer fix\nfor the original blocking concern would need the watch service (or\nits caller) to expose a way to wait for \"resumed and re-paused (or\ncompleted)\" explicitly, rather than a bare goroutine hand-off.\n",
       "authors": [
         "hermes-review"
       ],
@@ -960,10 +960,10 @@
         "file": "pkg/runtime/runtime.go",
         "startLine": 367,
         "startCol": 3,
-        "endLine": 375,
+        "endLine": 394,
         "endCol": 3
       },
-      "hash": "e4acaf96cdc9c657"
+      "hash": "c412ecd83089b9d0"
     },
     "review-20260910-006": {
       "id": "review-20260910-006",
@@ -977,9 +977,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1409,
+        "startLine": 1428,
         "startCol": 3,
-        "endLine": 1418,
+        "endLine": 1437,
         "endCol": 3
       },
       "hash": "51cf00318e213dca"
@@ -1303,9 +1303,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 994,
+        "startLine": 1013,
         "startCol": 3,
-        "endLine": 1009,
+        "endLine": 1028,
         "endCol": 3
       },
       "hash": "91a8a2f9541c5290"
@@ -1376,9 +1376,9 @@
       "body": "Resolved: scope the per-run bus with a real [\"pipeline\", pipelineID, runID]\npath node instead of an empty EventPath{}. This does not add topic-level\nrouting isolation (MemoryScopedBus still dispatches through its own\nsynchronous handlers map, bubbling to parent — see the note on\nscoped-bus-opportunity-001 for why a wholesale ScopedBus swap isn't\nsafe here), but it does give every event a real, inspectable Path\nidentifying which run produced it, instead of an empty placeholder —\nwhich is what PipelineEvent.Path is actually consumed for (the\nfrontend timeline).\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1014,
+        "startLine": 1033,
         "startCol": 3,
-        "endLine": 1024,
+        "endLine": 1043,
         "endCol": 3
       },
       "hash": "22d35272381fa2f9"
@@ -1433,9 +1433,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1880,
+        "startLine": 1899,
         "startCol": 3,
-        "endLine": 1893,
+        "endLine": 1912,
         "endCol": 3
       },
       "hash": "f3ffdbfc944f4381"
@@ -1836,7 +1836,7 @@
       "hash": "7e0536fb2bba97c6"
     },
     "pkg/runtime/runtime.go": {
-      "hash": "90769b5e81843864",
+      "hash": "e18fa32ac989c458",
       "noteIds": [
         "no-production-grade-persistent-s-a8ee856c",
         "review-20260822-038",

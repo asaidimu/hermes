@@ -368,14 +368,33 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	// @note #review-20260910-005 observation P2 resolved status=resolved priority=P2 tags=#review,#concurrency,#api : Watch resume runs the whole pipeline synchronously in the emitter's goroutine
 	// @author hermes-review
 	//
-	// Resolved: route the callback through a goroutine, mirroring
-	// dispatch()'s own resume path (see the `go func(p *pausedRun)` wrapper
-	// around rt.Resume above). The callback's signature already loses the
-	// resume result, so nothing depends on synchronous completion; a
-	// fire-and-forget-looking Emit no longer silently blocks its caller for
-	// the duration of the resumed pipeline.
+	// Reopened and re-resolved: the earlier fix here wrapped this callback
+	// in a goroutine to stop a fire-and-forget Emit from blocking for the
+	// whole resumed pipeline's duration. That broke chained re-pause
+	// semantics: TestResumeRepauseSingleEvent/MultiEvent in
+	// repause_test.go rely on ms.Emit("evt:1", ...) returning only after
+	// the run has resumed AND re-paused on stage:pause2's watch — so that
+	// the immediately-following ms.Emit("evt:2", ...) lands on a watch
+	// registration that already exists. Made async, Emit returns before
+	// Resume even starts; awaitPaused's `len(rt.paused) == 1` check then
+	// passes vacuously against the STALE first pause, the test emits
+	// evt:2 into a watch that doesn't exist yet, and the run hangs forever
+	// waiting for an event that was already dropped.
+	//
+	// Kept synchronous, matching the original code and the line ~1241
+	// buffered-redelivery path's contract (which also depends on
+	// rt.paused being updated before it fires further work): chained
+	// pause -> resume -> re-pause within one external event must complete
+	// before the triggering Emit call returns, so a caller who then emits
+	// the NEXT expected event finds the watch already registered. This
+	// does mean a workflow-internal bus.Emit (or an HTTP webhook handler
+	// built on one) blocks for the resumed segment's duration — that's
+	// the tradeoff the test suite pins down as correct today. A safer fix
+	// for the original blocking concern would need the watch service (or
+	// its caller) to expose a way to wait for "resumed and re-paused (or
+	// completed)" explicitly, rather than a bare goroutine hand-off.
 	rt.watchService = NewWatchService(rt.bus, func(runID string, patch map[string]any) {
-		go rt.Resume(runID, patch)
+		rt.Resume(runID, patch)
 	})
 	rt.bus.Subscribe(AbortEvent, func(ctx context.Context, evt events.PipelineEvent) error {
 		if runID, ok := evt.Payload["run"].(string); ok && runID != "" {
