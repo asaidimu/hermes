@@ -11,6 +11,23 @@ import (
 	"github.com/asaidimu/hermes/pkg/timeline"
 )
 
+// @note #module-pins-an-unreleased-go-rel-d81f850c observation P1 #review,#production-readiness,#tooling : Module pins an unreleased Go release candidate (1.27rc1), not a stable toolchain
+// @author hermes-review
+//
+// go.mod requires go >= 1.27rc1 and CI installs go-version '1.27' (an RC),
+// not a GA release (README: 'Go >= 1.27 (the module targets go 1.27rc1;
+// CI uses 1.27.0-rc.1)'). This blocks reproducible builds on any
+// toolchain distribution that only ships stable Go (apt, most CI base
+// images, most developers' machines) and means the project cannot be
+// built at all until 1.27 GAs, without manually fetching a prerelease
+// toolchain — confirmed directly in this review pass: apt's newest
+// package here is golang-1.24-go, and building against it fails with
+// 'requires go >= 1.27rc1'. For a project asking to be evaluated as
+// production-ready, depending on a compiler that isn't released yet is
+// a real adoption blocker, not a style nit. Track the GA date and pin
+// to it, or clearly flag the RC dependency as a known constraint rather
+// than a normal version requirement.
+
 // Re-export Core types and constructors
 type (
 	PipelineDefinition = pipeline.PipelineDefinition

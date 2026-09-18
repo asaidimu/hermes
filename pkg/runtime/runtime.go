@@ -1,3 +1,27 @@
+// @note #no-production-grade-persistent-s-a8ee856c observation P1 #review,#production-readiness,#persistence,#ha : No production-grade persistent store or HA story ships by default
+// @author hermes-review
+//
+// store.Store defaults to store.NewMemoryStore for every run
+// (newStore/storeFactory), and Options.StoreLoader — required to recover
+// paused/in-flight runs after a process restart — is nil unless the host
+// supplies one. The action log defaults to an in-memory implementation
+// too (actionlog.NewMemoryActionLog is used throughout the tests and
+// examples); a Pebble-backed durable event bus exists
+// (events.WithDurableBackend, see the resolved scoped-bus-opportunity-005
+// note) but that persists the EVENT stream, not workflow state/checkpoints,
+// and is opt-in. Net effect: a single process crash loses every paused
+// run and in-memory action log entry unless the embedding host has
+// independently wired a persistent Store + StoreLoader + ActionLog —
+// none of which hermes ships an implementation of (no Postgres/SQLite/
+// Pebble-backed Store, no clustering/leader-election for running more
+// than one runtime instance against the same workflows). This is the
+// single biggest gap versus a tool like n8n, which persists executions
+// and credentials in Postgres/SQLite out of the box and supports queue-
+// mode HA. Until hermes ships at least one real persistent Store
+// implementation, it should be described as an embeddable in-memory
+// engine with pluggable persistence hooks, not as production-ready
+// workflow infrastructure on its own.
+
 // Package runtime ports the TS WorkflowRuntime (utils/src/runtime/runtime/
 // runtime.ts) and WorkflowsEngine orchestration (utils/src/workflows/engine.ts):
 // a bus-driven orchestrator that dispatches trigger events to registered
@@ -1853,3 +1877,18 @@ func (rt *WorkflowRuntime) finishRun(record *workflowRecord, result RunResult) R
 	rt.mu.Unlock()
 	return result
 }
+
+// @note #secrets-credentials-are-a-host-s-a51c544f observation P2 #review,#production-readiness,#security,#secrets : Secrets/credentials are a host-supplied interface, not a built-in vault
+// @author hermes-review
+//
+// SecretProvider (runtime.go) is just Get/Has — hermes has no built-in
+// encrypted credential store, no per-credential access scoping to
+// workflows/nodes, and no credential rotation/versioning. Every adopter
+// must build (or already own) a secrets backend and implement this
+// interface themselves before nodes like http/database can use
+// credentials safely. Compare n8n, which ships an encrypted-at-rest
+// credentials vault, per-credential sharing/permissions, and OAuth
+// flows out of the box. Not a bug — the interface design is reasonable
+// for an embeddable library — but it means 'secrets management' is a
+// build-it-yourself line item for anyone evaluating hermes as a
+// drop-in replacement for a product like n8n.

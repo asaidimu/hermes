@@ -1,8 +1,106 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-18T06:35:11.590479052Z",
+  "generatedAt": "2026-09-18T06:41:56.629813469Z",
   "root": ".",
   "notes": {
+    "module-pins-an-unreleased-go-rel-d81f850c": {
+      "id": "module-pins-an-unreleased-go-rel-d81f850c",
+      "category": "observation",
+      "status": "open",
+      "priority": "P1",
+      "tags": [
+        "review",
+        "production-readiness",
+        "tooling"
+      ],
+      "title": "Module pins an unreleased Go release candidate (1.27rc1), not a stable toolchain",
+      "body": "go.mod requires go \u003e= 1.27rc1 and CI installs go-version '1.27' (an RC),\nnot a GA release (README: 'Go \u003e= 1.27 (the module targets go 1.27rc1;\nCI uses 1.27.0-rc.1)'). This blocks reproducible builds on any\ntoolchain distribution that only ships stable Go (apt, most CI base\nimages, most developers' machines) and means the project cannot be\nbuilt at all until 1.27 GAs, without manually fetching a prerelease\ntoolchain — confirmed directly in this review pass: apt's newest\npackage here is golang-1.24-go, and building against it fails with\n'requires go \u003e= 1.27rc1'. For a project asking to be evaluated as\nproduction-ready, depending on a compiler that isn't released yet is\na real adoption blocker, not a style nit. Track the GA date and pin\nto it, or clearly flag the RC dependency as a known constraint rather\nthan a normal version requirement.\n",
+      "authors": [
+        "hermes-review"
+      ],
+      "location": {
+        "file": "pipelines.go",
+        "startLine": 13,
+        "startCol": 3,
+        "endLine": 28,
+        "endCol": 3
+      },
+      "hash": "7fc915df3dc12b38"
+    },
+    "no-production-grade-persistent-s-a8ee856c": {
+      "id": "no-production-grade-persistent-s-a8ee856c",
+      "category": "observation",
+      "status": "open",
+      "priority": "P1",
+      "tags": [
+        "review",
+        "production-readiness",
+        "persistence",
+        "ha"
+      ],
+      "title": "No production-grade persistent store or HA story ships by default",
+      "body": "store.Store defaults to store.NewMemoryStore for every run\n(newStore/storeFactory), and Options.StoreLoader — required to recover\npaused/in-flight runs after a process restart — is nil unless the host\nsupplies one. The action log defaults to an in-memory implementation\ntoo (actionlog.NewMemoryActionLog is used throughout the tests and\nexamples); a Pebble-backed durable event bus exists\n(events.WithDurableBackend, see the resolved scoped-bus-opportunity-005\nnote) but that persists the EVENT stream, not workflow state/checkpoints,\nand is opt-in. Net effect: a single process crash loses every paused\nrun and in-memory action log entry unless the embedding host has\nindependently wired a persistent Store + StoreLoader + ActionLog —\nnone of which hermes ships an implementation of (no Postgres/SQLite/\nPebble-backed Store, no clustering/leader-election for running more\nthan one runtime instance against the same workflows). This is the\nsingle biggest gap versus a tool like n8n, which persists executions\nand credentials in Postgres/SQLite out of the box and supports queue-\nmode HA. Until hermes ships at least one real persistent Store\nimplementation, it should be described as an embeddable in-memory\nengine with pluggable persistence hooks, not as production-ready\nworkflow infrastructure on its own.\n",
+      "authors": [
+        "hermes-review"
+      ],
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 0,
+        "startCol": 3,
+        "endLine": 22,
+        "endCol": 3
+      },
+      "hash": "8639d1c0cfa7c09b"
+    },
+    "no-shipped-webhook-http-layer-de-c47f5835": {
+      "id": "no-shipped-webhook-http-layer-de-c47f5835",
+      "category": "observation",
+      "status": "open",
+      "priority": "P2",
+      "tags": [
+        "review",
+        "production-readiness",
+        "ux",
+        "ops"
+      ],
+      "title": "No shipped webhook HTTP layer, deployment artifacts, or observability integration",
+      "body": "hermes ships a Go runtime plus a TypeScript type/catalog package\n(CATALOG, HANDLES, wire types) that a separate frontend — the README\ncredits a 'Hedwig' UI canvas as the wire-parity contract driving this\npackage — is expected to consume. What hermes itself does not ship: a\nDockerfile/docker-compose/Helm chart, a metrics endpoint (no\nPrometheus exporter or equivalent found under pkg/), or an HTTP\nwebhook layer — EventSource (this file) is an inversion-of-control\ninterface the host must implement to turn 'HTTP webhooks, message\nqueues, cron, database watches, etc.' into trigger events; hermes\ndoes not listen on a port itself. Running hermes in production today\nmeans the deployment manifests, webhook HTTP layer, and\nmetrics/alerting are the embedding host's responsibility, and the\nauthoring/monitoring UI is a separate (unaudited here) project. That\nis a reasonable scope for an embeddable runtime library, but it is a\nlarge distance from a self-hostable, batteries-included product like\nn8n.\n",
+      "authors": [
+        "hermes-review"
+      ],
+      "location": {
+        "file": "pkg/runtime/eventsource.go",
+        "startLine": 9,
+        "startCol": 3,
+        "endLine": 27,
+        "endCol": 3
+      },
+      "hash": "777108fca0473a04"
+    },
+    "node-catalog-is-18-kinds-no-mark-f791f990": {
+      "id": "node-catalog-is-18-kinds-no-mark-f791f990",
+      "category": "observation",
+      "status": "open",
+      "priority": "P2",
+      "tags": [
+        "review",
+        "production-readiness",
+        "integrations"
+      ],
+      "title": "Node catalog is ~18 kinds; no marketplace/community-node mechanism",
+      "body": "Comparing against mature workflow tools (e.g. n8n's 400+ built-in\nintegrations plus a community node ecosystem): hermes ships ~18 node\nkinds (control flow, http, code, database/query stubs, transform,\narithmetic, delay/schedule). There is no plugin/marketplace mechanism\nfor third parties to publish additional node kinds, and no registry\nservice — every node must be compiled into the Go binary via the\npkg/nodes blank import. This is fine for an embeddable engine used by\none team building its own catalog, but it is a meaningful gap for\n'production ready workflow automation platform' claims: adopters need\neither a much larger built-in catalog or a real out-of-tree node\nplugin story (dynamic loading, versioned node packages, a registry)\nbefore this competes with n8n/Zapier-class tools on integration\nbreadth.\n",
+      "authors": [
+        "hermes-review"
+      ],
+      "location": {
+        "file": "pkg/nodes/nodes.go",
+        "startLine": 61,
+        "startCol": 3,
+        "endLine": 76,
+        "endCol": 3
+      },
+      "hash": "f2c2fbc012720ce6"
+    },
     "review-20260822-001": {
       "id": "review-20260822-001",
       "category": "observation",
@@ -364,9 +462,9 @@
       "body": "Resolved: Use time.NewTimer with explicit defer timer.Stop().\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1342,
+        "startLine": 1366,
         "startCol": 3,
-        "endLine": 1344,
+        "endLine": 1368,
         "endCol": 3
       },
       "hash": "b75933b3bb50ce1a"
@@ -380,9 +478,9 @@
       "body": "Resolved: Snapshot toResume candidates, route entries, and workflow records under a single lock acquisition.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 698,
+        "startLine": 722,
         "startCol": 3,
-        "endLine": 700,
+        "endLine": 724,
         "endCol": 3
       },
       "hash": "bf35a64bcebb3629"
@@ -396,9 +494,9 @@
       "body": "Resolved: propagate the error. Register already returns\nerror and is called at workflow-registration time (not from\na hot path), so failing registration outright when a cron\ntrigger can't be scheduled (e.g. invalid cron expression) is\nthe correct behavior — silently registering a workflow whose\ntrigger will never fire is strictly worse than failing loud\nat registration.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 545,
+        "startLine": 569,
         "startCol": 3,
-        "endLine": 553,
+        "endLine": 577,
         "endCol": 3
       },
       "hash": "6ebf32d16c62c131"
@@ -460,9 +558,9 @@
       "body": "Resolved: log the error instead of silently discarding it.\nContinuing the loop on failure (rather than aborting the\nresume) matches the same \"best-effort but now visible\" choice\nmade for the sibling issue in pause.go's PipelinesRouterFunc\n(review-20260822-046) — failing the whole resume because one\npayload key couldn't be written felt like too large a\nbehavior change to make blind, without tests to confirm nothing\nrelies on partial-success resume semantics.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 947,
+        "startLine": 971,
         "startCol": 3,
-        "endLine": 956,
+        "endLine": 980,
         "endCol": 3
       },
       "hash": "a2c2234c8940ff86"
@@ -781,9 +879,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1163,
+        "startLine": 1187,
         "startCol": 3,
-        "endLine": 1180,
+        "endLine": 1204,
         "endCol": 3
       },
       "hash": "d5e57bbd10ea88b6"
@@ -803,9 +901,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1078,
+        "startLine": 1102,
         "startCol": 3,
-        "endLine": 1090,
+        "endLine": 1114,
         "endCol": 3
       },
       "hash": "74b0e8a9c60e6bd7"
@@ -822,9 +920,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1009,
+        "startLine": 1033,
         "startCol": 3,
-        "endLine": 1027,
+        "endLine": 1051,
         "endCol": 3
       },
       "hash": "d178ee109e9abac1"
@@ -841,9 +939,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1662,
+        "startLine": 1686,
         "startCol": 3,
-        "endLine": 1685,
+        "endLine": 1709,
         "endCol": 3
       },
       "hash": "f1031a504422db81"
@@ -860,9 +958,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 343,
+        "startLine": 367,
         "startCol": 3,
-        "endLine": 351,
+        "endLine": 375,
         "endCol": 3
       },
       "hash": "e4acaf96cdc9c657"
@@ -879,9 +977,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 1385,
+        "startLine": 1409,
         "startCol": 3,
-        "endLine": 1394,
+        "endLine": 1418,
         "endCol": 3
       },
       "hash": "51cf00318e213dca"
@@ -1205,9 +1303,9 @@
       ],
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 970,
+        "startLine": 994,
         "startCol": 3,
-        "endLine": 985,
+        "endLine": 1009,
         "endCol": 3
       },
       "hash": "91a8a2f9541c5290"
@@ -1278,9 +1376,9 @@
       "body": "Resolved: scope the per-run bus with a real [\"pipeline\", pipelineID, runID]\npath node instead of an empty EventPath{}. This does not add topic-level\nrouting isolation (MemoryScopedBus still dispatches through its own\nsynchronous handlers map, bubbling to parent — see the note on\nscoped-bus-opportunity-001 for why a wholesale ScopedBus swap isn't\nsafe here), but it does give every event a real, inspectable Path\nidentifying which run produced it, instead of an empty placeholder —\nwhich is what PipelineEvent.Path is actually consumed for (the\nfrontend timeline).\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 990,
+        "startLine": 1014,
         "startCol": 3,
-        "endLine": 1000,
+        "endLine": 1024,
         "endCol": 3
       },
       "hash": "22d35272381fa2f9"
@@ -1310,17 +1408,45 @@
       "body": "Resolved: the durable backend is now real and wireable — see\nevents.NewDurableEventBus / events.WithDurableBackend in\npkg/events/durable.go. Deliberately left opt-in rather than\nmade-default here: a caller who hasn't configured storage\nshouldn't suddenly get Pebble files written to an implicit\ndirectory. To get a durable, replayable event log, construct one\nexplicitly and pass it in via Options.Bus:\n\n  bus, closeBus, err := events.WithDurableBackend(events.DurableBusConfig{\n      Durable: true, BaseDir: \"/var/lib/hermes\", BusKey: \"runtime\",\n  })\n  rt := runtime.New(runtime.Options{Bus: bus, ...})\n  defer closeBus()\n\nLeaving Options.Bus unset keeps today's behavior: a purely\nin-memory bus with no underlying go-events backend at all.\n",
       "location": {
         "file": "pkg/runtime/runtime.go",
-        "startLine": 323,
+        "startLine": 347,
         "startCol": 3,
-        "endLine": 340,
+        "endLine": 364,
         "endCol": 3
       },
       "hash": "4295e32cb6c5ca92"
+    },
+    "secrets-credentials-are-a-host-s-a51c544f": {
+      "id": "secrets-credentials-are-a-host-s-a51c544f",
+      "category": "observation",
+      "status": "open",
+      "priority": "P2",
+      "tags": [
+        "review",
+        "production-readiness",
+        "security",
+        "secrets"
+      ],
+      "title": "Secrets/credentials are a host-supplied interface, not a built-in vault",
+      "body": "SecretProvider (runtime.go) is just Get/Has — hermes has no built-in\nencrypted credential store, no per-credential access scoping to\nworkflows/nodes, and no credential rotation/versioning. Every adopter\nmust build (or already own) a secrets backend and implement this\ninterface themselves before nodes like http/database can use\ncredentials safely. Compare n8n, which ships an encrypted-at-rest\ncredentials vault, per-credential sharing/permissions, and OAuth\nflows out of the box. Not a bug — the interface design is reasonable\nfor an embeddable library — but it means 'secrets management' is a\nbuild-it-yourself line item for anyone evaluating hermes as a\ndrop-in replacement for a product like n8n.\n",
+      "authors": [
+        "hermes-review"
+      ],
+      "location": {
+        "file": "pkg/runtime/runtime.go",
+        "startLine": 1880,
+        "startCol": 3,
+        "endLine": 1893,
+        "endCol": 3
+      },
+      "hash": "f3ffdbfc944f4381"
     }
   },
   "files": {
     "pipelines.go": {
-      "hash": "e4de7c320f971516"
+      "hash": "cb486f93d47a4819",
+      "noteIds": [
+        "module-pins-an-unreleased-go-rel-d81f850c"
+      ]
     },
     "pkg/actionlog/actionlog.go": {
       "hash": "89b144240d03c91d"
@@ -1522,7 +1648,10 @@
       "hash": "ceed1522634d53f2"
     },
     "pkg/nodes/nodes.go": {
-      "hash": "b7369f957ac70099"
+      "hash": "439a212d0874af39",
+      "noteIds": [
+        "node-catalog-is-18-kinds-no-mark-f791f990"
+      ]
     },
     "pkg/nodes/nodes_test.go": {
       "hash": "faa4e97720fac8e6"
@@ -1689,7 +1818,10 @@
       "hash": "953def730143eab5"
     },
     "pkg/runtime/eventsource.go": {
-      "hash": "0cc0cea146fe3190"
+      "hash": "0c614e3bcc1a56ba",
+      "noteIds": [
+        "no-shipped-webhook-http-layer-de-c47f5835"
+      ]
     },
     "pkg/runtime/eviction_test.go": {
       "hash": "6b92cb792f8d2d10"
@@ -1704,8 +1836,9 @@
       "hash": "7e0536fb2bba97c6"
     },
     "pkg/runtime/runtime.go": {
-      "hash": "d88f299445810bd5",
+      "hash": "90769b5e81843864",
       "noteIds": [
+        "no-production-grade-persistent-s-a8ee856c",
         "review-20260822-038",
         "review-20260822-039",
         "review-20260822-040",
@@ -1718,7 +1851,8 @@
         "review-20260910-006",
         "review-20260910-022",
         "scoped-bus-opportunity-003",
-        "scoped-bus-opportunity-005"
+        "scoped-bus-opportunity-005",
+        "secrets-credentials-are-a-host-s-a51c544f"
       ]
     },
     "pkg/runtime/runtime_test.go": {
