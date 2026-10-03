@@ -3,7 +3,9 @@ package replay
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/pipeline"
@@ -501,4 +503,50 @@ func TestStateAt(t *testing.T) {
 	require.Equal(t, int64(2), state["b"])
 	_, hasC := state["c"]
 	require.False(t, hasC, "c should not exist at end of stage-1")
+}
+
+// TestReplayStepMayUpdateStore pins the C1 deadlock fix: a pure step's
+// action calling st.Update while replay re-executes it must complete. The
+// action runs on a snapshot OUTSIDE the store read lock (mirroring the live
+// path's #review-20260910-009 shape); pre-fix, a store write issued from
+// inside the action's own goroutine context deadlocked against the held
+// RLock. The test drives the hostile-but-legal interleaving directly: the
+// action spawns a concurrent writer and WAITS for it — under the old
+// lock-held execution the writer blocks on the held RLock and the action
+// never returns.
+func TestReplayStepMayUpdateStore(t *testing.T) {
+	st := store.NewMemoryStore(map[string]any{"seed": "s"})
+	ctx := context.Background()
+
+	step := pipeline.Step{
+		ID:     "pure-writer",
+		Effect: int(pipeline.EffectPure),
+		Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+			writerDone := make(chan error, 1)
+			go func() {
+				writerDone <- st.Update(ctx, store.SetValue("written-concurrently", true))
+			}()
+			select {
+			case err := <-writerDone:
+				return store.SetValue("from-action", "v"), err
+			case <-time.After(2 * time.Second):
+				return nil, fmt.Errorf("deadlock: concurrent store writer blocked — action ran under the read lock (C1)")
+			}
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- replayStep(ctx, st, step)
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("replayStep deadlocked — C1 regression")
+	}
+
+	var v any
+	require.NoError(t, st.Read(func(state map[string]any) error { v = state["written-concurrently"]; return nil }))
+	require.Equal(t, true, v, "concurrent writer's commit must be visible")
 }

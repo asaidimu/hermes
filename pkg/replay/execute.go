@@ -20,15 +20,23 @@ func replayStep(ctx context.Context, st store.Store, step pipeline.Step) error {
 	// the step doesn't need bus/logger/resource resolution — it just
 	// needs to compute its mutator.
 	pCtx := pipeline.NewReplayContext()
-	var mutator store.Mutator
-	var actionErr error
-	readErr := st.Read(func(state map[string]any) error {
-		mutator, actionErr = step.Action(ctx, pCtx, state)
+
+	// C1 (20261003 hotpath audit): the action runs on a DEEP-COPIED
+	// snapshot, OUTSIDE the store read lock — the same shape
+	// #review-20260910-009 gave the live execution path. Previously the
+	// action ran inside st.Read's callback: a step calling st.Update
+	// self-deadlocked (RWMutex is non-reentrant), and arbitrary user code
+	// ran while all writers were blocked. The replay-specific context and
+	// the actionErr-vs-readErr distinction are preserved.
+	var stateCopy map[string]any
+	if readErr := st.Read(func(state map[string]any) error {
+		stateCopy = store.DeepCopyMap(state)
 		return nil
-	})
-	if readErr != nil {
+	}); readErr != nil {
 		return readErr
 	}
+
+	mutator, actionErr := step.Action(ctx, pCtx, stateCopy)
 	if actionErr != nil {
 		return actionErr
 	}
