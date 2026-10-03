@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-		"github.com/asaidimu/hermes/pkg/events"
+	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"

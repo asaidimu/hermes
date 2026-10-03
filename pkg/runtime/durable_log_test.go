@@ -15,7 +15,7 @@ import (
 	sqliteQuery "github.com/asaidimu/go-anansi/v8/sqlite/query"
 	rootutils "github.com/asaidimu/go-anansi/v8/utils"
 	"github.com/asaidimu/hermes/pkg/actionlog"
-		"github.com/asaidimu/hermes/pkg/events"
+	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/replay"
 	"github.com/asaidimu/hermes/pkg/store"
