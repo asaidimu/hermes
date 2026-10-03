@@ -11,7 +11,6 @@ import (
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
-	"github.com/asaidimu/hermes/pkg/effect"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
 )
@@ -264,7 +263,7 @@ func ExecuteStageSteps(
 					})
 				}
 				// Record effectful step failure for the replayer (§4.1).
-				if step.Effect == int(effect.SideEffecting) && actLog != nil {
+				if step.Effect == int(EffectSideEffecting) && actLog != nil {
 					actLog.Append(stageCtx, actionlog.Entry{
 						RunID:      runID,
 						RerunIndex: rerunIndex,
@@ -340,7 +339,7 @@ func ExecuteStageSteps(
 			// Record effectful step outcome for the replayer (§4.1):
 			// same delta, so the Replayer can inject it during replay
 			// without re-executing the step's side effects.
-			if step.Effect == int(effect.SideEffecting) && actLog != nil {
+			if step.Effect == int(EffectSideEffecting) && actLog != nil {
 				actLog.Append(stageCtx, actionlog.Entry{
 					RunID:      runID,
 					RerunIndex: rerunIndex,

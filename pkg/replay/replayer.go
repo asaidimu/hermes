@@ -14,8 +14,7 @@ import (
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
-	"github.com/asaidimu/hermes/pkg/effect"
-	"github.com/asaidimu/hermes/pkg/pipeline"
+		"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
@@ -292,7 +291,7 @@ func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinitio
 		} else {
 			// Steps-mode stage: process all steps.
 			for _, step := range stage.Steps {
-				if step.Effect == int(effect.SideEffecting) {
+				if step.Effect == int(pipeline.EffectSideEffecting) {
 					entry, done := byStep[step.ID]
 					if done {
 						// Effectful step completed: inject its recorded
@@ -587,7 +586,7 @@ func (rp *Replayer) foldDef(ctx context.Context, def *pipeline.PipelineDefinitio
 // recorded delta for an effectful step (a no-op when the step has no
 // recording yet), or re-execution for a pure step.
 func foldStep(ctx context.Context, st store.Store, byStep map[string]actionlog.Entry, step pipeline.Step) error {
-	if step.Effect == int(effect.SideEffecting) {
+	if step.Effect == int(pipeline.EffectSideEffecting) {
 		entry, done := byStep[step.ID]
 		if !done {
 			return nil

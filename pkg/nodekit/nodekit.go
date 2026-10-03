@@ -61,7 +61,6 @@ type NodeRunContext struct {
 	RunID     string
 	Config    map[string]any
 	State     map[string]any
-	Results   map[string]any
 	Errors    map[string]any
 	Resources map[string]any
 	Store     store.Store
@@ -251,12 +250,8 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 			if def.Run == nil {
 				return nil, nil
 			}
-			var results map[string]any
-			if r, ok := state["results"].(map[string]any); ok {
-				results = r
-			}
 			res := resolveStepResources(pcxt, resources)
-			cfg, err := prepareNodeConfig(def, config, state, res, results)
+			cfg, err := prepareNodeConfig(def, config, state, res, nil) // results: state["results"] never existed (D.4)
 			if err != nil {
 				return nil, err
 			}
@@ -265,7 +260,6 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 				RunID:     pcxt.RunID(),
 				Config:    cfg,
 				State:     state,
-				Results:   results,
 				Resources: res,
 				Env:       pcxt.Env(),
 				Secret:    pcxt.ResolveSecret,

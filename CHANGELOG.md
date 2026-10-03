@@ -9,6 +9,9 @@ removed symbols are deleted outright. This `Removed` section is the record.
 - `store.AnansiStoreFactory.Loader()` — adapter for the deleted `StoreLoader`.
 - `pkg/events/durable.go` entirely (`NewDurableEventBus`, `NewDurableMemoryScopedBus`, `WithDurableBackend`, `DurableBusConfig`, the in-memory "durable" store) — the bus's store was an in-memory map, `Underlying()` had zero callers, and `Subscribe` never read the backend: a durable shape with no durability.
 - `events.MemoryScopedBus.Underlying()` — accessor for the deleted backend, zero callers.
+- `pkg/effect` package entirely (`effect.Pure`, `effect.SideEffecting`) — a 15-LOC import-cycle workaround whose constants were hand-synced with `nodekit.Effect` (§F consistency obligation). The canonical `Effect` enum now lives in `pkg/pipeline` (next to `Step.Effect`); `pkg/nodekit` re-exports aliases at its authoring-SDK boundary. Integer values unchanged.
+- `nodekit.NodeRunContext.Results` — on the step/router paths it was fed from `state["results"]`, which nothing in the tree ever wrote (always nil). The pipelines-mode router keeps its live child-results channel (`InterpolationContext.Results`, fed by `resultsByID`) and the `results []pipeline.PipelineRunResult` argument; only the dead field and the three dead reads are gone.
+
 - `store.NewFreshStore` — one-call wrapper over `store.NewMemoryStore`; callers use the constructor directly.
 - `store.AnansiStoreFactory` (and its `Create`/`Load`/`Models`/`Mint` methods) — a struct holding one ModelCollection whose methods wrapped the store constructors. Replaced by `store.NewAnansiStateCollection`, which provisions the collection; callers construct `PersistentStore` values directly.
 - `actionlog.AnansiStoreFactory` (and its `NewStore` method) — same shape. Replaced by `actionlog.NewAnansiStore`, a single constructor returning the durable store.

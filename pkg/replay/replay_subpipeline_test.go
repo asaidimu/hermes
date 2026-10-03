@@ -6,8 +6,7 @@ import (
 	"testing"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
-	"github.com/asaidimu/hermes/pkg/effect"
-	"github.com/asaidimu/hermes/pkg/events"
+		"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ func buildForkishDef() pipeline.PipelineDefinition {
 					Steps: map[string]pipeline.Step{
 						"shared-step": {
 							ID:     "shared-step",
-							Effect: int(effect.SideEffecting),
+							Effect: int(pipeline.EffectSideEffecting),
 							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 								return store.SetValue(key, val), nil
 							},
@@ -55,7 +54,7 @@ func buildForkishDef() pipeline.PipelineDefinition {
 				Steps: map[string]pipeline.Step{
 					"after-step": {
 						ID:     "after-step",
-						Effect: int(effect.SideEffecting),
+						Effect: int(pipeline.EffectSideEffecting),
 						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("after", true), nil
 						},
@@ -153,7 +152,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 							Steps: map[string]pipeline.Step{
 								"item-step": {
 									ID:     "item-step",
-									Effect: int(effect.SideEffecting),
+									Effect: int(pipeline.EffectSideEffecting),
 									Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 										return store.SetValue("got_"+jsonNumber(idx), raw[idx]), nil
 									},
@@ -174,7 +173,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 		Steps: map[string]pipeline.Step{
 			"seed-step": {
 				ID:     "seed-step",
-				Effect: int(effect.SideEffecting),
+				Effect: int(pipeline.EffectSideEffecting),
 				Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 					return store.SetValue("items", items), nil
 				},
@@ -231,7 +230,7 @@ func TestRebuildChildPauseBubblesNestedAddress(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"child-step": {
 						ID:     "child-step",
-						Effect: int(effect.SideEffecting),
+						Effect: int(pipeline.EffectSideEffecting),
 						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("beforePause", true), nil
 						},

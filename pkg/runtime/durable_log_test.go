@@ -15,8 +15,7 @@ import (
 	sqliteQuery "github.com/asaidimu/go-anansi/v8/sqlite/query"
 	rootutils "github.com/asaidimu/go-anansi/v8/utils"
 	"github.com/asaidimu/hermes/pkg/actionlog"
-	"github.com/asaidimu/hermes/pkg/effect"
-	"github.com/asaidimu/hermes/pkg/events"
+		"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/replay"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -65,7 +64,7 @@ func durableEchoWorkflow() *pipeline.Workflow {
 			{
 				ID: "stage:echo", Label: "Echo",
 				Steps: map[string]pipeline.Step{
-					"step:echo": {ID: "step:echo", Effect: int(effect.SideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					"step:echo": {ID: "step:echo", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue("done", true), nil
 					}},
 				},

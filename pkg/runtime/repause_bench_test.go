@@ -22,8 +22,7 @@ import (
 	"time"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
-	"github.com/asaidimu/hermes/pkg/effect"
-	"github.com/asaidimu/hermes/pkg/events"
+		"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 )
@@ -50,7 +49,7 @@ func chainedRepauseWorkflow(chainDepth int) *pipeline.Workflow {
 		ID: "stage:set-a", Label: "Set A",
 		Steps: map[string]pipeline.Step{
 			"step:set-a": {
-				ID: "step:set-a", Effect: int(effect.SideEffecting),
+				ID: "step:set-a", Effect: int(pipeline.EffectSideEffecting),
 				Action: func(_ context.Context, _ pipeline.PipelineContext, _ map[string]any) (store.Mutator, error) {
 					return store.SetValue("a", float64(0)), nil
 				},
@@ -79,7 +78,7 @@ func chainedRepauseWorkflow(chainDepth int) *pipeline.Workflow {
 			ID: incStageID, Label: incStageID,
 			Steps: map[string]pipeline.Step{
 				incStepID: {
-					ID: incStepID, Effect: int(effect.SideEffecting),
+					ID: incStepID, Effect: int(pipeline.EffectSideEffecting),
 					Action: func(_ context.Context, _ pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return func(s map[string]any) error {
 							s["a"] = incVal
@@ -96,7 +95,7 @@ func chainedRepauseWorkflow(chainDepth int) *pipeline.Workflow {
 		ID: "stage:final", Label: "Final",
 		Steps: map[string]pipeline.Step{
 			"step:final": {
-				ID: "step:final", Effect: int(effect.SideEffecting),
+				ID: "step:final", Effect: int(pipeline.EffectSideEffecting),
 				Action: func(_ context.Context, _ pipeline.PipelineContext, _ map[string]any) (store.Mutator, error) {
 					return store.SetValue("done", true), nil
 				},

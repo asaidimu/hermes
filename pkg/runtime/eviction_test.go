@@ -5,8 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asaidimu/hermes/pkg/effect"
-	"github.com/asaidimu/hermes/pkg/events"
+		"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
@@ -22,7 +21,7 @@ func evictionWorkflow() *pipeline.Workflow {
 			{
 				ID: "stage:done", Label: "Done",
 				Steps: map[string]pipeline.Step{
-					"step:done": {ID: "step:done", Effect: int(effect.SideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					"step:done": {ID: "step:done", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue("done", true), nil
 					}},
 				},

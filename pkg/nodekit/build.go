@@ -79,11 +79,7 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 		if def.Router == nil {
 			return nil, nil
 		}
-		var results map[string]any
-		if r, ok := state["results"].(map[string]any); ok {
-			results = r
-		}
-		cfg, err := prepareNodeConfig(def, config, state, nil, results)
+		cfg, err := prepareNodeConfig(def, config, state, nil, nil) // results: state["results"] never existed (D.4)
 		if err != nil {
 			return nil, err
 		}
@@ -91,9 +87,8 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 			NodeID:  nodeID,
 			RunID:   pipeline.RunIDFromContext(ctx),
 			Config:  cfg,
-			State:   state,
-			Results: results,
-			Store:   st,
+			State: state,
+			Store: st,
 		})
 		if err != nil {
 			return nil, err
@@ -119,11 +114,7 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, r
 		if def.RouterFunc == nil {
 			return nil, nil
 		}
-		var results map[string]any
-		if r, ok := state["results"].(map[string]any); ok {
-			results = r
-		}
-		cfg, err := prepareNodeConfig(def, config, state, nil, results)
+		cfg, err := prepareNodeConfig(def, config, state, nil, nil) // results: state["results"] never existed (D.4)
 		if err != nil {
 			return nil, err
 		}
@@ -131,9 +122,8 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, r
 			NodeID:  nodeID,
 			RunID:   pipeline.RunIDFromContext(ctx),
 			Config:  cfg,
-			State:   state,
-			Results: results,
-			Store:   st,
+			State: state,
+			Store: st,
 		})
 		if err != nil {
 			return nil, err
@@ -280,7 +270,6 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 					RunID:     pipeline.RunIDFromContext(ctx),
 					Config:    cfg,
 					State:     state,
-					Results:   resultsByID,
 					Errors:    errors,
 					Resources: res,
 					Store:     st,
@@ -295,7 +284,6 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 					RunID:     pipeline.RunIDFromContext(ctx),
 					Config:    cfg,
 					State:     state,
-					Results:   resultsByID,
 					Errors:    errors,
 					Resources: res,
 					Store:     st,
