@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 
-	"github.com/asaidimu/go-anansi/v8/core/data"
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -236,16 +235,4 @@ func (f *PipelineFactory) newFallbackBus(runID string) events.ScopedEventBus {
 	logger.Warn("pipeline: no event bus supplied; creating an orphan in-memory bus with no subscribers or durability",
 		"pipeline", f.definition.ID, "runId", runID)
 	return events.NewMemoryScopedBus()
-}
-
-// NewFactoryFromModel creates a factory reflecting a Go struct state model (Zero-Boilerplate).
-func NewFactoryFromModel[T any](def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory {
-	var val T
-
-	// Synthesize schema from struct fields if possible
-	if _, err := data.StructFieldValues(val, false); err == nil {
-		// Schema synthesized
-	}
-
-	return NewFactory(def, opts...)
 }

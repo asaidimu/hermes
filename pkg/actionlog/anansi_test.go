@@ -20,9 +20,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// newLogFactory spins up an AnansiStoreFactory over a unique in-memory
+// newLogFactory spins up a durable AnansiStore over a unique in-memory
 // sqlite database.
-func newLogFactory(t *testing.T) (*AnansiStoreFactory, func()) {
+func newLogFactory(t *testing.T) (*AnansiStore, func()) {
 	t.Helper()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
@@ -41,20 +41,20 @@ func newLogFactory(t *testing.T) (*AnansiStoreFactory, func()) {
 	p, err := persistence.NewPersistence(interactor, pevents.NewGoEventsBusAdapter[base.PersistenceEvent](bus), logger, nil)
 	require.NoError(t, err)
 
-	factory, err := NewAnansiStoreFactory(context.Background(), p, "actionlog")
+	logStore, err := NewAnansiStore(context.Background(), p, "actionlog")
 	require.NoError(t, err)
 
-	return factory, func() { _ = db.Close() }
+	return logStore, func() { _ = db.Close() }
 }
 
 func TestAnansiStoreRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	factory, cleanup := newLogFactory(t)
+	logStore, cleanup := newLogFactory(t)
 	defer cleanup()
 
 	// Append through one multi-run store instance. Entries carry their
 	// own identity — the store stamps nothing.
-	writer := factory.NewStore()
+	writer := logStore
 	seq1, err := writer.Append(ctx, Entry{RunID: "run-1", RerunIndex: 0, Kind: KindPipelineStarted, Type: "pipeline:start"})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), seq1)
@@ -70,7 +70,7 @@ func TestAnansiStoreRoundTrip(t *testing.T) {
 
 	// Read back through the same shared instance — proves immediate
 	// persistence and that reads address documents by (runID, rerunIndex).
-	reader := factory.NewStore()
+	reader := logStore
 	entries, err := reader.All(ctx, "run-1", 0)
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
@@ -122,11 +122,11 @@ func TestLogDocIDDeterministic(t *testing.T) {
 // store-level scope.
 func TestAnansiStoreServesMultipleRuns(t *testing.T) {
 	ctx := context.Background()
-	factory, cleanup := newLogFactory(t)
+	logStore, cleanup := newLogFactory(t)
 	defer cleanup()
 
 	// A single shared store, exactly how WorkflowRuntime consumes it.
-	shared := factory.NewStore()
+	shared := logStore
 
 	// Interleave appends across two runs and two rerun attempts.
 	_, err := shared.Append(ctx, Entry{RunID: "run-a", RerunIndex: 0, Kind: KindPipelineStarted, Type: "pipeline:start"})
@@ -190,7 +190,7 @@ func TestAnansiStoreServesMultipleRuns(t *testing.T) {
 
 	// Fresh store instances over the same collection see the same durable
 	// documents — document identity lives in the data, not the handle.
-	fresh := factory.NewStore()
+	fresh := logStore
 	entries, err = fresh.All(ctx, "run-a", 0)
 	require.NoError(t, err)
 	require.Len(t, entries, 3)

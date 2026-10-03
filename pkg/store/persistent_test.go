@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/asaidimu/go-anansi/v8/core/persistence/base"
+	anansicollection "github.com/asaidimu/go-anansi/v8/core/persistence/collection"
 	pevents "github.com/asaidimu/go-anansi/v8/core/persistence/events"
 	"github.com/asaidimu/go-anansi/v8/core/persistence/persistence"
 	"github.com/asaidimu/go-anansi/v8/core/query"
@@ -23,10 +24,10 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// newRunsFactory spins up an AnansiStoreFactory over a unique in-memory sqlite
-// database. The runs collection schema is derived from store.PipelineState by
-// the factory itself.
-func newRunsFactory(t *testing.T) (*store.AnansiStoreFactory, base.Persistence, func()) {
+// newRunsFactory provisions a run-state model collection over a unique
+// in-memory sqlite database. The collection schema is derived from
+// store.PipelineState by NewAnansiStateCollection itself.
+func newRunsFactory(t *testing.T) (*anansicollection.ModelCollection[*store.PipelineState], base.Persistence, func()) {
 	t.Helper()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
@@ -45,10 +46,10 @@ func newRunsFactory(t *testing.T) (*store.AnansiStoreFactory, base.Persistence, 
 	p, err := persistence.NewPersistence(interactor, pevents.NewGoEventsBusAdapter[base.PersistenceEvent](bus), logger, nil)
 	require.NoError(t, err)
 
-	factory, err := store.NewAnansiStoreFactory(context.Background(), p, "runs")
+	models, err := store.NewAnansiStateCollection(context.Background(), p, "runs")
 	require.NoError(t, err)
 
-	return factory, p, func() { _ = db.Close() }
+	return models, p, func() { _ = db.Close() }
 }
 
 func TestMemoryStoreMintsUUIDv7ID(t *testing.T) {
@@ -71,12 +72,11 @@ func TestPersistentStoreMintDoesNotTouchDB(t *testing.T) {
 
 func TestRunStateRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	factory, _, cleanup := newRunsFactory(t)
+	models, _, cleanup := newRunsFactory(t)
 	defer cleanup()
 
 	// Mint a run and seed state.
-	created, err := factory.Create(ctx)
-	require.NoError(t, err)
+	created := store.NewPersistentStore(models, nil)
 	runID := created.ID()
 
 	ckpt := pipeline.PipelineCheckpoint{
@@ -97,9 +97,9 @@ func TestRunStateRoundTrip(t *testing.T) {
 
 	// Sync pushes in-memory state to the database for queryability.
 	// The Action Log is the durable source of truth; Sync is optional.
-	require.NoError(t, created.(*store.PersistentStore).Sync(ctx))
+	require.NoError(t, created.Sync(ctx))
 
-	loaded, err := factory.Load(ctx, runID)
+	loaded, err := store.NewPersistentStoreForID(ctx, models, runID)
 	require.NoError(t, err)
 
 	var total float64
@@ -120,7 +120,7 @@ func TestRunStateRoundTrip(t *testing.T) {
 
 	// The persisted row follows the PipelineState shape: state under the
 	// "state" column, linkage under "metadata".
-	rows, err := factory.Models().Read(ctx, ptrQuery(query.NewQueryBuilder().Where("_id_").Eq(runID).Build()))
+	rows, err := models.Read(ctx, ptrQuery(query.NewQueryBuilder().Where("_id_").Eq(runID).Build()))
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	row := rows[0]
@@ -133,25 +133,25 @@ func TestRunStateRoundTrip(t *testing.T) {
 
 	// Further writes update in place — Sync again to persist.
 	require.NoError(t, loaded.Update(ctx, store.SetValue("total", 20.0)))
-	require.NoError(t, loaded.(*store.PersistentStore).Sync(ctx))
-	reloaded, err := factory.Load(ctx, runID)
+	require.NoError(t, loaded.Sync(ctx))
+	reloaded, err := store.NewPersistentStoreForID(ctx, models, runID)
 	require.NoError(t, err)
 	require.NoError(t, reloaded.Read(func(state map[string]any) error {
 		require.InDelta(t, 20.0, toFloat(state["total"]), 0.0001)
 		return nil
 	}))
 
-	all, err := factory.Models().Read(ctx, &query.Query{})
+	all, err := models.Read(ctx, &query.Query{})
 	require.NoError(t, err)
 	require.Len(t, all, 1, "writes must update in place, not duplicate documents")
 }
 
 func TestLoadUnknownRunFails(t *testing.T) {
 	ctx := context.Background()
-	factory, _, cleanup := newRunsFactory(t)
+	models, _, cleanup := newRunsFactory(t)
 	defer cleanup()
 
-	_, err := factory.Load(ctx, "00000000000000000000000000000000")
+	_, err := store.NewPersistentStoreForID(ctx, models, "00000000000000000000000000000000")
 	require.Error(t, err)
 }
 

@@ -9,6 +9,15 @@ removed symbols are deleted outright. This `Removed` section is the record.
 - `store.AnansiStoreFactory.Loader()` — adapter for the deleted `StoreLoader`.
 - `pkg/events/durable.go` entirely (`NewDurableEventBus`, `NewDurableMemoryScopedBus`, `WithDurableBackend`, `DurableBusConfig`, the in-memory "durable" store) — the bus's store was an in-memory map, `Underlying()` had zero callers, and `Subscribe` never read the backend: a durable shape with no durability.
 - `events.MemoryScopedBus.Underlying()` — accessor for the deleted backend, zero callers.
+- `store.NewFreshStore` — one-call wrapper over `store.NewMemoryStore`; callers use the constructor directly.
+- `store.AnansiStoreFactory` (and its `Create`/`Load`/`Models`/`Mint` methods) — a struct holding one ModelCollection whose methods wrapped the store constructors. Replaced by `store.NewAnansiStateCollection`, which provisions the collection; callers construct `PersistentStore` values directly.
+- `actionlog.AnansiStoreFactory` (and its `NewStore` method) — same shape. Replaced by `actionlog.NewAnansiStore`, a single constructor returning the durable store.
+- `pipeline.NewFactoryFromModel` — dead generic helper: called `data.StructFieldValues` and discarded the result; passed a nil schema.
+- `runtime.HestiaEventSourceFunc` / `scheduler.HestiaSchedulerFunc` — adapter structs with zero callers in the tree.
+- `timeline.SourceStore` / `SourceContainer` / `SourceLogger` — timeline source constants with no producer; only `SourcePipeline` is emitted.
+
+Kept (dispositions against the OA audit's medium-impact list): the compiler helpers `flowEdges`/`dependencyEdgesTo`/`nextDefaultTarget`/`appendRequirement`/`staticResources`/`buildResourcesFor` all have live callers and named contracts (the single-caller pair carries dedup/filter logic that reads clearer named); `replay.StepAddress` and the `core` error aliases are zero-cost readability aliases, not indirection layers; `pipeline.WithRunEnv`/`WithSecretLookup`/`WithResourceResolver` option funcs stay at the public constructor boundary.
+
 - `store.Store.Flush` (and both implementations) — no-op in both impls, zero callers in the tree; `Sync` remains the explicit persistence point.
 - `pipeline.PipelineDefinition.Schema` and `pipeline.PipelineFactory`'s schema field/parameter — written, never read; the compiler never set the definition field. Node config schemas live in node definitions where they are consumed.
 - `pipeline.Stage.Order` — assigned by the compiler/nodekit, asserted by one test, read by nothing at run time (slice position is the real order). `compiler.WorkflowView` now emits the slice index under its existing `"order"` key so the view shape is unchanged.

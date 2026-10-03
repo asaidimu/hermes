@@ -47,12 +47,12 @@ func newDurableActionLog(t *testing.T) (actionlog.Store, func()) {
 	p, err := persistence.NewPersistence(interactor, pevents.NewGoEventsBusAdapter[base.PersistenceEvent](bus), logger, nil)
 	require.NoError(t, err)
 
-	factory, err := actionlog.NewAnansiStoreFactory(context.Background(), p, "actionlog")
+	logStore, err := actionlog.NewAnansiStore(context.Background(), p, "actionlog")
 	require.NoError(t, err)
 
 	// One scope-free store for the whole runtime — the integration shape
 	// #review-20260910-014 called for.
-	return factory.NewStore(), func() { _ = db.Close() }
+	return logStore, func() { _ = db.Close() }
 }
 
 // durableEchoWorkflow is a minimal one-stage workflow whose single

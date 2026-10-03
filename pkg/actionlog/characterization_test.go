@@ -74,10 +74,10 @@ func TestMemoryLogLatestRerunIndex(t *testing.T) {
 //  4. One store instance serves multiple runs without cross-talk.
 func TestAnansiStoreIdentityAndSeqContract(t *testing.T) {
 	ctx := context.Background()
-	factory, cleanup := newLogFactory(t)
+	logStore, cleanup := newLogFactory(t)
 	defer cleanup()
 
-	store := factory.NewStore()
+	store := logStore
 
 	// 1. Empty RunID rejected.
 	_, err := store.Append(ctx, Entry{Kind: KindPipelineStarted})

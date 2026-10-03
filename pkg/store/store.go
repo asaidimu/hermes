@@ -61,14 +61,6 @@ func NewMemoryStore(initialState map[string]any) *MemoryStore {
 	}
 }
 
-// NewFreshStore creates a new in-memory store with the given initial state,
-// completely independent of any parent store. Unlike Clone(), which copies
-// the parent's state, this starts from scratch. If initialState is nil, an
-// empty store is created.
-func NewFreshStore(initialState map[string]any) *MemoryStore {
-	return NewMemoryStore(initialState)
-}
-
 // ID returns the run identifier: a system-minted UUIDv7 created with the
 // store — no database round-trip involved.
 func (s *MemoryStore) ID() string {

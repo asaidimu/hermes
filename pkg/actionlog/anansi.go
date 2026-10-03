@@ -33,19 +33,18 @@ type LogEntry struct {
 	Entries    string `anansi:"entries"`
 }
 
-// AnansiStoreFactory creates durable action log stores backed by an anansi
-// ModelCollection. One document per (runID, rerunIndex).
-type AnansiStoreFactory struct {
-	models *anansicollection.ModelCollection[*LogEntry]
-}
-
 // ensureDocumentFactory configures anansi's singleton document factory.
 var ensureDocumentFactory sync.Once
 
-// NewAnansiStoreFactory creates a factory bound to the named action log
-// collection, deriving its schema from LogEntry and creating the collection
-// when it does not exist yet.
-func NewAnansiStoreFactory(ctx context.Context, persist base.Persistence, collectionName string) (*AnansiStoreFactory, error) {
+// NewAnansiStore creates a durable action log Store backed by the named
+// anansi collection, deriving its schema from LogEntry and creating the
+// collection when it does not exist yet. One document per
+// (runID, rerunIndex).
+//
+// 20261003 refactor (plan D.3): the former AnansiStoreFactory — a struct
+// holding one ModelCollection field with a single method — is collapsed
+// into this constructor.
+func NewAnansiStore(ctx context.Context, persist base.Persistence, collectionName string) (*AnansiStore, error) {
 	ensureDocumentFactory.Do(func() {
 		_ = data.ConfigureDocumentFactory(data.DocumentFactoryConfig{}, nil)
 	})
@@ -80,16 +79,7 @@ func NewAnansiStoreFactory(ctx context.Context, persist base.Persistence, collec
 		return nil, err
 	}
 
-	return &AnansiStoreFactory{models: models}, nil
-}
-
-// NewStore returns a multi-run durable Store. A single instance serves
-// every (runID, rerunIndex) log document in the collection — entries are
-// routed by the identity they themselves carry at Append time, mirroring
-// MemoryActionLog's semantics. This is the store to wire into
-// WorkflowRuntime's Options.ActionLog, which is shared across all runs.
-func (f *AnansiStoreFactory) NewStore() *AnansiStore {
-	return &AnansiStore{models: f.models}
+	return &AnansiStore{models: models}, nil
 }
 
 // actionLogNamespace namespaces the deterministic log document IDs so they

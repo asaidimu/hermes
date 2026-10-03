@@ -14,10 +14,11 @@ import (
 type TimelineEventSource string
 
 const (
-	SourcePipeline  TimelineEventSource = "pipeline"
-	SourceStore     TimelineEventSource = "store"
-	SourceContainer TimelineEventSource = "container"
-	SourceLogger    TimelineEventSource = "logger"
+	// Only SourcePipeline is produced today (the runtime's timeline
+	// projection). The other wire values never had a producer — deleted by
+	// the 20261003 refactor (plan D.3) under the unused one-liner rule; a
+	// future non-pipeline source re-adds its constant with its producer.
+	SourcePipeline TimelineEventSource = "pipeline"
 )
 
 type TimelineEvent struct {

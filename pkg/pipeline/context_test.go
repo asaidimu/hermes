@@ -10,7 +10,7 @@ import (
 // TestStateSnapshotDeepCopy guards the fix for review-20260826-002: the
 // snapshot handed to routers must share no references with live store state.
 func TestStateSnapshotDeepCopy(t *testing.T) {
-	st := store.NewFreshStore(map[string]any{
+	st := store.NewMemoryStore(map[string]any{
 		"nested": map[string]any{"a": float64(1)},
 		"list":   []any{map[string]any{"b": float64(1)}},
 	})

@@ -10,7 +10,7 @@ import (
 
 func runRules(t *testing.T, state map[string]any, rules []any) (map[string]any, error) {
 	t.Helper()
-	st := store.NewFreshStore(state)
+	st := store.NewMemoryStore(state)
 	mut, err := run(context.Background(), nodekit.NodeRunContext{
 		Config: map[string]any{"rules": rules},
 		State:  state,

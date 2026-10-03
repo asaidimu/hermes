@@ -217,7 +217,7 @@ func resolveChildPipelines(stage pipeline.Stage, st store.Store) ([]pipeline.Pip
 func newChildStore(stage pipeline.Stage, parent store.Store) (store.Store, error) {
 	if stage.Config != nil {
 		if is, ok := stage.Config["initialState"].(map[string]any); ok && is != nil {
-			return store.NewFreshStore(store.DeepCopyMap(is)), nil
+			return store.NewMemoryStore(store.DeepCopyMap(is)), nil
 		}
 	}
 	cloned, err := parent.Clone()

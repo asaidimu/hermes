@@ -12,26 +12,22 @@ import (
         "go.uber.org/zap"
 )
 
-// AnansiStoreFactory provisions and exposes run state documents backed by an
-// anansi ModelCollection[*PipelineState]. The runs collection schema is derived
-// from the PipelineState struct (see AGENTS.md); it is created on first use
-// when absent.
-//
-// Create mints a new run document in memory (identity only, no DB write);
-// Load recovers an existing run document by its identifier.
-type AnansiStoreFactory struct {
-        models *anansicollection.ModelCollection[*PipelineState]
-}
-
 // ensureDocumentFactory configures anansi's singleton document factory. Any
 // persistence operation that mints documents panics without it
 // (ERR_DATA_FACTORY_NOT_CONFIGURED). Idempotent.
 var ensureDocumentFactory sync.Once
 
-// NewAnansiStoreFactory creates a factory bound to the named runs collection,
-// deriving its schema from PipelineState and creating the collection when it
-// does not exist yet.
-func NewAnansiStoreFactory(ctx context.Context, persist base.Persistence, collectionName string) (*AnansiStoreFactory, error) {
+// NewAnansiStateCollection provisions the typed anansi model collection for
+// run state documents, deriving its schema from PipelineState and creating
+// the collection when it does not exist yet. Callers build stores directly
+// on the returned collection: store.NewPersistentStore(models, nil) mints a
+// fresh run; store.NewPersistentStoreForID(ctx, models, runID) recovers an
+// existing one.
+//
+// 20261003 refactor (plan D.3): the former AnansiStoreFactory — a struct
+// holding one ModelCollection field whose methods wrapped the two store
+// constructors — is collapsed into this provisioning function.
+func NewAnansiStateCollection(ctx context.Context, persist base.Persistence, collectionName string) (*anansicollection.ModelCollection[*PipelineState], error) {
         ensureDocumentFactory.Do(func() {
                 _ = data.ConfigureDocumentFactory(data.DocumentFactoryConfig{}, nil)
         })
@@ -66,29 +62,5 @@ func NewAnansiStoreFactory(ctx context.Context, persist base.Persistence, collec
                 return nil, err
         }
 
-        return &AnansiStoreFactory{models: models}, nil
-}
-
-// Models exposes the typed model collection for advanced queries (run
-// listings, ad-hoc analytics).
-func (f *AnansiStoreFactory) Models() *anansicollection.ModelCollection[*PipelineState] {
-        return f.models
-}
-
-// Create returns a brand-new PersistentStore with a freshly minted run
-// identity. No document exists in the collection until Sync() is called.
-func (f *AnansiStoreFactory) Create(_ context.Context) (Store, error) {
-        return NewPersistentStore(f.models, nil), nil
-}
-
-// Load returns the PersistentStore for an existing run, recovering its state
-// document from the collection. Returns a NotFound error when runID has no
-// state document.
-func (f *AnansiStoreFactory) Load(ctx context.Context, runID string) (Store, error) {
-        return NewPersistentStoreForID(ctx, f.models, runID)
-}
-
-// Mint adapts the factory to WorkflowRuntime's Options.StoreFactory.
-func (f *AnansiStoreFactory) Mint() func() (Store, error) {
-        return func() (Store, error) { return f.Create(context.Background()) }
+        return models, nil
 }

@@ -83,8 +83,3 @@ var (
 	DecodeWireGraph = compiler.DecodeWireGraph
 	CompileWire     = compiler.CompileWire
 )
-
-// NewFactoryFromModel creates a factory reflecting a Go struct state model (Zero-Boilerplate).
-func NewFactoryFromModel[T any](def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory {
-	return pipeline.NewFactoryFromModel[T](def, opts...)
-}

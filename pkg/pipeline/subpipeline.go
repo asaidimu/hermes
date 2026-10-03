@@ -116,7 +116,7 @@ func ExecuteSubPipelines(
 			var childStore store.Store
 			var err error
 			if initialState != nil {
-				childStore = store.NewFreshStore(deepCopyJSONMap(initialState))
+				childStore = store.NewMemoryStore(deepCopyJSONMap(initialState))
 			} else {
 				childStore, err = parentStore.Clone()
 				if err != nil {
