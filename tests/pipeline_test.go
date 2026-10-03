@@ -34,7 +34,6 @@ func TestSequentialPipelineExecution(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Label: "Stage 1",
 				Steps: map[string]pipeline.Step{
 					"step-1": {
@@ -48,7 +47,6 @@ func TestSequentialPipelineExecution(t *testing.T) {
 			},
 			{
 				ID:    "stage-2",
-				Order: 2,
 				Label: "Stage 2",
 				Steps: map[string]pipeline.Step{
 					"step-2": {
@@ -64,7 +62,7 @@ func TestSequentialPipelineExecution(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil)
+	factory := pipeline.NewFactory(def)
 	runCtx := factory.Prepare("run-123", nil)
 
 	var emittedEvents []string
@@ -99,7 +97,6 @@ func TestPipelineJumpRouting(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "start",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID: "init",
@@ -114,7 +111,6 @@ func TestPipelineJumpRouting(t *testing.T) {
 			},
 			{
 				ID:    "skipped",
-				Order: 2,
 				Steps: map[string]pipeline.Step{
 					"never": {
 						ID: "never",
@@ -126,7 +122,6 @@ func TestPipelineJumpRouting(t *testing.T) {
 			},
 			{
 				ID:    "finish",
-				Order: 3,
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID: "done",
@@ -139,7 +134,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil)
+	factory := pipeline.NewFactory(def)
 	runCtx := factory.Prepare("run-jump", nil)
 
 	res, err := runCtx.Run(ctx)
@@ -183,7 +178,7 @@ func TestPipelineStepRetryAndTimeout(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil)
+	factory := pipeline.NewFactory(def)
 	runCtx := factory.Prepare("run-retry", nil)
 
 	res, err := runCtx.Run(ctx)

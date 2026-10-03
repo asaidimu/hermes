@@ -132,7 +132,7 @@ func ExecuteSubPipelines(
 				}
 			}
 
-			childFactory := NewFactory(childDef, childDef.Schema, FactoryOptions{
+			childFactory := NewFactory(childDef, FactoryOptions{
 				RunEnv:           runEnv,
 				SecretLookup:     secretLookup,
 				Logger:           logger,

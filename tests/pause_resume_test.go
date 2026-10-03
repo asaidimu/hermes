@@ -19,7 +19,6 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
                 Stages: []pipeline.Stage{
                         {
                                 ID:    "stage-a",
-                                Order: 1,
                                 Steps: map[string]pipeline.Step{
                                         "step-a": {
                                                 ID: "step-a",
@@ -35,7 +34,6 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
                         },
                         {
                                 ID:    "stage-b",
-                                Order: 2,
                                 Steps: map[string]pipeline.Step{
                                         "step-b": {
                                                 ID: "step-b",
@@ -49,7 +47,7 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
         }
 
         st := store.NewMemoryStore(nil)
-        factory := pipeline.NewFactory(def, nil)
+        factory := pipeline.NewFactory(def)
         runCtx := factory.Prepare("run-pause-1", st)
 
 

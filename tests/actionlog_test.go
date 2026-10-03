@@ -24,7 +24,6 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Label: "Stage 1",
 				Steps: map[string]pipeline.Step{
 					"pure-step": {
@@ -47,7 +46,6 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 			},
 			{
 				ID:    "stage-2",
-				Order: 2,
 				Label: "Stage 2",
 				Steps: map[string]pipeline.Step{
 					"another-effectful": {
@@ -63,7 +61,7 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	runCtx := factory.Prepare("run-actionlog", nil)
@@ -103,7 +101,6 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "start",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID:     "init",
@@ -119,7 +116,6 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 			},
 			{
 				ID:    "middle",
-				Order: 2,
 				Steps: map[string]pipeline.Step{
 					"skipped": {
 						ID:     "skipped",
@@ -132,7 +128,6 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 			},
 			{
 				ID:    "finish",
-				Order: 3,
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID:     "done",
@@ -146,7 +141,7 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	runCtx := factory.Prepare("run-routing", nil)
@@ -183,7 +178,6 @@ func TestActionLogRecordsEffectfulStepFailure(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"failing-step": {
 						ID:      "failing-step",
@@ -199,7 +193,7 @@ func TestActionLogRecordsEffectfulStepFailure(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	runCtx := factory.Prepare("run-fail", nil)
@@ -236,7 +230,6 @@ func TestActionLogNoEntriesForPureSteps(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"pure-1": {
 						ID:     "pure-1",
@@ -257,7 +250,7 @@ func TestActionLogNoEntriesForPureSteps(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	runCtx := factory.Prepare("run-pure", nil)
@@ -293,7 +286,6 @@ func TestActionLogEntriesAreMonotonicallySequenced(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"effect-1": {
 						ID:     "effect-1",
@@ -306,7 +298,6 @@ func TestActionLogEntriesAreMonotonicallySequenced(t *testing.T) {
 			},
 			{
 				ID:    "stage-2",
-				Order: 2,
 				Steps: map[string]pipeline.Step{
 					"effect-2": {
 						ID:     "effect-2",
@@ -320,7 +311,7 @@ func TestActionLogEntriesAreMonotonicallySequenced(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	runCtx := factory.Prepare("run-seq", nil)
@@ -350,7 +341,6 @@ func TestActionLogWithNopLog(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"step-1": {
 						ID:     "step-1",
@@ -365,7 +355,7 @@ func TestActionLogWithNopLog(t *testing.T) {
 	}
 
 	// No ActionLog configured — should use NopLog
-	factory := pipeline.NewFactory(def, nil)
+	factory := pipeline.NewFactory(def)
 	runCtx := factory.Prepare("run-noplog", nil)
 
 	res, err := runCtx.Run(ctx)
@@ -384,7 +374,6 @@ func TestActionLogEntriesHaveTimestamps(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"effectful": {
 						ID:     "effectful",
@@ -400,13 +389,12 @@ func TestActionLogEntriesHaveTimestamps(t *testing.T) {
 			},
 			{
 				ID:    "end",
-				Order: 2,
 				Steps: map[string]pipeline.Step{},
 			},
 		},
 	}
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	runCtx := factory.Prepare("run-ts", nil)

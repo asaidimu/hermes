@@ -81,10 +81,6 @@ func (s *PersistentStore) Update(ctx context.Context, mutator Mutator) error {
 	return nil
 }
 
-// Flush is a no-op. The Action Log handles durability. Call Sync() to
-// explicitly push state to the database for queryability.
-func (s *PersistentStore) Flush(_ context.Context) error { return nil }
-
 // Sync pushes the current in-memory state to the database collection for
 // external queryability. This is optional — the Action Log is the durable
 // source of truth. Sync is useful when an HTTP API needs to serve the

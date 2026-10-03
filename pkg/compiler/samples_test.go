@@ -38,6 +38,6 @@ func TestCalcSampleCompiles(t *testing.T) {
 	stages := wf.Pipelines["trigger-1"].Stages
 	t.Logf("Compiled %d stages:", len(stages))
 	for _, s := range stages {
-		t.Logf("  %s (kind=%s) order=%d", s.ID, s.Label, s.Order)
+		t.Logf("  %s (kind=%s)", s.ID, s.Label)
 	}
 }

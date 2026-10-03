@@ -307,6 +307,13 @@ type PipelineCheckpoint struct {
 
 ## 9. Timeline Engine (Recording & Time-Travel Playback)
 
+> **NOT IMPLEMENTED IN THE GO RUNTIME** (20261003 refactor, plan D.2 —
+> audit §E): there is no `TimelineStore` interface, no snapshots, and
+> nothing populates snapshot fields. The Go tree ships only the read-only
+> timeline projection (`pkg/timeline`: `EntryToTimelineEvent`, run meta
+> types) plus the runtime's in-memory run-met metadata. This section
+> describes aspirational design, not shipped behavior.
+
 The `TimelineStore` implements chronological storage and snapshotting, matching the frontend's expected format:
 
 ```go
@@ -342,7 +349,7 @@ pipelines/
 │   │   └── subpipeline.go     # Subpipeline Fork/Join engine
 │   ├── registry/              # Run registry & auto-expiration timers
 │   ├── timeline/              # Timeline recorder, store & playback engine
-│   └── server/                # Frontend HTTP/REST API Server (100% Wire Parity)
+│   └── server/                # Frontend HTTP/REST API Server (NOT IMPLEMENTED — no pkg/server exists in the Go tree; the runtime's Run() doc's 'Phase 7' reference is aspirational)
 └── tests/
     ├── pipeline_test.go
     ├── subpipeline_test.go

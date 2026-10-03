@@ -407,7 +407,6 @@ func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, b
 	if routingChild == nil {
 		return pipeline.Stage{
 			ID:    stageID,
-			Order: order,
 			Label: stageLabel,
 			Steps: steps,
 			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
@@ -426,7 +425,6 @@ func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, b
 
 	return pipeline.Stage{
 		ID:     stageID,
-		Order:  order,
 		Label:  stageLabel,
 		Steps:  steps,
 		Router: router,
@@ -556,8 +554,7 @@ func compileStages(
 			}
 			stages = append(stages, pipeline.Stage{
 				ID:        id,
-				Order:     order,
-				Label:     referencedDef.Label,
+					Label:     referencedDef.Label,
 				Config:    stageCfg,
 				Pipelines: []pipeline.PipelineDefinition{*referencedDef},
 				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {

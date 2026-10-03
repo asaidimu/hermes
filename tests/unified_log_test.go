@@ -46,7 +46,7 @@ func TestUnifiedLogRecordingAndStateDerivation(t *testing.T) {
 	}
 
 	st := store.NewMemoryStore(nil)
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{ActionLog: log})
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{ActionLog: log})
 	runCtx := factory.Prepare("run-timeline-1", st)
 
 	res, err := runCtx.Run(ctx)

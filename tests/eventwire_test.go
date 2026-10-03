@@ -70,7 +70,7 @@ func TestEventWireStepsMode(t *testing.T) {
 
 	bus := events.NewMemoryScopedBus()
 	snapshot := collectEvents(t, bus)
-	factory := pipeline.NewFactory(def, nil)
+	factory := pipeline.NewFactory(def)
 	runCtx := factory.Prepare("run-wire-steps", nil, bus)
 
 	res, err := runCtx.Run(ctx)
@@ -134,7 +134,7 @@ func TestEventWireSubPipelines(t *testing.T) {
 
 	bus := events.NewMemoryScopedBus()
 	snapshot := collectEvents(t, bus)
-	factory := pipeline.NewFactory(parent, nil)
+	factory := pipeline.NewFactory(parent)
 	runCtx := factory.Prepare("run-wire-sub", nil, bus)
 
 	res, err := runCtx.Run(ctx)
@@ -216,7 +216,7 @@ func TestEventWireSubPipelineSoftFailure(t *testing.T) {
 
 	bus := events.NewMemoryScopedBus()
 	snapshot := collectEvents(t, bus)
-	factory := pipeline.NewFactory(parent, nil)
+	factory := pipeline.NewFactory(parent)
 	runCtx := factory.Prepare("run-wire-soft", nil, bus)
 
 	res, err := runCtx.Run(ctx)
@@ -288,7 +288,7 @@ func TestEventWireSubPipelineHardFailure(t *testing.T) {
 
 	bus := events.NewMemoryScopedBus()
 	snapshot := collectEvents(t, bus)
-	factory := pipeline.NewFactory(parent, nil)
+	factory := pipeline.NewFactory(parent)
 	runCtx := factory.Prepare("run-wire-hard", nil, bus)
 
 	res, err := runCtx.Run(ctx)

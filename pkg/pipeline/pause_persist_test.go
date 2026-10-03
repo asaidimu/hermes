@@ -45,7 +45,6 @@ func TestPauseFailsWhenCheckpointPersistFails(t *testing.T) {
 		Stages: []Stage{
 			{
 				ID:    "pause-stage",
-				Order: 1,
 				Steps: map[string]Step{
 					"noop": {
 						ID:     "noop",
@@ -60,7 +59,7 @@ func TestPauseFailsWhenCheckpointPersistFails(t *testing.T) {
 					return Pause("resume-here", 0), nil
 				},
 			},
-			{ID: "resume-here", Order: 2},
+			{ID: "resume-here"},
 		},
 	}
 

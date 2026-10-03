@@ -26,7 +26,6 @@ func buildForkishDef() pipeline.PipelineDefinition {
 			Stages: []pipeline.Stage{
 				{
 					ID:    "shared-stage",
-					Order: 1,
 					Steps: map[string]pipeline.Step{
 						"shared-step": {
 							ID:     "shared-step",
@@ -46,7 +45,6 @@ func buildForkishDef() pipeline.PipelineDefinition {
 		Stages: []pipeline.Stage{
 			{
 				ID:        "fork-stage",
-				Order:     1,
 				Pipelines: []pipeline.PipelineDefinition{child("child-a", "fromA", int64(1)), child("child-b", "fromB", int64(2))},
 				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
 					return pipeline.Advance(), nil
@@ -54,7 +52,6 @@ func buildForkishDef() pipeline.PipelineDefinition {
 			},
 			{
 				ID:    "after",
-				Order: 2,
 				Steps: map[string]pipeline.Step{
 					"after-step": {
 						ID:     "after-step",
@@ -84,7 +81,7 @@ func TestRebuildSubpipelineInstancesNotCollapsed(t *testing.T) {
 
 	// Run the pipeline for real through the engine so the log is exactly
 	// what production writes.
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
 		ActionLog: log,
 	})
 	st := store.NewMemoryStore(nil)
@@ -143,7 +140,6 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 	items := []any{"x", "y"}
 	dynStage := pipeline.Stage{
 		ID:    "dyn-stage",
-		Order: 1,
 		DynamicPipelines: func(state map[string]any) []pipeline.PipelineDefinition {
 			raw, _ := state["items"].([]any)
 			defs := make([]pipeline.PipelineDefinition, 0, len(raw))
@@ -154,7 +150,6 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 					Stages: []pipeline.Stage{
 						{
 							ID:    "item-stage",
-							Order: 1,
 							Steps: map[string]pipeline.Step{
 								"item-step": {
 									ID:     "item-step",
@@ -176,7 +171,6 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 	// DynamicPipelines closure can regenerate children from the REBUILT state.
 	seedStage := pipeline.Stage{
 		ID:    "seed-stage",
-		Order: 0,
 		Steps: map[string]pipeline.Step{
 			"seed-step": {
 				ID:     "seed-step",
@@ -193,7 +187,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 	}
 	runID := "run-dyn"
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{ActionLog: log})
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{ActionLog: log})
 	st := store.NewMemoryStore(nil)
 	rc := factory.Prepare(runID, st, events.NewMemoryScopedBus())
 	res, err := rc.Run(ctx)
@@ -234,7 +228,6 @@ func TestRebuildChildPauseBubblesNestedAddress(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:    "child-stage-1",
-				Order: 1,
 				Steps: map[string]pipeline.Step{
 					"child-step": {
 						ID:     "child-step",
@@ -248,7 +241,7 @@ func TestRebuildChildPauseBubblesNestedAddress(t *testing.T) {
 					return pipeline.Pause("child-resume", 0), nil
 				},
 			},
-			{ID: "child-resume", Order: 2},
+			{ID: "child-resume"},
 		},
 	}
 	def := pipeline.PipelineDefinition{
@@ -256,14 +249,13 @@ func TestRebuildChildPauseBubblesNestedAddress(t *testing.T) {
 		Stages: []pipeline.Stage{
 			{
 				ID:        "wrapper-stage",
-				Order:     1,
 				Pipelines: []pipeline.PipelineDefinition{childDef},
 			},
 		},
 	}
 	runID := "run-child-pause"
 
-	factory := pipeline.NewFactory(def, nil, pipeline.FactoryOptions{ActionLog: log})
+	factory := pipeline.NewFactory(def, pipeline.FactoryOptions{ActionLog: log})
 	st := store.NewMemoryStore(nil)
 	rc := factory.Prepare(runID, st, events.NewMemoryScopedBus())
 	res, err := rc.Run(ctx)

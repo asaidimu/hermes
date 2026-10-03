@@ -209,7 +209,7 @@ func defaultStageRouter(config map[string]any, resolveHandle func(string) string
 // either its own router (routing nodes: if/switch/while/for-each) or the
 // default stage router.
 func BuildStage(nodeID string, def NodeDefinition, config map[string]any, resources func() map[string]any, resolveHandle func(string) string, order int) pipeline.Stage {
-	stage := pipeline.Stage{ID: nodeID, Order: order, Label: def.Label}
+	stage := pipeline.Stage{ID: nodeID, Label: def.Label}
 	if def.Run != nil {
 		stage.Steps = map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)}
 	}
@@ -233,7 +233,6 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 	if def.Run != nil {
 		subStages = append(subStages, pipeline.Stage{
 			ID:    nodeID + "__setup",
-			Order: 0,
 			Label: def.Label + " (setup)",
 			Steps: map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)},
 			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
@@ -254,7 +253,6 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 
 	return pipeline.Stage{
 		ID:        nodeID,
-		Order:     order,
 		Label:     def.Label,
 		Pipelines: []pipeline.PipelineDefinition{subPipeline},
 		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
@@ -348,7 +346,6 @@ func BuildForkStage(
 
 	return pipeline.Stage{
 		ID:        nodeID,
-		Order:     order,
 		Label:     def.Label,
 		Pipelines: subPipelines,
 		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
@@ -385,7 +382,6 @@ func BuildDistributeStage(
 	// --- Setup stage: runs node logic, stores items for DynamicPipelines ---
 	setupStage := pipeline.Stage{
 		ID:    nodeID + "__setup",
-		Order: 0,
 		Label: def.Label + " (setup)",
 		Steps: map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)},
 		Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
@@ -399,7 +395,6 @@ func BuildDistributeStage(
 	// --- Pipelines stage: DynamicPipelines fans out N children --------------
 	pipelinesStage := pipeline.Stage{
 		ID:    nodeID + "__pipelines",
-		Order: 1,
 		Label: def.Label + " (distribute)",
 		DynamicPipelines: func(state map[string]any) []pipeline.PipelineDefinition {
 			// Read items from state (set by distribute node's Run).
@@ -444,7 +439,6 @@ func BuildDistributeStage(
 				// Inject the item before the body runs.
 				childStages = append(childStages, pipeline.Stage{
 					ID:    nodeID + "__item",
-					Order: 0,
 					Label: def.Label + " item",
 					Steps: map[string]pipeline.Step{
 						nodeID + "__inject": {
@@ -494,7 +488,6 @@ func BuildDistributeStage(
 
 	return pipeline.Stage{
 		ID:        nodeID,
-		Order:     order,
 		Label:     def.Label,
 		Pipelines: []pipeline.PipelineDefinition{subPipeline},
 		PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {

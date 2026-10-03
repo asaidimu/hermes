@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -213,7 +212,6 @@ type PipelineStageRouter func(ctx context.Context, state map[string]any, results
 // real deep clone) instead of mutating a shared one.
 type Stage struct {
 	ID              string
-	Order           int
 	Label           string
 	Timeout         time.Duration
 	Steps           map[string]Step
@@ -232,7 +230,6 @@ type Stage struct {
 type PipelineDefinition struct {
 	ID     string
 	Label  string
-	Schema *definition.CompiledSchema
 	Stages []Stage
 }
 

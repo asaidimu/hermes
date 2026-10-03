@@ -30,7 +30,6 @@ func TestActionRunsOnSnapshotOutsideStoreLock(t *testing.T) {
 		Stages: []Stage{
 			{
 				ID:    "stage-1",
-				Order: 1,
 				Steps: map[string]Step{
 					"mutator-step": {
 						ID: "mutator-step",
@@ -125,7 +124,6 @@ func TestConcurrentStepsRaceFree(t *testing.T) {
 		ID: "race-pipeline",
 		Stages: []Stage{{
 			ID:    "s1",
-			Order: 1,
 			Steps: steps,
 		}},
 	}

@@ -67,7 +67,7 @@ func TestConcurrentSubPipelines(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(parent, nil)
+	factory := pipeline.NewFactory(parent)
 	runCtx := factory.Prepare("parent-run-1", nil)
 
 	res, err := runCtx.Run(ctx)
@@ -119,7 +119,7 @@ func TestHighConcurrencySubPipelines(t *testing.T) {
 		},
 	}
 
-	factory := pipeline.NewFactory(parent, nil)
+	factory := pipeline.NewFactory(parent)
 	runCtx := factory.Prepare("stress-run-1", nil)
 
 	res, err := runCtx.Run(ctx)

@@ -101,23 +101,6 @@ func TestCompilesSimpleLinearWorkflow(t *testing.T) {
 	}
 }
 
-func TestAssignsAscendingOrders(t *testing.T) {
-	nodes := []compiler.Node{
-		execNode("trigger-1", "trigger", map[string]any{}),
-		execNode("a", "arithmetic", map[string]any{"key": "a"}),
-		execNode("b", "arithmetic", map[string]any{"key": "b"}),
-	}
-	edges := []compiler.Edge{flowEdge("e1", "trigger-1", "a", ""), flowEdge("e2", "a", "b", "")}
-
-	wf := mustCompile(t, nodes, edges, nil)
-	stages := wf.Pipelines["trigger-1"].Stages
-	for i := 1; i < len(stages); i++ {
-		if stages[i].Order <= stages[i-1].Order {
-			t.Errorf("orders not ascending: %d then %d", stages[i-1].Order, stages[i].Order)
-		}
-	}
-}
-
 func TestThrowsWithoutTopLevelTrigger(t *testing.T) {
 	_, err := compiler.Compile([]compiler.Node{execNode("calc-1", "arithmetic", map[string]any{"key": "calc-1"})}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "Add at least one top-level Trigger node") {

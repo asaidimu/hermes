@@ -9,6 +9,9 @@ removed symbols are deleted outright. This `Removed` section is the record.
 - `store.AnansiStoreFactory.Loader()` — adapter for the deleted `StoreLoader`.
 - `pkg/events/durable.go` entirely (`NewDurableEventBus`, `NewDurableMemoryScopedBus`, `WithDurableBackend`, `DurableBusConfig`, the in-memory "durable" store) — the bus's store was an in-memory map, `Underlying()` had zero callers, and `Subscribe` never read the backend: a durable shape with no durability.
 - `events.MemoryScopedBus.Underlying()` — accessor for the deleted backend, zero callers.
+- `store.Store.Flush` (and both implementations) — no-op in both impls, zero callers in the tree; `Sync` remains the explicit persistence point.
+- `pipeline.PipelineDefinition.Schema` and `pipeline.PipelineFactory`'s schema field/parameter — written, never read; the compiler never set the definition field. Node config schemas live in node definitions where they are consumed.
+- `pipeline.Stage.Order` — assigned by the compiler/nodekit, asserted by one test, read by nothing at run time (slice position is the real order). `compiler.WorkflowView` now emits the slice index under its existing `"order"` key so the view shape is unchanged.
 - `registry.PipelineRegistry.MarkPaused` / `FastPathResume` and the `ActiveRun` pause-expiration timer machinery (`timer`, `onExpiration`, `ExpiresAt`, `PausedAt`, `RegistryOptions`) — nothing called them (the runtime tracks paused runs itself); the README's "two-tier resumption" claim was false and has been removed.
 
 ## [1.2.1](https://github.com/asaidimu/hermes/compare/v1.2.0...v1.2.1) (2026-09-18)

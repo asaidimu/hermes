@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/asaidimu/go-anansi/v8/core/data"
-	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -55,14 +54,18 @@ type Rebuilder interface {
 }
 
 // PipelineFactory creates and prepares pipeline run contexts.
+//
+// 20261003 refactor (plan D.2): the schema field is gone — it was written
+// at construction and read nowhere, and PipelineDefinition.Schema (also
+// deleted) was never set by the compiler. Node config schemas live in the
+// node definitions (pkg/nodekit) where they are actually consumed.
 type PipelineFactory struct {
 	definition PipelineDefinition
-	schema     *definition.CompiledSchema
 	options    FactoryOptions
 }
 
 // NewFactory creates a new PipelineFactory.
-func NewFactory(def PipelineDefinition, schema *definition.CompiledSchema, opts ...FactoryOptions) *PipelineFactory {
+func NewFactory(def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory {
 	var opt FactoryOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -75,7 +78,6 @@ func NewFactory(def PipelineDefinition, schema *definition.CompiledSchema, opts 
 	}
 	return &PipelineFactory{
 		definition: def,
-		schema:     schema,
 		options:    opt,
 	}
 }
@@ -239,12 +241,11 @@ func (f *PipelineFactory) newFallbackBus(runID string) events.ScopedEventBus {
 // NewFactoryFromModel creates a factory reflecting a Go struct state model (Zero-Boilerplate).
 func NewFactoryFromModel[T any](def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory {
 	var val T
-	var cs *definition.CompiledSchema
 
 	// Synthesize schema from struct fields if possible
 	if _, err := data.StructFieldValues(val, false); err == nil {
 		// Schema synthesized
 	}
 
-	return NewFactory(def, cs, opts...)
+	return NewFactory(def, opts...)
 }

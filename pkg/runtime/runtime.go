@@ -258,7 +258,13 @@ type workflowRecord struct {
         mode     Mode
         gate     *executionGate
 
-        mu          sync.Mutex
+        mu sync.Mutex
+        // wfResources caches workflow-scoped service handles across runs (the
+        // init-once guard in initResources). The 20261003 audit (§E) flagged
+        // this map as leaked because nothing ever iterated it for cleanup —
+        // the D.2 demolition KEPT it for that reason: it is a live cache, not
+        // write-only state, and deleting it would re-init shared services per
+        // run. C2 adds the real teardown (Deregister/Shutdown iterate it).
         wfResources map[string]any
 }
 
@@ -1073,7 +1079,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
         rt.rerunIdx[runID] = rerunIndex
         rt.mu.Unlock()
 
-        factory := pipeline.NewFactory(pdef, pdef.Schema, pipeline.FactoryOptions{
+        factory := pipeline.NewFactory(pdef, pipeline.FactoryOptions{
                 Logger:       rt.logger,
                 ActionLog:    rt.actionLog,
                 Rebuilder:    rp,
@@ -1445,7 +1451,7 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
         // the run that produced each event.
         bus := rt.bus.Scope(events.EventPath{}.Append("pipeline", runID, def.Label))
 
-        factory := pipeline.NewFactory(def, def.Schema, pipeline.FactoryOptions{
+        factory := pipeline.NewFactory(def, pipeline.FactoryOptions{
                 Logger:       rt.logger,
                 ActionLog:    rt.actionLog,
                 RerunIndex:   rerunIndex,

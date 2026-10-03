@@ -92,6 +92,11 @@ func ToEdge(e WireEdge) Edge {
 		case "dependency":
 			edge.Role = EdgeDependency
 		case "placeholder":
+			// Wire-compat (20261003 refactor, plan D.2 — audit §E):
+			// the canvas sends "placeholder" edges; they are accepted and
+			// mapped to EdgePlaceholder but never consumed by the compiler
+			// or the runtime. Kept so unknown canvas documents still
+			// decode; do not build new behavior on it.
 			edge.Role = EdgePlaceholder
 		}
 	}
@@ -138,11 +143,14 @@ func WorkflowView(wf *pipeline.Workflow) map[string]any {
 	pipelines := map[string]any{}
 	for id, pd := range wf.Pipelines {
 		stages := make([]any, 0, len(pd.Stages))
-		for _, st := range pd.Stages {
+		// 20261003 refactor (plan D.2): Stage.Order deleted — slice
+		// position was always the real order. The view emits the index so
+		// the response shape stays stable for consumers.
+		for i, st := range pd.Stages {
 			stages = append(stages, map[string]any{
 				"id":            st.ID,
 				"label":         st.Label,
-				"order":         st.Order,
+				"order":         i,
 				"stepCount":     len(st.Steps),
 				"pipelineCount": len(st.Pipelines),
 			})

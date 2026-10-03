@@ -29,8 +29,6 @@ type Store interface {
 	Ready(ctx context.Context) error
 	ExportJSON() (map[string]any, error)
 	Clone() (Store, error)
-	// Flush persists current in-memory state. No-op for MemoryStore.
-	Flush(ctx context.Context) error
 }
 
 // MemoryStore is an in-memory thread-safe Store backed by a plain map.
@@ -116,9 +114,6 @@ func (s *MemoryStore) ExportJSON() (map[string]any, error) {
 	defer s.mu.RUnlock()
 	return deepCopyMap(s.state), nil
 }
-
-// Flush is a no-op for in-memory stores.
-func (s *MemoryStore) Flush(_ context.Context) error { return nil }
 
 // Clone creates a deep copy of the store with the same identity semantics:
 // clones share the run identifier but have fully independent state.
