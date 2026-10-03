@@ -261,9 +261,13 @@ type workflowRecord struct {
 	// init-once guard in initResources). The 20261003 audit (§E) flagged
 	// this map as leaked because nothing ever iterated it for cleanup —
 	// the D.2 demolition KEPT it for that reason: it is a live cache, not
-	// write-only state, and deleting it would re-init shared services per
-	// run. C2 adds the real teardown (Deregister/Shutdown iterate it).
+	// write-only state. C2 added the teardown: Deregister and Shutdown
+	// iterate it via workflowResourceCleanup.
 	wfResources map[string]any
+	// unsub is the EventSource.OnRegister cleanup func, retained from
+	// Register (pre-C2 it was discarded — audit §E "event-source
+	// unsubscribe") and invoked on Deregister.
+	unsub func()
 }
 
 type executionGate struct {

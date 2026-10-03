@@ -1,4 +1,9 @@
-# Unreleased — 20261003 refactor (branch refactor/20261003-audits)
+# Unreleased — 20261003 refactor
+
+### Fixed
+
+- **C2 (runtime)**: `Register` no longer holds `rt.mu` across host callbacks — secrets validation, cron scheduling, and `EventSource.OnRegister` run outside the critical section (a host whose `OnRegister` emits synchronously on the runtime bus previously self-deadlocked). The `OnRegister` unsubscribe func is retained and invoked on `Deregister`; failed registrations roll back idempotently under a fresh lock. `Deregister`/`Shutdown` now tear down workflow-scoped resource handles (the audit's leaked-DB-pools row).
+ (branch refactor/20261003-audits)
 
 Pre-production delete policy: the library has no production consumers, so
 removed symbols are deleted outright. This `Removed` section is the record.

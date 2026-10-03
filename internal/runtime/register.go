@@ -11,27 +11,33 @@ import (
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
+	"go.uber.org/zap"
 )
 
 // Register subscribes a compiled workflow's triggers to the event bus. Each
 // matching event spawns a run (subject to the execution mode gate). When an
 // EventSource is configured, it is notified so it can wire external event
 // listeners (HTTP webhooks, cron, message queues, etc.).
+//
+// C2 (20261003 refactor plan): the critical section is BOUNDED. Under
+// rt.mu — uniqueness check, index insertion, bus subscription refcounting.
+// Outside it — secrets validation (vault/network I/O), cron scheduling, and
+// the host's EventSource.OnRegister callback, whose emit closure emits on
+// the runtime bus and can dispatch back into rt.mu. Host callbacks never
+// run inside a runtime critical section. Any failure rolls back under a
+// fresh critical section, re-validating existence (a concurrent Deregister
+// may have removed the record while the lock was released) — rollback is
+// idempotent.
 func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions) error {
 	if wf == nil || wf.ID == "" {
 		return core.NewSystemError(core.ErrCodeValidation, "workflow must have an id")
 	}
 
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
-
 	if _, ok := rt.workflows[wf.ID]; ok {
+		rt.mu.Unlock()
 		return core.NewSystemError(core.ErrCodeConflict,
 			`[WorkflowRuntime] Workflow "`+wf.ID+`" is already registered. Call deregister("`+wf.ID+`") before registering again.`)
-	}
-
-	if err := rt.validateRequirements(wf); err != nil {
-		return err
 	}
 
 	record := &workflowRecord{
@@ -50,31 +56,47 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 			trigger:    trigger,
 		})
 		rt.acquireBusSubscriptionLocked(trigger.Event)
+	}
+	rt.mu.Unlock()
 
-		// Schedule cron-based recurring triggers.
-		if trigger.Cron != "" {
-			scheduleID := wf.ID + ":" + triggerID
-			// @note #review-20260822-040 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Discarded Schedule error
-			//
-			// Resolved: propagate the error. Register already returns
-			// error and is called at workflow-registration time (not from
-			// a hot path), so failing registration outright when a cron
-			// trigger can't be scheduled (e.g. invalid cron expression) is
-			// the correct behavior — silently registering a workflow whose
-			// trigger will never fire is strictly worse than failing loud
-			// at registration.
-			if err := rt.scheduler.Schedule(scheduleID, trigger.Cron, func(ctx context.Context) {
-				rt.bus.Emit(context.Background(), trigger.Event, events.PipelineEvent{
-					Payload: map[string]any{},
-				})
-			}); err != nil {
-				return core.NewSystemError(core.ErrCodeValidation,
-					"failed to schedule cron trigger "+triggerID+" for workflow "+wf.ID).WithCause(err)
-			}
+	// --- outside the critical section: host-visible work ---
+
+	// Validate requirements (secrets I/O) with the record tentatively
+	// inserted; on failure roll back under a fresh lock.
+	if err := rt.validateRequirements(wf); err != nil {
+		rt.rollbackRegistration(wf)
+		return err
+	}
+
+	for triggerID, trigger := range wf.Triggers {
+		if trigger.Cron == "" {
+			continue
+		}
+		scheduleID := wf.ID + ":" + triggerID
+		// @note #review-20260822-040 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Discarded Schedule error
+		//
+		// Resolved: propagate the error. Register already returns
+		// error and is called at workflow-registration time (not from
+		// a hot path), so failing registration outright when a cron
+		// trigger can't be scheduled (e.g. invalid cron expression) is
+		// the correct behavior — silently registering a workflow whose
+		// trigger will never fire is strictly worse than failing loud
+		// at registration.
+		if err := rt.scheduler.Schedule(scheduleID, trigger.Cron, func(ctx context.Context) {
+			rt.bus.Emit(context.Background(), trigger.Event, events.PipelineEvent{
+				Payload: map[string]any{},
+			})
+		}); err != nil {
+			rt.rollbackRegistration(wf)
+			return core.NewSystemError(core.ErrCodeValidation,
+				"failed to schedule cron trigger "+triggerID+" for workflow "+wf.ID).WithCause(err)
 		}
 	}
 
-	// Notify the EventSource so it can wire external event listeners.
+	// Notify the EventSource so it can wire external event listeners. The
+	// returned unsubscribe func is RETAINED on the record and invoked on
+	// Deregister (the pre-C2 code discarded it — audit §E row
+	// "event-source unsubscribe").
 	if rt.eventSource != nil {
 		triggers := make(map[string]RegisteredTrigger, len(wf.Triggers))
 		for id, t := range wf.Triggers {
@@ -89,44 +111,82 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 				Payload: payload,
 			})
 		}
-		if _, err := rt.eventSource.OnRegister(context.Background(), RegisterParams{
+		unsub, err := rt.eventSource.OnRegister(context.Background(), RegisterParams{
 			WorkflowID: wf.ID,
 			Triggers:   triggers,
 			Emit:       emit,
-		}); err != nil {
-			// Rollback: remove from workflows and index
-			delete(rt.workflows, wf.ID)
-			for triggerID, trigger := range wf.Triggers {
-				bucket := rt.index[trigger.Event]
-				filtered := bucket[:0]
-				for _, entry := range bucket {
-					if entry.workflowID != wf.ID || entry.triggerID != triggerID {
-						filtered = append(filtered, entry)
-					}
-				}
-				if len(filtered) == 0 {
-					delete(rt.index, trigger.Event)
-				} else {
-					rt.index[trigger.Event] = filtered
-				}
-				rt.releaseBusSubscriptionLocked(trigger.Event)
-			}
+		})
+		if err != nil {
+			rt.rollbackRegistration(wf)
 			return core.NewSystemError(core.ErrCodeExecutionFailed, "EventSource.OnRegister failed: "+err.Error())
 		}
+		rt.mu.Lock()
+		// Re-validate: a concurrent Deregister may have removed the record
+		// while OnRegister ran outside the lock.
+		if rec, ok := rt.workflows[wf.ID]; ok {
+			rec.unsub = unsub
+		} else if unsub != nil {
+			// Lost the race — tear the listener down immediately.
+			unsub()
+		}
+		rt.mu.Unlock()
 	}
 
 	return nil
 }
 
-// Deregister removes a workflow and its bus subscriptions.
-func (rt *WorkflowRuntime) Deregister(workflowID string) {
+// rollbackRegistration undoes a failed Register attempt under a fresh
+// critical section. Idempotent: if a concurrent Deregister already removed
+// the record, nothing to do (the index entries and subscriptions went with
+// it).
+func (rt *WorkflowRuntime) rollbackRegistration(wf *pipeline.Workflow) {
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
-
-	record, ok := rt.workflows[workflowID]
-	if !ok {
+	if _, ok := rt.workflows[wf.ID]; !ok {
+		rt.mu.Unlock()
 		return
 	}
+	delete(rt.workflows, wf.ID)
+	for triggerID, trigger := range wf.Triggers {
+		bucket := rt.index[trigger.Event]
+		filtered := bucket[:0]
+		for _, entry := range bucket {
+			if entry.workflowID != wf.ID || entry.triggerID != triggerID {
+				filtered = append(filtered, entry)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(rt.index, trigger.Event)
+		} else {
+			rt.index[trigger.Event] = filtered
+		}
+		rt.releaseBusSubscriptionLocked(trigger.Event)
+	}
+	rt.mu.Unlock()
+
+	// Cancel any cron trigger schedules the attempt managed to make.
+	for triggerID, trigger := range wf.Triggers {
+		if trigger.Cron != "" {
+			rt.scheduler.Cancel(wf.ID + ":" + triggerID)
+		}
+	}
+}
+
+// Deregister removes a workflow and its bus subscriptions, tears down its
+// EventSource listener (the retained OnRegister unsubscribe) and cleans up
+// its workflow-scoped resource handles. Host-visible cleanup (unsubscribe,
+// service Cleanup callbacks) runs OUTSIDE rt.mu — locks never span user
+// code (plan C2).
+func (rt *WorkflowRuntime) Deregister(workflowID string) {
+	rt.mu.Lock()
+	record, ok := rt.workflows[workflowID]
+	if !ok {
+		rt.mu.Unlock()
+		return
+	}
+	delete(rt.workflows, workflowID)
+
+	resources := rt.stealWorkflowResourcesLocked(record)
+	unsub := record.unsub
 
 	for triggerID, trigger := range record.workflow.Triggers {
 		bucket := rt.index[trigger.Event]
@@ -149,8 +209,47 @@ func (rt *WorkflowRuntime) Deregister(workflowID string) {
 			rt.scheduler.Cancel(scheduleID)
 		}
 	}
+	rt.mu.Unlock()
 
-	delete(rt.workflows, workflowID)
+	if unsub != nil {
+		unsub()
+	}
+	teardownWorkflowResources(rt.logger, record.workflow, resources)
+}
+
+// stealWorkflowResourcesLocked drains record.wfResources under rt.mu and
+// returns the handles for out-of-lock cleanup. Caller must hold rt.mu.
+func (rt *WorkflowRuntime) stealWorkflowResourcesLocked(record *workflowRecord) map[string]any {
+	record.mu.Lock()
+	defer record.mu.Unlock()
+	handles := record.wfResources
+	record.wfResources = make(map[string]any)
+	return handles
+}
+
+// teardownWorkflowResources invokes Cleanup for workflow-scoped services
+// that hold handles. Best-effort: failures are logged, never fatal.
+func teardownWorkflowResources(logger *zap.SugaredLogger, wf *pipeline.Workflow, handles map[string]any) {
+	if len(handles) == 0 {
+		return
+	}
+	cleanups := map[string]func(context.Context, any) error{}
+	for _, svc := range wf.Services {
+		if svc.Scope == "workflow" && svc.Cleanup != nil {
+			cleanups[svc.ID] = svc.Cleanup
+		}
+	}
+	for svcID, handle := range handles {
+		cleanup, ok := cleanups[svcID]
+		if !ok {
+			continue
+		}
+		if err := cleanup(context.Background(), handle); err != nil {
+			if logger != nil {
+				logger.Error("[WorkflowRuntime] workflow service cleanup failed for "+svcID+":", err)
+			}
+		}
+	}
 }
 
 // HasWorkflow reports whether a workflow is registered.
@@ -218,12 +317,36 @@ func (rt *WorkflowRuntime) Shutdown(ctx context.Context) error {
 			return err
 		}
 	}
-	// Clean up all active watch registrations
+	// Clean up all active watch registrations, and tear down every
+	// registered workflow's EventSource listener + workflow-scoped
+	// resources (C2: Shutdown drains what Register accumulated).
+	type teardown struct {
+		rec     *workflowRecord
+		handles map[string]any
+	}
 	rt.mu.Lock()
 	for runID := range rt.paused {
 		rt.watchService.OnRunEnded(runID)
 	}
+	pendings := make([]teardown, 0, len(rt.workflows))
+	for id, rec := range rt.workflows {
+		rec.mu.Lock()
+		handles := rec.wfResources
+		rec.wfResources = make(map[string]any)
+		rec.mu.Unlock()
+		pendings = append(pendings, teardown{rec: rec, handles: handles})
+		delete(rt.workflows, id)
+	}
 	rt.mu.Unlock()
+
+	// Host-visible unsubscribes and service cleanups run outside the lock.
+	for _, p := range pendings {
+		if p.rec.unsub != nil {
+			p.rec.unsub()
+		}
+		teardownWorkflowResources(rt.logger, p.rec.workflow, p.handles)
+	}
+
 	if rt.scheduler != nil {
 		return rt.scheduler.Shutdown(ctx)
 	}
