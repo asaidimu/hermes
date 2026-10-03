@@ -1,0 +1,22 @@
+{
+  "name": "first-effect-entry-wins-per-step",
+  "semantics": "baseline",
+  "description": "BASELINE semantics: two effect_completed entries for the same step id fold to the FIRST one. S.1 (seq-fold) swaps this expectation to the LAST value in seq order.",
+  "definition": {
+    "id": "g-first-effect",
+    "stages": [
+      {
+        "id": "stage-1",
+        "steps": [
+          { "id": "s1", "effect": 2 }
+        ]
+      }
+    ]
+  },
+  "entries": [
+    { "kind": "effect_completed", "stageId": "stage-1", "stepId": "s1", "output": { "k": "first" } },
+    { "kind": "effect_completed", "stageId": "stage-1", "stepId": "s1", "output": { "k": "second" } }
+  ],
+  "expectedResumeAddress": { "stage": "" },
+  "expectedState": { "k": "first" }
+}

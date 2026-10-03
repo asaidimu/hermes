@@ -1,0 +1,41 @@
+# Bench baseline — captured 20261003 at refactor plan start (HEAD 9e31b81, branch refactor/20261003-audits)
+# go1.27.0 linux/amd64, Intel Xeon (2 vCPU). go test -race ./... : ALL GREEN at capture time.
+# make bench (per Makefile #improvement-bench-ci-001) + pkg/runtime repause bench.
+
+PASS
+ok  	github.com/asaidimu/hermes/pkg/pipeline	0.012s
+PASS
+ok  	github.com/asaidimu/hermes/pkg/actionlog	0.027s
+?   	github.com/asaidimu/hermes/pkg/registry	[no test files]
+goos: linux
+goarch: amd64
+pkg: github.com/asaidimu/hermes/pkg/scheduler
+cpu: Intel(R) Xeon(R) Processor
+BenchmarkCronDelay_5Field_NoCache-2    	   27722	     43644 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCronDelay_5Field_CacheHit-2   	   26032	     45665 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCronDelay_AtEvery-2           	53949324	        22.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCronDelay_NamedInterval-2     	 9233988	       130.0 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/asaidimu/hermes/pkg/scheduler	5.863s
+?   	github.com/asaidimu/hermes/pkg/events	[no test files]
+PASS
+ok  	github.com/asaidimu/hermes/pkg/store	0.009s
+goos: linux
+goarch: amd64
+pkg: github.com/asaidimu/hermes/pkg/replay
+cpu: Intel(R) Xeon(R) Processor
+BenchmarkRebuild_10Entries_1Attempt-2      	   99562	     13979 ns/op	   22258 B/op	      65 allocs/op
+BenchmarkRebuild_100Entries_1Attempt-2     	   25090	     48327 ns/op	  159054 B/op	      71 allocs/op
+BenchmarkRebuild_1000Entries_1Attempt-2    	    2497	    490826 ns/op	 1816633 B/op	      84 allocs/op
+BenchmarkRebuild_100Entries_10Attempts-2   	    4645	    275644 ns/op	 1824271 B/op	      92 allocs/op
+PASS
+ok  	github.com/asaidimu/hermes/pkg/replay	29.887s
+goos: linux
+goarch: amd64
+pkg: github.com/asaidimu/hermes/pkg/runtime
+cpu: Intel(R) Xeon(R) Processor
+BenchmarkChainedRepause_Depth2-2    	    5028	    208374 ns/op	  153717 B/op	    1039 allocs/op
+BenchmarkChainedRepause_Depth5-2    	    2181	    561641 ns/op	  485205 B/op	    2500 allocs/op
+BenchmarkChainedRepause_Depth10-2   	     862	   1368209 ns/op	 1371384 B/op	    5250 allocs/op
+PASS
+ok  	github.com/asaidimu/hermes/pkg/runtime	8.846s

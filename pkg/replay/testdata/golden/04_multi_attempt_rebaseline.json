@@ -1,0 +1,41 @@
+{
+  "name": "multi-attempt-rerun-rebaseline",
+  "semantics": "baseline",
+  "description": "Attempt-0 entries record step s1 and a pause checkpoint at stage-1 (resume at stage-2); attempt-1 entries record the resume and step s2. The Replayer stitches attempts in index order with re-baselined Seq (#review-20260910-025), so the checkpoint is treated as resumed and the walk completes.",
+  "definition": {
+    "id": "g-rebaseline",
+    "stages": [
+      {
+        "id": "stage-1",
+        "steps": [
+          { "id": "s1", "effect": 2 }
+        ]
+      },
+      {
+        "id": "stage-2",
+        "steps": [
+          { "id": "s2", "effect": 2 }
+        ]
+      }
+    ]
+  },
+  "entries": [
+    { "kind": "effect_completed", "stageId": "stage-1", "stepId": "s1", "rerunIndex": 0, "output": { "a": 1 } },
+    {
+      "kind": "checkpoint",
+      "stageId": "stage-1",
+      "rerunIndex": 0,
+      "output": {
+        "runId": "golden-run",
+        "pipelineId": "g-rebaseline",
+        "pausedAtStageId": "stage-1",
+        "resumeAt": { "stage": "stage-2" }
+      }
+    },
+    { "kind": "routed", "stageId": "stage-1", "handle": "__pause__", "rerunIndex": 0 },
+    { "kind": "resumed", "stageId": "stage-2", "type": "pipeline:resumed", "rerunIndex": 1 },
+    { "kind": "effect_completed", "stageId": "stage-2", "stepId": "s2", "rerunIndex": 1, "output": { "b": 2 } }
+  ],
+  "expectedResumeAddress": { "stage": "" },
+  "expectedState": { "a": 1, "b": 2 }
+}

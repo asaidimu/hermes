@@ -51,6 +51,18 @@ function deepMerge(
  * Client-side replayer. Loads a full action log and reconstructs state at
  * any sequence number by merging recorded state deltas.
  *
+ * FROZEN WIRE-FORMAT NOTE (refactor plan 20261003, P0.3): the canonical
+ * replay semantics reference lives in the Go tree at
+ * `pkg/replay/testdata/golden/*.json` (golden replay vectors). As of the
+ * 20261003 audits there is a KNOWN DIVERGENCE between this file and the Go
+ * Replayer: this implementation folds EVERY effect entry in seq order,
+ * while the Go Replayer (baseline semantics) keeps the FIRST effect entry
+ * per step id and the LAST route per stage. The Go side is canonical; the
+ * Phase 5 refactor (S.1) moves it to seq-order folding, after which the
+ * golden vectors (semantics: "seq-fold") are the shared reference for both
+ * implementations. This file is frozen — do not change fold behavior here
+ * without updating the golden vectors and the Go fold together.
+ *
  * Usage:
  * ```ts
  * const entries = await fetch(`/api/runs/${runId}/log`).then(r => r.json())

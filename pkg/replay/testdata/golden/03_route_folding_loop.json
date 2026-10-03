@@ -1,0 +1,33 @@
+{
+  "name": "route-folding-across-loop-iterations",
+  "semantics": "baseline",
+  "description": "A while-loop shape: stage-1 and stage-2 route twice (two iterations). The LAST routed entry per stage decides the final walk: stage-1 -> stage-2, stage-2 -> stage-3. The effectful step s1 ran in both iterations (two effect_completed entries); baseline folds the FIRST delta. Resume address empty once the last routes break the cycle.",
+  "definition": {
+    "id": "g-loop",
+    "stages": [
+      {
+        "id": "stage-1",
+        "steps": [
+          { "id": "s1", "effect": 2 }
+        ]
+      },
+      { "id": "stage-2", "steps": [] },
+      {
+        "id": "stage-3",
+        "steps": [
+          { "id": "end-step", "effect": 1, "writes": { "finished": true } }
+        ]
+      }
+    ]
+  },
+  "entries": [
+    { "kind": "effect_completed", "stageId": "stage-1", "stepId": "s1", "output": { "iter": 1 } },
+    { "kind": "routed", "stageId": "stage-1", "handle": "stage-2" },
+    { "kind": "routed", "stageId": "stage-2", "handle": "stage-1" },
+    { "kind": "effect_completed", "stageId": "stage-1", "stepId": "s1", "output": { "iter": 2 } },
+    { "kind": "routed", "stageId": "stage-1", "handle": "stage-2" },
+    { "kind": "routed", "stageId": "stage-2", "handle": "stage-3" }
+  ],
+  "expectedResumeAddress": { "stage": "" },
+  "expectedState": { "iter": 1, "finished": true }
+}
