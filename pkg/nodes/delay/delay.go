@@ -33,7 +33,7 @@ var Node = nodekit.Define(nodekit.TypedDefinition[DelayConfig]{
 
 func routerFunc(ctx context.Context, nCtx *nodekit.TypedRunContext[DelayConfig]) (pipeline.RoutingInstruction, error) {
 	if nCtx.Config.Cron == "" {
-		return nil, nil
+		return pipeline.RoutingInstruction{}, nil
 	}
 	return pipeline.PauseForCron("__cron_delay__", nCtx.Config.Cron), nil
 }

@@ -77,11 +77,11 @@ func BuildTrigger(nodeID string, def NodeDefinition, config map[string]any) (*pi
 func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resolveHandle func(string) string) pipeline.StepStageRouter {
 	return func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 		if def.Router == nil {
-			return nil, nil
+			return pipeline.RoutingInstruction{}, nil
 		}
 		cfg, err := prepareNodeConfig(def, config, state, nil, nil) // results: state["results"] never existed (D.4)
 		if err != nil {
-			return nil, err
+			return pipeline.RoutingInstruction{}, err
 		}
 		handle, err := def.Router(ctx, NodeRunContext{
 			NodeID:  nodeID,
@@ -91,14 +91,14 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 			Store: st,
 		})
 		if err != nil {
-			return nil, err
+			return pipeline.RoutingInstruction{}, err
 		}
 		if handle == "" {
-			return nil, nil
+			return pipeline.RoutingInstruction{}, nil
 		}
 		target := resolveHandle(handle)
 		if target == "" {
-			return nil, nil
+			return pipeline.RoutingInstruction{}, nil
 		}
 		return pipeline.Jump(target), nil
 	}
@@ -112,11 +112,11 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, resolveHandle func(string) string) pipeline.StepStageRouter {
 	return func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 		if def.RouterFunc == nil {
-			return nil, nil
+			return pipeline.RoutingInstruction{}, nil
 		}
 		cfg, err := prepareNodeConfig(def, config, state, nil, nil) // results: state["results"] never existed (D.4)
 		if err != nil {
-			return nil, err
+			return pipeline.RoutingInstruction{}, err
 		}
 		inst, err := def.RouterFunc(ctx, NodeRunContext{
 			NodeID:  nodeID,
@@ -126,9 +126,9 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, r
 			Store: st,
 		})
 		if err != nil {
-			return nil, err
+			return pipeline.RoutingInstruction{}, err
 		}
-		if inst != nil {
+		if inst.Kind != pipeline.RouteNone {
 			return inst, nil
 		}
 		target := resolveHandle("")
@@ -227,7 +227,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 			Steps: map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)},
 			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 				if len(bodyStages) == 0 {
-					return nil, nil
+					return pipeline.RoutingInstruction{}, nil
 				}
 				return pipeline.Jump(bodyStages[0].ID), nil
 			},
@@ -260,7 +260,7 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 			res := resolveRouterResources(ctx, resources)
 			cfg, err := prepareNodeConfig(def, config, state, res, resultsByID)
 			if err != nil {
-				return nil, err
+				return pipeline.RoutingInstruction{}, err
 			}
 
 			// If PipelinesRouterFunc is defined, use it directly
@@ -289,24 +289,24 @@ func BuildBoundedStage(nodeID string, def NodeDefinition, config map[string]any,
 					Store:     st,
 				})
 				if err != nil {
-					return nil, err
+					return pipeline.RoutingInstruction{}, err
 				}
 			} else {
 				if len(errors) > 0 {
-					return nil, nil
+					return pipeline.RoutingInstruction{}, nil
 				}
 				handle = "done"
 			}
 
 			if handle == "" {
-				return nil, nil
+				return pipeline.RoutingInstruction{}, nil
 			}
 			if def.BodyHandle != "" && handle == def.BodyHandle {
 				return pipeline.Jump(nodeID), nil
 			}
 			target := resolveHandle(handle)
 			if target == "" {
-				return nil, nil
+				return pipeline.RoutingInstruction{}, nil
 			}
 			return pipeline.Jump(target), nil
 		},
@@ -374,7 +374,7 @@ func BuildDistributeStage(
 		Steps: map[string]pipeline.Step{nodeID: BuildStep(nodeID, def, config, resources)},
 		Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 			if len(bodyStages) == 0 {
-				return nil, nil
+				return pipeline.RoutingInstruction{}, nil
 			}
 			return pipeline.Jump(bodyStages[0].ID), nil
 		},
@@ -442,7 +442,7 @@ func BuildDistributeStage(
 					},
 					Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 						if len(cloned) == 0 {
-							return nil, nil
+							return pipeline.RoutingInstruction{}, nil
 						}
 						return pipeline.Jump(cloned[0].ID), nil
 					},

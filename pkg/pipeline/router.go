@@ -17,12 +17,12 @@ func DefaultPipelineStageRouter(ctx context.Context, state map[string]any, resul
 	for _, res := range results {
 		if res.Status == "failed" || res.Status == "aborted" {
 			if res.Error != nil {
-				return nil, res.Error
+				return RoutingInstruction{}, res.Error
 			}
-			return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "subpipeline failed")
+			return RoutingInstruction{}, core.NewSystemError(core.ErrCodeExecutionFailed, "subpipeline failed")
 		}
 		if res.Status == "paused" {
-			return nil, nil // Child pause handled directly by subpipeline runner
+			return RoutingInstruction{}, nil // Child pause handled directly by subpipeline runner (RouteNone)
 		}
 	}
 	return Advance(), nil

@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -503,8 +502,8 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		}
 
 		// Pause routing stops the stage; no stage:success / router:evaluated.
-		if pauseInst, ok := instruction.(PauseInstruction); ok {
-			return r.handlePause(ctx, stage, pauseInst, currentIdx)
+		if instruction.Kind == RoutePause {
+			return r.handlePause(ctx, stage, instruction, currentIdx)
 		}
 
 		// stage:success carries the nextInstruction the client routes on.
@@ -518,7 +517,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 				"stageId":         stage.ID,
 				"stageLabel":      stage.Label,
 				"durationMs":      stageDuration,
-				"nextInstruction": serializeInstruction(instruction),
+				"nextInstruction": instruction.Serialize(),
 			},
 		})
 		r.appendLog(ctx, actionlog.Entry{
@@ -541,8 +540,8 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			Payload: map[string]any{
 				"stageId":        stage.ID,
 				"stageLabel":     stage.Label,
-				"instruction":    serializeInstruction(instruction),
-				"interpretation": interpretationOf(instruction, hasNext),
+				"instruction":    instruction.Serialize(),
+				"interpretation": instruction.Interpretation(hasNext),
 			},
 		})
 
@@ -554,14 +553,10 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		if shouldPause {
 			// @note #review-20260822-034 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Unsafe type assertion without comma-ok
 			//
-			// Fixed by using comma-ok type assertion to prevent runtime panics
-			// when instruction is not a PauseInstruction.
-			pi, ok := instruction.(PauseInstruction)
-			if !ok {
-				return r.failStage(ctx, pipePath, stage, stageStart, startTime,
-					fmt.Errorf("expected PauseInstruction, got %T", instruction))
-			}
-			return r.handlePause(ctx, stage, pi, currentIdx)
+			// Superseded by R.2 (20261003): the instruction is a tagged
+			// struct, so the former comma-ok type assertion is a kind
+			// check — the panic class it guarded no longer exists.
+			return r.handlePause(ctx, stage, instruction, currentIdx)
 		}
 		if decision == "terminate" {
 			break

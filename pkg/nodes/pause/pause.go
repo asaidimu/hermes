@@ -135,14 +135,14 @@ var Node = nodekit.Define(nodekit.TypedDefinition[PauseConfig]{
 			if nCtx.Logger != nil {
 				nCtx.Logger.Warn("pause node: watch-service resource not available; skipping pause routing", "nodeId", nCtx.NodeID)
 			}
-			return nil, nil
+			return pipeline.RoutingInstruction{}, nil
 		}
 		watchService, ok := wsRaw.(watch.WatchService)
 		if !ok {
 			if nCtx.Logger != nil {
 				nCtx.Logger.Warn("pause node: resource:watch-service is not a watch.WatchService; skipping pause routing", "nodeId", nCtx.NodeID)
 			}
-			return nil, nil
+			return pipeline.RoutingInstruction{}, nil
 		}
 
 		// Check if there's a buffered event (keyed by run id to match the

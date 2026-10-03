@@ -133,59 +133,67 @@ type Step struct {
 	Effect int
 }
 
-// RoutingInstruction defines state transitions after stage completion.
-type RoutingInstruction interface {
-	isRoutingInstruction()
-}
+// RoutingKind discriminates a RoutingInstruction (R.2: ONE canonical form —
+// the former interface + five marker structs collapsed into a tagged struct;
+// the kind switch in evaluateInstruction was already the interpreter).
+type RoutingKind int
 
-type (
-	AdvanceInstruction   struct{}
-	TerminateInstruction struct{}
-	JumpInstruction      struct{ StageID string }
-	JumpToInstruction    struct{ Address EntryAddress }
-	PauseInstruction     struct {
-		StageID       string
-		Timeout       time.Duration
-		Persist       bool
-		WaitForEvent  string   // single event (backward compat)
-		WaitForEvents []string // multiple events to wait for
-		WaitMode      string   // "any" (default) or "all"
-		Cron          string   // cron expression for auto-resume (e.g. "@every 5m")
-	}
+const (
+	// RouteNone is the zero value: "no instruction". A stage router
+	// returning the zero struct means "advance"; a node RouterFunc
+	// returning it means "follow the default edge" — exactly what a nil
+	// interface meant before the tagged struct.
+	RouteNone RoutingKind = iota
+	RouteAdvance
+	RouteTerminate
+	RouteJump
+	RouteJumpTo
+	RoutePause
 )
 
-func (AdvanceInstruction) isRoutingInstruction()   {}
-func (TerminateInstruction) isRoutingInstruction() {}
-func (JumpInstruction) isRoutingInstruction()      {}
-func (JumpToInstruction) isRoutingInstruction()    {}
-func (PauseInstruction) isRoutingInstruction()     {}
+// RoutingInstruction defines state transitions after stage completion.
+// Zero value is RouteNone ("no instruction"), never a valid decision by
+// itself; constructors below set the kind explicitly.
+type RoutingInstruction struct {
+	Kind    RoutingKind
+	StageID string // Jump target / explicit pause resume stage
+	Address EntryAddress // JumpTo
 
-func Advance() RoutingInstruction                 { return AdvanceInstruction{} }
-func Terminate() RoutingInstruction               { return TerminateInstruction{} }
-func Jump(stageID string) RoutingInstruction      { return JumpInstruction{StageID: stageID} }
-func JumpTo(addr EntryAddress) RoutingInstruction { return JumpToInstruction{Address: addr} }
+	// Pause-only fields.
+	Timeout       time.Duration
+	Persist       bool
+	WaitForEvent  string   // single event (backward compat)
+	WaitForEvents []string // multiple events to wait for
+	WaitMode      string   // "any" (default) or "all"
+	Cron          string   // cron expression for auto-resume (e.g. "@every 5m")
+}
+
+func Advance() RoutingInstruction                 { return RoutingInstruction{Kind: RouteAdvance} }
+func Terminate() RoutingInstruction               { return RoutingInstruction{Kind: RouteTerminate} }
+func Jump(stageID string) RoutingInstruction      { return RoutingInstruction{Kind: RouteJump, StageID: stageID} }
+func JumpTo(addr EntryAddress) RoutingInstruction { return RoutingInstruction{Kind: RouteJumpTo, Address: addr} }
 func Pause(stageID string, timeout time.Duration) RoutingInstruction {
-	return PauseInstruction{StageID: stageID, Timeout: timeout, Persist: true}
+	return RoutingInstruction{Kind: RoutePause, StageID: stageID, Timeout: timeout, Persist: true}
 }
 
-// PauseForEvent returns a PauseInstruction that waits for a specific event type.
+// PauseForEvent returns a RoutingInstruction that waits for a specific event type.
 func PauseForEvent(eventType string, timeout time.Duration) RoutingInstruction {
-	return PauseInstruction{StageID: "", Timeout: timeout, Persist: true, WaitForEvent: eventType}
+	return RoutingInstruction{Kind: RoutePause, Timeout: timeout, Persist: true, WaitForEvent: eventType}
 }
 
-// PauseForEvents returns a PauseInstruction that waits for multiple event types.
+// PauseForEvents returns a RoutingInstruction that waits for multiple event types.
 // mode should be "any" (resume when any event arrives) or "all" (resume when all arrive).
 func PauseForEvents(events []string, mode string, timeout time.Duration) RoutingInstruction {
 	if mode == "" {
 		mode = "any"
 	}
-	return PauseInstruction{StageID: "", Timeout: timeout, Persist: true, WaitForEvents: events, WaitMode: mode}
+	return RoutingInstruction{Kind: RoutePause, Timeout: timeout, Persist: true, WaitForEvents: events, WaitMode: mode}
 }
 
-// PauseForCron returns a PauseInstruction that auto-resumes after a cron delay.
+// PauseForCron returns a RoutingInstruction that auto-resumes after a cron delay.
 // The cron expression supports "@every 5m", "30 9 * * *", etc.
 func PauseForCron(eventType string, cron string) RoutingInstruction {
-	return PauseInstruction{StageID: "", Timeout: 0, Persist: true, WaitForEvent: eventType, Cron: cron}
+	return RoutingInstruction{Kind: RoutePause, Persist: true, WaitForEvent: eventType, Cron: cron}
 }
 
 // StepStageRouter evaluates routing instructions based on a state snapshot

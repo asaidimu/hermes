@@ -78,15 +78,14 @@ func TestDelayCronRouterFuncReturnsPauseInstruction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pauseInst, ok := instr.(pipeline.PauseInstruction)
-	if !ok {
-		t.Fatalf("expected PauseInstruction, got %T", instr)
+	if instr.Kind != pipeline.RoutePause {
+		t.Fatalf("expected pause instruction, got %+v", instr)
 	}
-	if pauseInst.WaitForEvent != "__cron_delay__" {
-		t.Errorf("expected WaitForEvent='__cron_delay__', got '%s'", pauseInst.WaitForEvent)
+	if instr.WaitForEvent != "__cron_delay__" {
+		t.Errorf("expected WaitForEvent='__cron_delay__', got '%s'", instr.WaitForEvent)
 	}
-	if pauseInst.Cron != "@every 5m" {
-		t.Errorf("expected Cron='@every 5m', got '%s'", pauseInst.Cron)
+	if instr.Cron != "@every 5m" {
+		t.Errorf("expected Cron='@every 5m', got '%s'", instr.Cron)
 	}
 }
 
@@ -98,10 +97,11 @@ func TestDelayNoCronRouterFuncReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Without cron, RouterFunc returns nil so the stage follows its outgoing
-	// edge (buildRouterFunc resolves the default edge and terminates at leaves).
-	if instr != nil {
-		t.Errorf("expected nil instruction, got %T", instr)
+	// Without cron, RouterFunc returns the zero instruction (RouteNone) so the
+	// stage follows its outgoing edge (buildRouterFunc resolves the default
+	// edge and terminates at leaves).
+	if instr.Kind != pipeline.RouteNone {
+		t.Errorf("expected zero instruction (RouteNone), got %+v", instr)
 	}
 }
 

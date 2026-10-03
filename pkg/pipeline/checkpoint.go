@@ -10,6 +10,13 @@ import (
 // PipelineDataKey is the state key storing execution checkpoints. Checkpoints
 // are ordinary state: they live in the run's flat state map and persist as
 // part of it (under the "state" column for anansi-backed stores).
+//
+// AUTHORITY (20261003 refactor, plan R.2): WriteCheckpoint and ReadCheckpoint
+// are the ONLY sanctioned checkpoint serializer/parser. Every pause writes
+// through WriteCheckpoint (root pipeline: handlePause in routing_interp.go;
+// nested subpipeline bubbling: context.go's resume loop) and every legacy
+// checkpoint resume reads through ReadCheckpoint (factory.Resume). New code
+// must not hand-roll the __pipeline_data__ shape.
 const PipelineDataKey = "__pipeline_data__"
 
 // EntryAddress points to a target resume location inside a pipeline or nested subpipeline.

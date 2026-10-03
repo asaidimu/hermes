@@ -29,21 +29,25 @@ type ActiveRun struct {
 	CreatedAt  time.Time
 }
 
-// PipelineRegistry tracks active runs in memory.
-type PipelineRegistry struct {
+// RunRegistry tracks active runs in memory.
+//
+// Named RunRegistry (20261003 refactor, plan R.2) to end the standing
+// review confusion with pkg/pipeline's unrelated PipelineRegistry
+// interface: this type registers ACTIVE RUNS, not pipeline definitions.
+type RunRegistry struct {
 	mu   sync.RWMutex
 	runs map[string]*ActiveRun
 }
 
-// NewPipelineRegistry creates a new pipeline registry.
-func NewPipelineRegistry() *PipelineRegistry {
-	return &PipelineRegistry{
+// NewRunRegistry creates a new pipeline registry.
+func NewRunRegistry() *RunRegistry {
+	return &RunRegistry{
 		runs: make(map[string]*ActiveRun),
 	}
 }
 
 // Register adds an active run into the registry.
-func (r *PipelineRegistry) Register(run *ActiveRun) error {
+func (r *RunRegistry) Register(run *ActiveRun) error {
 	if run == nil || run.RunID == "" {
 		return core.NewSystemError(core.ErrCodeValidation, "invalid run for registration")
 	}
@@ -71,7 +75,7 @@ func (r *PipelineRegistry) Register(run *ActiveRun) error {
 // the ActiveRun struct's own bookkeeping fields (Status, CreatedAt) are now
 // decoupled: a caller mutating the returned value's Status can no longer
 // race with the registry's own r.runs[runID] entry under r.mu.
-func (r *PipelineRegistry) Get(runID string) (*ActiveRun, bool) {
+func (r *RunRegistry) Get(runID string) (*ActiveRun, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	run, ok := r.runs[runID]
@@ -88,7 +92,7 @@ func copyActiveRun(run *ActiveRun) *ActiveRun {
 }
 
 // Deregister removes a run from the registry.
-func (r *PipelineRegistry) Deregister(runID string) {
+func (r *RunRegistry) Deregister(runID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.runs, runID)
@@ -96,7 +100,7 @@ func (r *PipelineRegistry) Deregister(runID string) {
 
 // List returns copies of all active runs (see the note on Get for why these
 // are copies rather than live pointers into the registry's internal map).
-func (r *PipelineRegistry) List() []*ActiveRun {
+func (r *RunRegistry) List() []*ActiveRun {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

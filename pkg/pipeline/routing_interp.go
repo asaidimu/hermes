@@ -15,15 +15,15 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// serializeInstruction renders a RoutingInstruction into the wire shape used by
-// the client: a stage id string (jump), an entry-address object (jump-to), or
-// null for advance/terminate/pause.
-func serializeInstruction(inst RoutingInstruction) any {
-	switch v := inst.(type) {
-	case JumpInstruction:
-		return v.StageID
-	case JumpToInstruction:
-		addr := v.Address
+// Serialize renders a RoutingInstruction into the wire shape used by the
+// client: a stage id string (jump), an entry-address object (jump-to), or
+// null for advance/terminate/pause. (R.2: was serializeInstruction.)
+func (i RoutingInstruction) Serialize() any {
+	switch i.Kind {
+	case RouteJump:
+		return i.StageID
+	case RouteJumpTo:
+		addr := i.Address
 		m := map[string]any{"stage": addr.Stage}
 		if addr.Step != "" {
 			m["step"] = addr.Step
@@ -36,22 +36,21 @@ func serializeInstruction(inst RoutingInstruction) any {
 			}
 		}
 		return m
-	case PauseInstruction:
-		return nil
 	default:
 		return nil
 	}
 }
 
-// interpretationOf maps a RoutingInstruction to the TS router:evaluated
+// Interpretation maps a RoutingInstruction to the TS router:evaluated
 // interpretation: pause | terminate | jump | advance | natural-end.
-func interpretationOf(inst RoutingInstruction, hasNext bool) string {
-	switch inst.(type) {
-	case PauseInstruction:
+// (R.2: was interpretationOf.)
+func (i RoutingInstruction) Interpretation(hasNext bool) string {
+	switch i.Kind {
+	case RoutePause:
 		return "pause"
-	case TerminateInstruction:
+	case RouteTerminate:
 		return "terminate"
-	case JumpInstruction, JumpToInstruction:
+	case RouteJump, RouteJumpTo:
 		return "jump"
 	default:
 		if hasNext {
@@ -67,35 +66,31 @@ func (r *RunContextImpl) evaluateInstruction(
 	currentIdx int,
 	stage Stage,
 ) (decision string, pause bool, nextIdx int, err error) {
-	if inst == nil {
+	switch inst.Kind {
+	case RouteAdvance, RouteNone:
 		return "advance", false, currentIdx + 1, nil
-	}
-
-	switch v := inst.(type) {
-	case AdvanceInstruction:
-		return "advance", false, currentIdx + 1, nil
-	case TerminateInstruction:
+	case RouteTerminate:
 		return "terminate", false, len(r.definition.Stages), nil
-	case JumpInstruction:
-		targetIdx := FindStageIndex(r.definition.Stages, v.StageID)
+	case RouteJump:
+		targetIdx := FindStageIndex(r.definition.Stages, inst.StageID)
 		if targetIdx < 0 {
-			return "", false, 0, core.NewSystemError(core.ErrCodeNotFound, fmt.Sprintf("target stage %s not found", v.StageID))
+			return "", false, 0, core.NewSystemError(core.ErrCodeNotFound, fmt.Sprintf("target stage %s not found", inst.StageID))
 		}
 		return "jump", false, targetIdx, nil
-	case JumpToInstruction:
-		targetIdx := FindStageIndex(r.definition.Stages, v.Address.Stage)
+	case RouteJumpTo:
+		targetIdx := FindStageIndex(r.definition.Stages, inst.Address.Stage)
 		if targetIdx < 0 {
-			return "", false, 0, core.NewSystemError(core.ErrCodeNotFound, fmt.Sprintf("target stage %s not found", v.Address.Stage))
+			return "", false, 0, core.NewSystemError(core.ErrCodeNotFound, fmt.Sprintf("target stage %s not found", inst.Address.Stage))
 		}
 		return "jump", false, targetIdx, nil
-	case PauseInstruction:
+	case RoutePause:
 		return "pause", true, currentIdx, nil
 	default:
 		return "advance", false, currentIdx + 1, nil
 	}
 }
 
-func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst PauseInstruction, currentIdx int) (PipelineRunResult, error) {
+func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst RoutingInstruction, currentIdx int) (PipelineRunResult, error) {
 	r.mu.Lock()
 	r.paused = true
 	r.mu.Unlock()
@@ -213,7 +208,7 @@ func (r *RunContextImpl) recordRouting(ctx context.Context, stageID string, inst
 	if r.actionLog == nil {
 		return
 	}
-	handle := routingHandle(inst)
+	handle := inst.WireHandle()
 	if handle == "" {
 		return // advance/terminate — nothing to record
 	}
@@ -232,17 +227,18 @@ func (r *RunContextImpl) recordRouting(ctx context.Context, stageID string, inst
 // (ResumeAt) instead of re-entering the pausing stage.
 const PauseRouteHandle = "__pause__"
 
-// routingHandle extracts the target handle from a routing instruction for
+// WireHandle extracts the target handle from a routing instruction for
 // action log recording. Returns empty for advance/terminate (no route target).
-func routingHandle(inst RoutingInstruction) string {
-	switch v := inst.(type) {
-	case JumpInstruction:
-		return v.StageID
-	case JumpToInstruction:
-		return v.Address.Stage
-	case PauseInstruction:
-		if v.StageID != "" {
-			return v.StageID
+// (R.2: was routingHandle.)
+func (i RoutingInstruction) WireHandle() string {
+	switch i.Kind {
+	case RouteJump:
+		return i.StageID
+	case RouteJumpTo:
+		return i.Address.Stage
+	case RoutePause:
+		if i.StageID != "" {
+			return i.StageID
 		}
 		return PauseRouteHandle
 	default:

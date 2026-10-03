@@ -307,7 +307,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 					// This should NOT be called during replay — the
 					// recorded routing decision is used instead.
 					t.Fatal("router should not be re-evaluated during replay")
-					return nil, nil
+					return pipeline.RoutingInstruction{}, nil
 				},
 			},
 			{

@@ -412,7 +412,7 @@ func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, b
 			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
 				target := nextDefaultTarget(stageID, flow)
 				if target == "" {
-					return nil, nil
+					return pipeline.RoutingInstruction{}, nil
 				}
 				return pipeline.Jump(target), nil
 			},
@@ -562,12 +562,12 @@ func compileStages(
 						if r.PipelineID == pipelineID && r.Status == "succeeded" {
 							target := nextDefaultTarget(id, flow)
 							if target == "" {
-								return nil, nil
+								return pipeline.RoutingInstruction{}, nil
 							}
 							return pipeline.Jump(target), nil
 						}
 					}
-					return nil, nil
+					return pipeline.RoutingInstruction{}, nil
 				},
 			})
 			continue

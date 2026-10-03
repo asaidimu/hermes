@@ -471,8 +471,7 @@ func TestPipelineRefRoutesOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	jump, ok := inst.(pipeline.JumpInstruction)
-	if !ok || jump.StageID != "after-1" {
+	if inst.Kind != pipeline.RouteJump || inst.StageID != "after-1" {
 		t.Errorf("expected jump to after-1, got %v", inst)
 	}
 }
@@ -499,8 +498,8 @@ func TestPipelineRefReturnsNilOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inst != nil {
-		t.Errorf("expected nil on failure, got %v", inst)
+	if inst.Kind != pipeline.RouteNone {
+		t.Errorf("expected no instruction (RouteNone) on failure, got %v", inst)
 	}
 }
 

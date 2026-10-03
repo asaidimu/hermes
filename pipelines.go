@@ -56,8 +56,8 @@ type (
 	RunTimelineMeta = timeline.RunTimelineMeta
 	ActionLogStore  = actionlog.Store
 
-	PipelineRegistry = registry.PipelineRegistry
-	ActiveRun        = registry.ActiveRun
+	RunRegistry = registry.RunRegistry
+	ActiveRun   = registry.ActiveRun
 
 	SystemError = core.SystemError
 	Logger      = core.Logger
@@ -71,12 +71,12 @@ var (
 	JumpTo    = pipeline.JumpTo
 	Pause     = pipeline.Pause
 
-	NewFactory          = pipeline.NewFactory
-	NewMemoryStore      = store.NewMemoryStore
-	NewScopedEventBus   = events.NewMemoryScopedBus
-	NewPipelineRegistry = registry.NewPipelineRegistry
-	NewMemoryActionLog  = actionlog.NewMemoryActionLog
-	NewSystemError      = core.NewSystemError
+	NewFactory         = pipeline.NewFactory
+	NewMemoryStore     = store.NewMemoryStore
+	NewScopedEventBus  = events.NewMemoryScopedBus
+	NewRunRegistry     = registry.NewRunRegistry
+	NewMemoryActionLog = actionlog.NewMemoryActionLog
+	NewSystemError     = core.NewSystemError
 
 	// Wire-graph entry points: canvas JSON documents reach the compiler
 	// without an HTTP layer.

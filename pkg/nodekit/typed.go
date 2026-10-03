@@ -147,7 +147,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.RouterFunc = func(ctx context.Context, nCtx NodeRunContext) (pipeline.RoutingInstruction, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return nil, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return pipeline.RoutingInstruction{}, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
 			return typedRouterFunc(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg})
 		}
@@ -159,7 +159,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.PipelinesRouterFunc = func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return nil, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return pipeline.RoutingInstruction{}, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
 			return typedPRF(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg}, results)
 		}
