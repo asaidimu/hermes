@@ -25,7 +25,7 @@ func TestUnifiedLogRecordingAndStateDerivation(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"step1": {
 						ID: "step1",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("status", "in_progress"), nil
 						},
 					},
@@ -36,7 +36,7 @@ func TestUnifiedLogRecordingAndStateDerivation(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"step2": {
 						ID: "step2",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("status", "done"), nil
 						},
 					},

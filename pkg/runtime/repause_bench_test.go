@@ -50,7 +50,7 @@ func chainedRepauseWorkflow(chainDepth int) *pipeline.Workflow {
 		Steps: map[string]pipeline.Step{
 			"step:set-a": {
 				ID: "step:set-a", Effect: int(pipeline.EffectSideEffecting),
-				Action: func(_ context.Context, _ pipeline.PipelineContext, _ map[string]any) (store.Mutator, error) {
+				Action: func(_ context.Context, _ *pipeline.PipelineContext, _ map[string]any) (store.Mutator, error) {
 					return store.SetValue("a", float64(0)), nil
 				},
 			},
@@ -79,7 +79,7 @@ func chainedRepauseWorkflow(chainDepth int) *pipeline.Workflow {
 			Steps: map[string]pipeline.Step{
 				incStepID: {
 					ID: incStepID, Effect: int(pipeline.EffectSideEffecting),
-					Action: func(_ context.Context, _ pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					Action: func(_ context.Context, _ *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return func(s map[string]any) error {
 							s["a"] = incVal
 							return nil
@@ -96,7 +96,7 @@ func chainedRepauseWorkflow(chainDepth int) *pipeline.Workflow {
 		Steps: map[string]pipeline.Step{
 			"step:final": {
 				ID: "step:final", Effect: int(pipeline.EffectSideEffecting),
-				Action: func(_ context.Context, _ pipeline.PipelineContext, _ map[string]any) (store.Mutator, error) {
+				Action: func(_ context.Context, _ *pipeline.PipelineContext, _ map[string]any) (store.Mutator, error) {
 					return store.SetValue("done", true), nil
 				},
 			},

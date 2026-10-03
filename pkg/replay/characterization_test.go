@@ -51,7 +51,7 @@ func (f *charFixture) append(t *testing.T, rerunIndex int, e actionlog.Entry) {
 const charRunID = "char-run-1"
 
 func charStepAction(key string, val any, called *int) pipeline.StepAction {
-	return func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+	return func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 		if called != nil {
 			*called++
 		}

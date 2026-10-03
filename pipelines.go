@@ -9,6 +9,8 @@ import (
 	"github.com/asaidimu/hermes/pkg/registry"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
+
+	"go.uber.org/zap"
 )
 
 // @note #module-pins-an-unreleased-go-rel-d81f850c observation P1 #review,#production-readiness,#tooling : Module pins an unreleased Go release candidate (1.27rc1), not a stable toolchain
@@ -36,7 +38,6 @@ type (
 	PipelineContext    = pipeline.PipelineContext
 	RoutingInstruction = pipeline.RoutingInstruction
 	PipelineRunResult  = pipeline.PipelineRunResult
-	RunContext         = pipeline.RunContext
 	PipelineFactory    = pipeline.PipelineFactory
 	FactoryOptions     = pipeline.FactoryOptions
 	EntryAddress       = pipeline.EntryAddress
@@ -50,7 +51,7 @@ type (
 	PipelineEvent  = events.PipelineEvent
 	EventPath      = events.EventPath
 	PathNode       = events.PathNode
-	ScopedEventBus = events.ScopedEventBus
+	ScopedEventBus = *events.MemoryScopedBus
 
 	TimelineEvent   = timeline.TimelineEvent
 	RunTimelineMeta = timeline.RunTimelineMeta
@@ -60,7 +61,7 @@ type (
 	ActiveRun   = registry.ActiveRun
 
 	SystemError = core.SystemError
-	Logger      = core.Logger
+	Logger      = zap.SugaredLogger
 )
 
 // Instruction helpers

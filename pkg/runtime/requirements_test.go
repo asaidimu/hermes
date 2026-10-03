@@ -10,19 +10,19 @@ import (
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// testSecretProvider is a static credential store for requirement tests.
-type testSecretProvider struct {
-	keys map[string]string
-}
-
-func (p *testSecretProvider) Get(_ context.Context, key string) (any, bool) {
-	v, ok := p.keys[key]
-	return v, ok
-}
-
-func (p *testSecretProvider) Has(_ context.Context, key string) bool {
-	_, ok := p.keys[key]
-	return ok
+// testSecrets is a static credential store for requirement tests, expressed
+// as the Options func fields that replaced the SecretProvider interface
+// (plan R.3).
+func testSecrets(keys map[string]string) (func(context.Context, string) (any, bool), func(context.Context, string) bool) {
+	get := func(_ context.Context, key string) (any, bool) {
+		v, ok := keys[key]
+		return v, ok
+	}
+	has := func(_ context.Context, key string) bool {
+		_, ok := keys[key]
+		return ok
+	}
+	return get, has
 }
 
 func init() {
@@ -111,7 +111,8 @@ func TestValidateRequirementsMissingKeys(t *testing.T) {
 func TestRegisterSucceedsWhenSatisfied(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{
 		Env:     map[string]any{"REQ_TEST_ENV": "prod-value"},
-		Secrets: &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
+		SecretGet: mustSecretGet(t, map[string]string{"REQ_TEST_SECRET": "s3cr3t"}),
+		SecretHas: mustSecretHas(t, map[string]string{"REQ_TEST_SECRET": "s3cr3t"}),
 	})
 	defer rt.Shutdown(context.Background())
 	nodes, edges := reqTestNodes()
@@ -128,7 +129,8 @@ func TestStepReadsEnvAndSecret(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{
 		Bus:       events.NewMemoryScopedBus(),
 		Env:       map[string]any{"REQ_TEST_ENV": "prod-value"},
-		Secrets:   &testSecretProvider{keys: map[string]string{"REQ_TEST_SECRET": "s3cr3t"}},
+		SecretGet: mustSecretGet(t, map[string]string{"REQ_TEST_SECRET": "s3cr3t"}),
+		SecretHas: mustSecretHas(t, map[string]string{"REQ_TEST_SECRET": "s3cr3t"}),
 		ActionLog: nil,
 	})
 	defer rt.Shutdown(context.Background())
@@ -175,4 +177,16 @@ func indexOf(h, n string) int {
 		}
 	}
 	return -1
+}
+
+// mustSecretGet/mustSecretHas adapt the static map into the Options func
+// fields (R.3); separate helpers keep the Options literals tidy.
+func mustSecretGet(t *testing.T, keys map[string]string) func(context.Context, string) (any, bool) {
+	get, _ := testSecrets(keys)
+	return get
+}
+
+func mustSecretHas(t *testing.T, keys map[string]string) func(context.Context, string) bool {
+	_, has := testSecrets(keys)
+	return has
 }

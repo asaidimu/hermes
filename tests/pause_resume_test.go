@@ -22,7 +22,7 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
                                 Steps: map[string]pipeline.Step{
                                         "step-a": {
                                                 ID: "step-a",
-                                                Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                                                Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                                         return store.SetValue("stage_a_done", true), nil
                                                 },
                                         },
@@ -37,7 +37,7 @@ func TestPauseAndResumeWorkflow(t *testing.T) {
                                 Steps: map[string]pipeline.Step{
                                         "step-b": {
                                                 ID: "step-b",
-                                                Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                                                Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                                         return store.SetValue("stage_b_done", true), nil
                                                 },
                                         },

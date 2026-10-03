@@ -9,6 +9,20 @@ removed symbols are deleted outright. This `Removed` section is the record.
 - `store.AnansiStoreFactory.Loader()` — adapter for the deleted `StoreLoader`.
 - `pkg/events/durable.go` entirely (`NewDurableEventBus`, `NewDurableMemoryScopedBus`, `WithDurableBackend`, `DurableBusConfig`, the in-memory "durable" store) — the bus's store was an in-memory map, `Underlying()` had zero callers, and `Subscribe` never read the backend: a durable shape with no durability.
 - `events.MemoryScopedBus.Underlying()` — accessor for the deleted backend, zero callers.
+- `core.Logger` interface, `core.NopLogger`, and `core.ZapLogger` adapter — one real implementation (zap) behind a hand-rolled adapter. Callers take `*zap.SugaredLogger` directly; `zap.NewNop().Sugar()` is the no-op.
+- `events.ScopedEventBus` interface — exactly one implementation; `*events.MemoryScopedBus` is used directly. `Scope` returns the concrete type.
+- `pipeline.PipelineContext` interface and `pipeline.RunContext` interface — each had exactly one implementation. `pipeline.PipelineContext` is now the concrete struct (was the unexported `pipelineContextImpl`); `*pipeline.RunContextImpl` is the run context.
+- `pipeline.Rebuilder` interface — implemented only by `*replay.Replayer`, existed to break the pipeline→replay import cycle. Replaced by the `pipeline.RebuildFunc` function type; pass `(*replay.Replayer).Rebuild`.
+- `actionlog.NopLog` — the null-object log. A nil `actionlog.Store` now means "logging disabled"; every call site nil-checks. `Options.ActionLog` defaults to nil.
+- `runtime.SecretProvider` interface — zero implementations in the tree. Replaced by `Options.SecretGet` / `Options.SecretHas` func fields.
+- `nodekit.TypedRunContext` embedding (closed #review-20260827-001) — the embedded `NodeRunContext` + declared `Config *C` shadowed each other; fields are now flat with the untyped map reachable as `RawConfig`. `nodekit.TypeOf` deleted (unused).
+
+Retained (recorded against the plan's R.3 list, per the plan's own multi-impl/genuine-seam criteria):
+- `store.Store` — two real implementations (MemoryStore, PersistentStore) plus test fakes; concretizing to `*MemoryStore` is a behavior trap (embedding does not make `*PersistentStore` assignable, and the `Sync` override would be lost through `&ps.MemoryStore` aliasing).
+- `watch.WatchService` — cross-layer seam: the implementation lives in pkg/runtime and the pause node (pkg/nodes) resolves it from a resource handle; deleting the interface would force nodes→runtime imports, violating the target layer map (R.6).
+- `pipeline.PipelineRegistry` — sits at the Compile boundary and has genuine test fakes (stubRegistry, mapPipelineRegistry).
+- `actionlog.Store`, `scheduler.Scheduler`, `runtime.EventSource` — as planned.
+
 - `core.GetLogger` — a pre-existing `// Deprecated:` stub (zero callers); superseded by `core.LoggerFromContext`. The deletion audit (`tests/deletion_audit_test.go`) now enforces zero `// Deprecated:` declarations on the branch.
 
 - `pkg/effect` package entirely (`effect.Pure`, `effect.SideEffecting`) — a 15-LOC import-cycle workaround whose constants were hand-synced with `nodekit.Effect` (§F consistency obligation). The canonical `Effect` enum now lives in `pkg/pipeline` (next to `Step.Effect`); `pkg/nodekit` re-exports aliases at its authoring-SDK boundary. Integer values unchanged.

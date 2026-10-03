@@ -27,7 +27,7 @@ func TestRebuild_PureStepsOnly(t *testing.T) {
 					"step-1": {
 						ID:     "step-1",
 						Effect: 1, // Pure
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("x", int64(10)), nil
 						},
 					},
@@ -39,7 +39,7 @@ func TestRebuild_PureStepsOnly(t *testing.T) {
 					"step-2": {
 						ID:     "step-2",
 						Effect: 1, // Pure
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							x := state["x"].(int64)
 							return store.SetValue("y", x*2), nil
 						},
@@ -104,7 +104,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 					"http-step": {
 						ID:     "http-step",
 						Effect: 2, // SideEffecting
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							// This should NOT be called during replay
 							t.Fatal("effectful step should not be re-executed during replay")
 							return nil, nil
@@ -118,7 +118,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 					"db-step": {
 						ID:     "db-step",
 						Effect: 2, // SideEffecting
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							t.Fatal("effectful step should not be re-executed during replay")
 							return nil, nil
 						},
@@ -174,7 +174,7 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 					"http-step-1": {
 						ID:     "http-step-1",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							t.Fatal("should not be re-executed")
 							return nil, nil
 						},
@@ -187,7 +187,7 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 					"http-step-2": {
 						ID:     "http-step-2",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("result", "done"), nil
 						},
 					},
@@ -233,7 +233,7 @@ func TestRebuild_PureBeforeEffectful(t *testing.T) {
 					"pure-step": {
 						ID:     "pure-step",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("computed", int64(99)), nil
 						},
 					},
@@ -245,7 +245,7 @@ func TestRebuild_PureBeforeEffectful(t *testing.T) {
 					"effectful-step": {
 						ID:     "effectful-step",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("side_effect", true), nil
 						},
 					},
@@ -298,7 +298,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 					"init": {
 						ID:     "init",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("started", true), nil
 						},
 					},
@@ -316,7 +316,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 					"skipped": {
 						ID:     "skipped",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("should_not_exist", true), nil
 						},
 					},
@@ -328,7 +328,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 					"done": {
 						ID:     "done",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("finished", true), nil
 						},
 					},
@@ -396,7 +396,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 					"failing-step": {
 						ID:     "failing-step",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return nil, nil
 						},
 					},
@@ -408,7 +408,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 					"next-step": {
 						ID:     "next-step",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("next", true), nil
 						},
 					},
@@ -452,14 +452,14 @@ func TestStateAt(t *testing.T) {
 					"step-a": {
 						ID:     "step-a",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("a", int64(1)), nil
 						},
 					},
 					"step-b": {
 						ID:     "step-b",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("b", int64(2)), nil
 						},
 					},
@@ -471,7 +471,7 @@ func TestStateAt(t *testing.T) {
 					"step-c": {
 						ID:     "step-c",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("c", int64(3)), nil
 						},
 					},

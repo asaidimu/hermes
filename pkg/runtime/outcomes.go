@@ -28,6 +28,10 @@ func (rt *WorkflowRuntime) ListRuns(ctx context.Context) ([]timeline.RunTimeline
 	list := make([]timeline.RunTimelineMeta, 0, len(rt.runMetas))
 	for runID, meta := range rt.runMetas {
 		cp := *meta
+		if rt.actionLog == nil {
+			list = append(list, cp)
+			continue
+		}
 		if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
 			if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
 				cp.EventCount = int64(n)
@@ -47,9 +51,11 @@ func (rt *WorkflowRuntime) GetRunMeta(ctx context.Context, runID string) (*timel
 		return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
 	}
 	cp := *meta
-	if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
-		if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
-			cp.EventCount = int64(n)
+	if rt.actionLog != nil {
+		if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
+			if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
+				cp.EventCount = int64(n)
+			}
 		}
 	}
 	return &cp, nil
@@ -58,6 +64,9 @@ func (rt *WorkflowRuntime) GetRunMeta(ctx context.Context, runID string) (*timel
 // GetEvents returns the run's action log entries for its latest attempt,
 // projected onto the frontend timeline wire shape.
 func (rt *WorkflowRuntime) GetEvents(ctx context.Context, runID string, fromSeq, toSeq int64) ([]timeline.TimelineEvent, error) {
+	if rt.actionLog == nil {
+		return []timeline.TimelineEvent{}, nil
+	}
 	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -92,6 +101,9 @@ func (rt *WorkflowRuntime) GetEvents(ctx context.Context, runID string, fromSeq,
 // Unlike GetEvents (which projects to timeline shapes), this returns the full
 // entry structs including state deltas — suitable for the TS Replayer.
 func (rt *WorkflowRuntime) GetActionLog(ctx context.Context, runID string) ([]actionlog.Entry, error) {
+	if rt.actionLog == nil {
+		return []actionlog.Entry{}, nil
+	}
 	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -124,6 +136,9 @@ func (rt *WorkflowRuntime) pipelineLabelLocked(runID string) (string, string) {
 // nextRerunIndex returns the rerun index for a new attempt of a run:
 // one past the latest recorded attempt, or 0 for a fresh run.
 func (rt *WorkflowRuntime) nextRerunIndex(ctx context.Context, runID string) int {
+	if rt.actionLog == nil {
+		return 0
+	}
 	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
 	if err != nil || idx < 0 {
 		return 0

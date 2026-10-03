@@ -82,7 +82,7 @@ func parityWorkflow(id string, withPause bool) *pipeline.Workflow {
                 {
                         ID: "stage:a", Label: "Set X",
                         Steps: map[string]pipeline.Step{
-                                "step:a": {ID: "step:a", Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                                "step:a": {ID: "step:a", Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                         return store.SetValue("x", float64(1)), nil
                                 }},
                         },
@@ -99,7 +99,7 @@ func parityWorkflow(id string, withPause bool) *pipeline.Workflow {
         stages = append(stages, pipeline.Stage{
                 ID: "stage:b", Label: "Set Y",
                 Steps: map[string]pipeline.Step{
-                        "step:b": {ID: "step:b", Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                        "step:b": {ID: "step:b", Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                 return store.SetValue("y", float64(2)), nil
                         }},
                 },
@@ -216,7 +216,7 @@ func cronWorkflow(id string, withCron bool) *pipeline.Workflow {
                 Stages: []pipeline.Stage{
                         {ID: "stage:wait", Label: "Wait", Router: router},
                         {ID: "stage:done", Label: "Done", Steps: map[string]pipeline.Step{
-                                "step:done": {ID: "step:done", Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                                "step:done": {ID: "step:done", Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                         return store.SetValue("done", true), nil
                                 }},
                         }},
@@ -316,7 +316,7 @@ func TestRepauseCancelsStaleCronCharacterization(t *testing.T) {
                                 return pipeline.PauseForCron("evt:1", "@every 1h"), nil
                         }},
                         {ID: "stage:mid", Label: "Mid", Steps: map[string]pipeline.Step{
-                                "step:mid": {ID: "step:mid", Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                                "step:mid": {ID: "step:mid", Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                         return store.SetValue("mid", true), nil
                                 }},
                         }},
@@ -324,7 +324,7 @@ func TestRepauseCancelsStaleCronCharacterization(t *testing.T) {
                                 return pipeline.PauseForEvent("evt:2", 0), nil
                         }},
                         {ID: "stage:end", Label: "End", Steps: map[string]pipeline.Step{
-                                "step:end": {ID: "step:end", Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                                "step:end": {ID: "step:end", Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
                                         return store.SetValue("end", true), nil
                                 }},
                         }},

@@ -8,9 +8,10 @@ import (
 
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
 	"github.com/asaidimu/go-anansi/v8/core/schema/meta"
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
+
+	"go.uber.org/zap"
 )
 
 // Requirement kinds and the Requirement type are defined in pkg/pipeline and
@@ -64,7 +65,7 @@ type NodeRunContext struct {
 	Errors    map[string]any
 	Resources map[string]any
 	Store     store.Store
-	Logger    core.Logger
+	Logger    *zap.SugaredLogger
 	// Env holds the run's environment layers (non-secret configuration from
 	// the host, via Options.Env). Nodes declared via Requirements(ReqEnv) read
 	// their keys here.
@@ -246,7 +247,7 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
 		ID:     nodeID,
 		Label:  def.Label,
 		Effect: int(def.Effect),
-		Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+		Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 			if def.Run == nil {
 				return nil, nil
 			}
@@ -283,7 +284,7 @@ var builtinResourceKeys = []string{"resource:watch-service"}
 // without a compiler-wired dependency edge — before this, the pause node's
 // watch-service lookup never succeeded and pausing silently became a no-op
 // (see #review-20260910-007).
-func resolveStepResources(pcxt pipeline.PipelineContext, resources func() map[string]any) map[string]any {
+func resolveStepResources(pcxt *pipeline.PipelineContext, resources func() map[string]any) map[string]any {
 	res := map[string]any{}
 	if resources != nil {
 		for kind, key := range resources() {

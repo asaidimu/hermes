@@ -29,7 +29,7 @@ func buildForkishDef() pipeline.PipelineDefinition {
 						"shared-step": {
 							ID:     "shared-step",
 							Effect: int(pipeline.EffectSideEffecting),
-							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 								return store.SetValue(key, val), nil
 							},
 						},
@@ -55,7 +55,7 @@ func buildForkishDef() pipeline.PipelineDefinition {
 					"after-step": {
 						ID:     "after-step",
 						Effect: int(pipeline.EffectSideEffecting),
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("after", true), nil
 						},
 					},
@@ -153,7 +153,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 								"item-step": {
 									ID:     "item-step",
 									Effect: int(pipeline.EffectSideEffecting),
-									Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+									Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 										return store.SetValue("got_"+jsonNumber(idx), raw[idx]), nil
 									},
 								},
@@ -174,7 +174,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 			"seed-step": {
 				ID:     "seed-step",
 				Effect: int(pipeline.EffectSideEffecting),
-				Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+				Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 					return store.SetValue("items", items), nil
 				},
 			},
@@ -231,7 +231,7 @@ func TestRebuildChildPauseBubblesNestedAddress(t *testing.T) {
 					"child-step": {
 						ID:     "child-step",
 						Effect: int(pipeline.EffectSideEffecting),
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("beforePause", true), nil
 						},
 					},

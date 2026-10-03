@@ -253,11 +253,11 @@ func (rt *WorkflowRuntime) validateRequirements(wf *pipeline.Workflow) error {
 				missing = append(missing, fmt.Sprintf("env:%s", req.Key))
 			}
 		case pipeline.ReqSecret:
-			if rt.secrets == nil {
+			if rt.secretHas == nil {
 				missing = append(missing, fmt.Sprintf("secret:%s (no secret provider configured)", req.Key))
 				continue
 			}
-			if !rt.secrets.Has(context.Background(), req.Key) {
+			if !rt.secretHas(context.Background(), req.Key) {
 				missing = append(missing, fmt.Sprintf("secret:%s", req.Key))
 			}
 		}
@@ -286,7 +286,7 @@ func (rt *WorkflowRuntime) ValidateWorkflowRequirements(wf *pipeline.Workflow) e
 // services (per run), emitting resource lifecycle events on the run's bus, and
 // returning a resolver map keyed by service id ("resource:<nodeId>") plus a
 // cleanup func for run-scoped handles.
-func (rt *WorkflowRuntime) initResources(record *workflowRecord, bus events.ScopedEventBus, runID, pipelineID string) (map[string]any, func()) {
+func (rt *WorkflowRuntime) initResources(record *workflowRecord, bus *events.MemoryScopedBus, runID, pipelineID string) (map[string]any, func()) {
 	resolver := map[string]any{}
 	var cleanups []func()
 

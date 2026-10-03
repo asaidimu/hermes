@@ -4,62 +4,46 @@ import (
 	"context"
 	"time"
 
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
+
+	"go.uber.org/zap"
 )
 
 // PipelineContext provides execution metadata to running steps.
-type PipelineContext interface {
-	RunID() string
-	PipelineID() string
-	StageID() string
-	StepID() string
-	Path() events.EventPath
-	Logger() core.Logger
-	// ResolveResource resolves a run-scoped resource artifact key (e.g.
-	// "resource:db-1") into the initialized handle. Implementations without a
-	// resource manager return (nil, false).
-	ResolveResource(key string) (any, bool)
-	// Env returns the run's environment layers (non-secret configuration from
-	// the host). May be nil/empty when the host provides none.
-	Env() map[string]any
-	// ResolveSecret resolves a credential by key through the host-supplied
-	// secret provider. Values are for immediate use only — implementations
-	// must never persist them into state. Returns (nil, false) when the key
-	// is unknown or no provider is configured.
-	ResolveSecret(key string) (any, bool)
-}
-
-type pipelineContextImpl struct {
+//
+// 20261003 refactor (plan R.3): was an interface with exactly one
+// implementation; the concrete struct is now the type nodekit and the
+// replayer construct and hand to step actions.
+type PipelineContext struct {
 	runID            string
 	pipelineID       string
 	stageID          string
 	stepID           string
 	path             events.EventPath
-	logger           core.Logger
+	logger           *zap.SugaredLogger
 	resourceResolver func(key string) (any, bool)
 	runEnv           map[string]any
 	secretLookup     func(key string) (any, bool)
 }
 
-func (c *pipelineContextImpl) RunID() string          { return c.runID }
-func (c *pipelineContextImpl) PipelineID() string     { return c.pipelineID }
-func (c *pipelineContextImpl) StageID() string        { return c.stageID }
-func (c *pipelineContextImpl) StepID() string         { return c.stepID }
-func (c *pipelineContextImpl) Path() events.EventPath { return c.path }
-func (c *pipelineContextImpl) Logger() core.Logger    { return c.logger }
+func (c *PipelineContext) RunID() string              { return c.runID }
+func (c *PipelineContext) PipelineID() string         { return c.pipelineID }
+func (c *PipelineContext) StageID() string            { return c.stageID }
+func (c *PipelineContext) StepID() string             { return c.stepID }
+func (c *PipelineContext) Path() events.EventPath     { return c.path }
+func (c *PipelineContext) Logger() *zap.SugaredLogger { return c.logger }
 
-func (c *pipelineContextImpl) ResolveResource(key string) (any, bool) {
+func (c *PipelineContext) ResolveResource(key string) (any, bool) {
 	if c.resourceResolver != nil {
 		return c.resourceResolver(key)
 	}
 	return nil, false
 }
 
-func (c *pipelineContextImpl) Env() map[string]any { return c.runEnv }
+func (c *PipelineContext) Env() map[string]any { return c.runEnv }
 
-func (c *pipelineContextImpl) ResolveSecret(key string) (any, bool) {
+func (c *PipelineContext) ResolveSecret(key string) (any, bool) {
 	if c.secretLookup == nil {
 		return nil, false
 	}
@@ -68,27 +52,27 @@ func (c *pipelineContextImpl) ResolveSecret(key string) (any, bool) {
 
 // WithRunEnv attaches the run's environment layers to a context built by
 // NewPipelineContext.
-func WithRunEnv(env map[string]any) func(*pipelineContextImpl) {
-	return func(c *pipelineContextImpl) { c.runEnv = env }
+func WithRunEnv(env map[string]any) func(*PipelineContext) {
+	return func(c *PipelineContext) { c.runEnv = env }
 }
 
 // WithSecretLookup attaches the run's credential lookup to a context built by
 // NewPipelineContext.
-func WithSecretLookup(lookup func(key string) (any, bool)) func(*pipelineContextImpl) {
-	return func(c *pipelineContextImpl) { c.secretLookup = lookup }
+func WithSecretLookup(lookup func(key string) (any, bool)) func(*PipelineContext) {
+	return func(c *PipelineContext) { c.secretLookup = lookup }
 }
 
 // WithResourceResolver attaches a run-scoped resource resolver to a context
 // built by NewPipelineContext. The runtime (pkg/runtime) uses this to inject
 // initialized resource handles into steps that declare resource dependencies.
-func WithResourceResolver(resolver func(key string) (any, bool)) func(*pipelineContextImpl) {
-	return func(c *pipelineContextImpl) {
+func WithResourceResolver(resolver func(key string) (any, bool)) func(*PipelineContext) {
+	return func(c *PipelineContext) {
 		c.resourceResolver = resolver
 	}
 }
 
-func NewPipelineContext(runID, pipelineID, stageID, stepID string, path events.EventPath, logger core.Logger, opts ...func(*pipelineContextImpl)) PipelineContext {
-	c := &pipelineContextImpl{
+func NewPipelineContext(runID, pipelineID, stageID, stepID string, path events.EventPath, logger *zap.SugaredLogger, opts ...func(*PipelineContext)) *PipelineContext {
+	c := &PipelineContext{
 		runID:      runID,
 		pipelineID: pipelineID,
 		stageID:    stageID,
@@ -106,16 +90,16 @@ func NewPipelineContext(runID, pipelineID, stageID, stepID string, path events.E
 // During replay, steps only need to compute their mutator — they don't
 // need event bus, logger, or resource resolution. All optional methods
 // return safe defaults.
-func NewReplayContext() PipelineContext {
-	return &pipelineContextImpl{
-		logger: core.NopLogger{},
+func NewReplayContext() *PipelineContext {
+	return &PipelineContext{
+		logger: zap.NewNop().Sugar(),
 	}
 }
 
 // StepAction executes user logic against a read-only view of the run state
 // and returns a mutator to commit. Mutate the passed map only via the
 // returned mutator.
-type StepAction func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error)
+type StepAction func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error)
 
 // Step represents a single concurrent unit of execution within a Stage.
 type Step struct {
@@ -156,7 +140,7 @@ const (
 // itself; constructors below set the kind explicitly.
 type RoutingInstruction struct {
 	Kind    RoutingKind
-	StageID string // Jump target / explicit pause resume stage
+	StageID string       // Jump target / explicit pause resume stage
 	Address EntryAddress // JumpTo
 
 	// Pause-only fields.
@@ -168,10 +152,14 @@ type RoutingInstruction struct {
 	Cron          string   // cron expression for auto-resume (e.g. "@every 5m")
 }
 
-func Advance() RoutingInstruction                 { return RoutingInstruction{Kind: RouteAdvance} }
-func Terminate() RoutingInstruction               { return RoutingInstruction{Kind: RouteTerminate} }
-func Jump(stageID string) RoutingInstruction      { return RoutingInstruction{Kind: RouteJump, StageID: stageID} }
-func JumpTo(addr EntryAddress) RoutingInstruction { return RoutingInstruction{Kind: RouteJumpTo, Address: addr} }
+func Advance() RoutingInstruction   { return RoutingInstruction{Kind: RouteAdvance} }
+func Terminate() RoutingInstruction { return RoutingInstruction{Kind: RouteTerminate} }
+func Jump(stageID string) RoutingInstruction {
+	return RoutingInstruction{Kind: RouteJump, StageID: stageID}
+}
+func JumpTo(addr EntryAddress) RoutingInstruction {
+	return RoutingInstruction{Kind: RouteJumpTo, Address: addr}
+}
 func Pause(stageID string, timeout time.Duration) RoutingInstruction {
 	return RoutingInstruction{Kind: RoutePause, StageID: stageID, Timeout: timeout, Persist: true}
 }
@@ -254,17 +242,9 @@ type PipelineRunResult struct {
 	Error         error               `json:"error,omitempty"`
 }
 
-// RunContext manages the execution lifecycle of a pipeline.
-type RunContext interface {
-	ID() string
-	PipelineID() string
-	Store() store.Store
-	EventBus() events.ScopedEventBus
-	Run(ctx context.Context) (PipelineRunResult, error)
-	Abort(err error)
-	Write(mutator store.Mutator)
-	On(eventType string, handler events.EventHandler) (unsubscribe func())
-}
+// 20261003 refactor (plan R.3): the former RunContext interface is deleted —
+// it had exactly one implementation. *RunContextImpl is the concrete run
+// context; registry.ActiveRun and tests already referenced it directly.
 
 // Effect classifies whether a node's execution has real-world consequences
 // (or other non-deterministic behavior) that must be durably recorded rather

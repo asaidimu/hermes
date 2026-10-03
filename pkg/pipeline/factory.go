@@ -8,27 +8,32 @@ import (
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/google/uuid"
+
+	"go.uber.org/zap"
 )
 
 // FactoryOptions configures the pipeline factory.
 type FactoryOptions struct {
-	Logger   core.Logger
-	EventBus events.ScopedEventBus
+	Logger   *zap.SugaredLogger
+	EventBus *events.MemoryScopedBus
 	// ActionLog records every significant event during execution for
-	// event-sourced recovery and observability. When nil, a NopLog is
-	// used (no entries recorded).
+	// event-sourced recovery and observability. When nil, no entries are
+	// recorded (logging disabled).
 	ActionLog actionlog.Store
 	// RerunIndex identifies which attempt of a run this factory prepares.
 	// 0 is the first execution; each forced recovery increments it so
 	// retries get separate log documents for audit purposes.
 	RerunIndex int
-	// Rebuilder, when set, replaces the checkpoint-based Resume path with
-	// event-sourced recovery (§4.2 of EXECUTION_ENGINE_REDESIGN_V2.md).
-	// The factory calls Rebuilder.Rebuild to reconstruct state from the
-	// action log instead of reading a stored checkpoint. This is the
-	// migration path: callers opt in, then the old checkpoint path is
-	// removed later.
-	Rebuilder Rebuilder
+	// Rebuild, when set, replaces the checkpoint-based Resume path with
+	// event-sourced recovery (§4.2 of EXECUTION_ENGINE_REDESIGN_V2.md):
+	// the factory calls it to reconstruct state from the action log
+	// instead of reading a stored checkpoint.
+	//
+	// 20261003 refactor (plan R.3): was the Rebuilder interface (implemented
+	// only by *replay.Replayer, existing to break the pipeline->replay
+	// import cycle). A func type breaks the cycle the same way with less
+	// ceremony — pass (*replay.Replayer).Rebuild.
+	Rebuild RebuildFunc
 	// ResourceResolver resolves run-scoped resource artifact keys ("resource:<id>")
 	// into initialized handles. Attached to every run context this factory prepares.
 	ResourceResolver func(key string) (any, bool)
@@ -40,17 +45,11 @@ type FactoryOptions struct {
 	SecretLookup func(key string) (any, bool)
 }
 
-// Rebuilder is the interface for event-sourced recovery. The replay.Replayer
-// implements this interface; defined here as an interface to avoid an import
-// cycle (pipeline → replay → pipeline).
-//
-// Rebuild receives the run's root pipeline id so the replayer can partition
-// the log per pipeline (entries carry a PipelineID since
-// #review-20260910-015) and resolve the definition to replay
-// (#review-20260910-003).
-type Rebuilder interface {
-	Rebuild(ctx context.Context, runID, rootPipelineID string) (store.Store, EntryAddress, error)
-}
+// RebuildFunc performs event-sourced recovery: it receives the run's root
+// pipeline id so the replayer can partition the log per pipeline (entries
+// carry a PipelineID since #review-20260910-015) and resolve the definition
+// to replay (#review-20260910-003). (R.3: was the Rebuilder interface.)
+type RebuildFunc func(ctx context.Context, runID, rootPipelineID string) (store.Store, EntryAddress, error)
 
 // PipelineFactory creates and prepares pipeline run contexts.
 //
@@ -70,11 +69,10 @@ func NewFactory(def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory
 		opt = opts[0]
 	}
 	if opt.Logger == nil {
-		opt.Logger = core.NopLogger{}
+		opt.Logger = zap.NewNop().Sugar()
 	}
-	if opt.ActionLog == nil {
-		opt.ActionLog = actionlog.NopLog{}
-	}
+	// ActionLog nil = logging disabled (R.3 deleted NopLog; every call
+	// site nil-checks).
 	return &PipelineFactory{
 		definition: def,
 		options:    opt,
@@ -82,11 +80,11 @@ func NewFactory(def PipelineDefinition, opts ...FactoryOptions) *PipelineFactory
 }
 
 // Prepare builds a fresh RunContext for a runID (or generates a new UUIDv4).
-func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...events.ScopedEventBus) *RunContextImpl {
+func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...*events.MemoryScopedBus) *RunContextImpl {
 	if runID == "" {
 		runID = uuid.New().String()
 	}
-	var b events.ScopedEventBus
+	var b *events.MemoryScopedBus
 	if len(bus) > 0 && bus[0] != nil {
 		b = bus[0]
 	} else if f.options.EventBus != nil {
@@ -110,7 +108,7 @@ func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...events.Sc
 }
 
 // PrepareWithEntry builds a RunContext starting execution at a specific entry address.
-func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus events.ScopedEventBus, entry EntryAddress) *RunContextImpl {
+func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus *events.MemoryScopedBus, entry EntryAddress) *RunContextImpl {
 	if runID == "" {
 		runID = uuid.New().String()
 	}
@@ -140,16 +138,16 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus eve
 // configured (FactoryOptions.Rebuilder), it uses event-sourced recovery
 // (§4.2) to reconstruct state from the action log instead of reading a
 // stored checkpoint.
-func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Store, bus ...events.ScopedEventBus) (*RunContextImpl, error) {
+func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Store, bus ...*events.MemoryScopedBus) (*RunContextImpl, error) {
 	if st == nil {
 		return nil, core.NewSystemError(core.ErrCodeValidation, "store is required to resume pipeline")
 	}
 
 	var entryAddr EntryAddress
 
-	if f.options.Rebuilder != nil {
+	if f.options.Rebuild != nil {
 		// Event-sourced recovery path: reconstruct state from action log.
-		rebuiltStore, addr, err := f.options.Rebuilder.Rebuild(ctx, runID, f.definition.ID)
+		rebuiltStore, addr, err := f.options.Rebuild(ctx, runID, f.definition.ID)
 		if err != nil {
 			return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
 				"replayer rebuild failed for run "+runID).WithCause(err)
@@ -183,7 +181,7 @@ func (f *PipelineFactory) Resume(ctx context.Context, runID string, st store.Sto
 		entryAddr = ckpt.ResumeAt
 	}
 
-	var b events.ScopedEventBus
+	var b *events.MemoryScopedBus
 	if len(bus) > 0 && bus[0] != nil {
 		b = bus[0]
 	} else if f.options.EventBus != nil {
@@ -227,10 +225,10 @@ func copyStoreState(src, dst store.Store) error {
 // isolation on its own. Callers who want durability/isolation should supply
 // FactoryOptions.EventBus (typically WorkflowRuntime does, via its root
 // bus) rather than relying on this fallback.
-func (f *PipelineFactory) newFallbackBus(runID string) events.ScopedEventBus {
+func (f *PipelineFactory) newFallbackBus(runID string) *events.MemoryScopedBus {
 	logger := f.options.Logger
 	if logger == nil {
-		logger = core.NopLogger{}
+		logger = zap.NewNop().Sugar()
 	}
 	logger.Warn("pipeline: no event bus supplied; creating an orphan in-memory bus with no subscribers or durability",
 		"pipeline", f.definition.ID, "runId", runID)

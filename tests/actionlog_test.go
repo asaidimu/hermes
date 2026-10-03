@@ -30,7 +30,7 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 						ID:     "pure-step",
 						Label:  "Pure Step",
 						Effect: 1, // EffectPure
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("pure_result", "computed"), nil
 						},
 					},
@@ -38,7 +38,7 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 						ID:     "effectful-step",
 						Label:  "Effectful Step",
 						Effect: 2, // EffectSideEffecting
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("effect_result", "http_response"), nil
 						},
 					},
@@ -52,7 +52,7 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 						ID:     "another-effectful",
 						Label:  "Another Effectful",
 						Effect: 2, // EffectSideEffecting
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("db_result", "inserted"), nil
 						},
 					},
@@ -100,12 +100,12 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 		Label: "Routing Test",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "start",
+				ID: "start",
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID:     "init",
 						Effect: 1, // Pure
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("route", "jump"), nil
 						},
 					},
@@ -115,24 +115,24 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 				},
 			},
 			{
-				ID:    "middle",
+				ID: "middle",
 				Steps: map[string]pipeline.Step{
 					"skipped": {
 						ID:     "skipped",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("should_not_exist", true), nil
 						},
 					},
 				},
 			},
 			{
-				ID:    "finish",
+				ID: "finish",
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID:     "done",
 						Effect: 1,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("finished", true), nil
 						},
 					},
@@ -177,14 +177,14 @@ func TestActionLogRecordsEffectfulStepFailure(t *testing.T) {
 		Label: "Failure Test",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"failing-step": {
 						ID:      "failing-step",
 						Label:   "Failing Step",
 						Effect:  2, // EffectSideEffecting
 						Retries: 0, // No retries
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "simulated failure")
 						},
 					},
@@ -229,19 +229,19 @@ func TestActionLogNoEntriesForPureSteps(t *testing.T) {
 		Label: "Pure Only Test",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"pure-1": {
 						ID:     "pure-1",
 						Effect: 1, // Pure
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("x", 42), nil
 						},
 					},
 					"pure-2": {
 						ID:     "pure-2",
 						Effect: 1, // Pure
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("y", "hello"), nil
 						},
 					},
@@ -285,24 +285,24 @@ func TestActionLogEntriesAreMonotonicallySequenced(t *testing.T) {
 		Label: "Sequence Test",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"effect-1": {
 						ID:     "effect-1",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("a", 1), nil
 						},
 					},
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"effect-2": {
 						ID:     "effect-2",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("b", 2), nil
 						},
 					},
@@ -340,12 +340,12 @@ func TestActionLogWithNopLog(t *testing.T) {
 		Label: "NopLog Test",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"step-1": {
 						ID:     "step-1",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("x", 1), nil
 						},
 					},
@@ -373,12 +373,12 @@ func TestActionLogEntriesHaveTimestamps(t *testing.T) {
 		Label: "Timestamp Test",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"effectful": {
 						ID:     "effectful",
 						Effect: 2,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("done", true), nil
 						},
 					},

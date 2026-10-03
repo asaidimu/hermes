@@ -7,7 +7,6 @@ import (
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/compiler"
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/nodekit"
 	"github.com/asaidimu/hermes/pkg/nodes/code"
@@ -15,6 +14,8 @@ import (
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/runtime"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -90,7 +91,7 @@ func TestPauseNodeEndToEnd(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
-		Logger:      core.NopLogger{},
+		Logger:      zap.NewNop().Sugar(),
 	})
 	defer rt.Shutdown(context.Background())
 
@@ -145,7 +146,7 @@ func TestPauseNodeTimeout(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
-		Logger:      core.NopLogger{},
+		Logger:      zap.NewNop().Sugar(),
 	})
 	defer rt.Shutdown(context.Background())
 
@@ -199,7 +200,7 @@ func TestPauseMultiEventAny(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
-		Logger:      core.NopLogger{},
+		Logger:      zap.NewNop().Sugar(),
 	})
 	defer rt.Shutdown(context.Background())
 
@@ -253,7 +254,7 @@ func TestPauseMultiEventAll(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
-		Logger:      core.NopLogger{},
+		Logger:      zap.NewNop().Sugar(),
 	})
 	defer rt.Shutdown(context.Background())
 
@@ -311,7 +312,7 @@ func TestPauseNodeTwoConcurrentRunsIndependentWatches(t *testing.T) {
 	rt := runtime.NewWorkflowRuntime(runtime.Options{
 		ActionLog:   actionlog.NewMemoryActionLog(),
 		EventSource: ms,
-		Logger:      core.NopLogger{},
+		Logger:      zap.NewNop().Sugar(),
 	})
 	defer rt.Shutdown(context.Background())
 

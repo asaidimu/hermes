@@ -28,8 +28,8 @@ func runWith(t *testing.T, cfg map[string]any) (map[string]any, error) {
 	}
 
 	mut, err := run(context.Background(), &nodekit.TypedRunContext[ArithmeticConfig]{
-		NodeRunContext: nodekit.NodeRunContext{Config: cfg},
-		Config:         &typedCfg,
+		RawConfig: cfg,
+		Config:    &typedCfg,
 	})
 	if err != nil {
 		return nil, err

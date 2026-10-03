@@ -4,29 +4,56 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/asaidimu/go-anansi/v8/core/data"
 	"github.com/asaidimu/go-anansi/v8/core/document"
+	"go.uber.org/zap"
+
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
-// @note #review-20260827-001 observation P1 status=open priority=P1 tags=#review,#api,#typesafety : Dual RunContext types and field shadowing in TypedRunContext
-// @author antigravity
+// TypedRunContext[C] carries the typed config and the runtime context.
+// Node authors receive it from typed Run/Router/BodyHandle callbacks.
 //
-// TypedRunContext[C] embeds NodeRunContext while also declaring Config *C. In Go struct
-// embedding, TypedRunContext[C].Config shadows NodeRunContext.Config (map[string]any).
-// Node authors receive TypedRunContext, but the underlying engine still operates on
-// untyped NodeRunContext with map[string]any for Config, State, Results, and Errors.
-// TypedRunContext[C] should be the default RunContext[C any] across the entire nodekit
-// lifecycle rather than a wrapper over untyped legacy state bags.
-//
-// TypedRunContext[C] carries both typed config and general runtime context.
-// Node authors receive this from typed Run/Router/BodyHandle callbacks.
+// Resolved 20261003 refactor (plan R.3, closing #review-20260827-001):
+// TypedRunContext used to EMBED NodeRunContext while declaring Config *C —
+// the outer Config shadowed the embedded map[string]any one, so `nCtx.Config`
+// and `nCtx.NodeRunContext.Config` were different values at the same
+// selector depth. The fields are now flat: Config is ONLY the typed *C,
+// and the untyped map stays reachable as RawConfig.
 type TypedRunContext[C any] struct {
-	NodeRunContext
-	Config *C
+	NodeID    string
+	RunID     string
+	Config    *C
+	RawConfig map[string]any
+	State     map[string]any
+	Errors    map[string]any
+	Resources map[string]any
+	Store     store.Store
+	Logger    *zap.SugaredLogger
+	Env       map[string]any
+	// Secret resolves credentials by key at execution time. Values are for
+	// immediate use only: never write them into state, checkpoints, or
+	// event payloads.
+	Secret func(key string) (any, bool)
+}
+
+// typedContext flattens an erased NodeRunContext into the typed form.
+func typedContext[C any](n NodeRunContext, cfg *C) *TypedRunContext[C] {
+	return &TypedRunContext[C]{
+		NodeID:    n.NodeID,
+		RunID:     n.RunID,
+		Config:    cfg,
+		RawConfig: n.Config,
+		State:     n.State,
+		Errors:    n.Errors,
+		Resources: n.Resources,
+		Store:     n.Store,
+		Logger:    n.Logger,
+		Env:       n.Env,
+		Secret:    n.Secret,
+	}
 }
 
 // TypedDefinition[C] is the generic node definition. C is the config struct.
@@ -125,7 +152,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
 				return nil, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
-			return typedRun(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg})
+			return typedRun(ctx, typedContext(nCtx, &cfg))
 		}
 	}
 
@@ -137,7 +164,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
 				return "", fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
-			return typedRouter(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg})
+			return typedRouter(ctx, typedContext(nCtx, &cfg))
 		}
 	}
 
@@ -149,7 +176,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
 				return pipeline.RoutingInstruction{}, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
-			return typedRouterFunc(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg})
+			return typedRouterFunc(ctx, typedContext(nCtx, &cfg))
 		}
 	}
 
@@ -161,7 +188,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
 				return pipeline.RoutingInstruction{}, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
-			return typedPRF(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg}, results)
+			return typedPRF(ctx, typedContext(nCtx, &cfg), results)
 		}
 	}
 
@@ -173,7 +200,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
 				return nil, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
-			return typedInit(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg})
+			return typedInit(ctx, typedContext(nCtx, &cfg))
 		}
 	}
 
@@ -185,7 +212,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
 				return fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
 			}
-			return typedEnd(ctx, &TypedRunContext[C]{NodeRunContext: nCtx, Config: &cfg}, handle)
+			return typedEnd(ctx, typedContext(nCtx, &cfg), handle)
 		}
 	}
 
@@ -225,8 +252,3 @@ func bindFromMap(raw map[string]any, schemaJSON json.RawMessage, target any) err
 	return nil
 }
 
-// TypeOf[C] returns the reflect.Type of C for callers that need the runtime type.
-func TypeOf[C any]() reflect.Type {
-	var zero C
-	return reflect.TypeOf(zero)
-}

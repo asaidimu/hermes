@@ -270,43 +270,6 @@ func TestMemoryActionLogMultipleRuns(t *testing.T) {
 	}
 }
 
-func TestNopLog(t *testing.T) {
-	nop := NopLog{}
-	ctx := context.Background()
-
-	seq, err := nop.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted})
-	if err != nil {
-		t.Fatalf("NopLog.Append: %v", err)
-	}
-	if seq != 0 {
-		t.Errorf("NopLog.Append seq = %d, want 0", seq)
-	}
-
-	entries, err := nop.All(ctx, "r1", 0)
-	if err != nil || entries != nil {
-		t.Errorf("NopLog.All: entries=%v, err=%v", entries, err)
-	}
-
-	byStep, err := nop.ByStepID(ctx, "r1", 0, "s1")
-	if err != nil || byStep != nil {
-		t.Errorf("NopLog.ByStepID: %v, %v", byStep, err)
-	}
-
-	last, err := nop.LastByStageID(ctx, "r1", 0, "a")
-	if err != nil || last != nil {
-		t.Errorf("NopLog.LastByStageID: %v, %v", last, err)
-	}
-
-	count, err := nop.Count(ctx, "r1", 0)
-	if err != nil || count != 0 {
-		t.Errorf("NopLog.Count: %d, %v", count, err)
-	}
-
-	idx, err := nop.LatestRerunIndex(ctx, "r1")
-	if err != nil || idx != -1 {
-		t.Errorf("NopLog.LatestRerunIndex: %d, %v", idx, err)
-	}
-}
 
 func TestMemoryActionLogLatestRerunIndex(t *testing.T) {
 	log := NewMemoryActionLog()

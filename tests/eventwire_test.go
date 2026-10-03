@@ -15,7 +15,7 @@ import (
 
 // collectEvents subscribes to "*" on a root bus and returns a thread-safe
 // collector that snapshots every emitted event (child events bubble up).
-func collectEvents(t *testing.T, bus events.ScopedEventBus) func() []events.PipelineEvent {
+func collectEvents(t *testing.T, bus *events.MemoryScopedBus) func() []events.PipelineEvent {
 	t.Helper()
 	var mu sync.Mutex
 	var seen []events.PipelineEvent
@@ -52,7 +52,7 @@ func stepStage(id, label string) pipeline.Stage {
 		Steps: map[string]pipeline.Step{
 			"step-" + id: {
 				ID: "step-" + id,
-				Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+				Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 					return store.SetValue("touched", id), nil
 				},
 			},
@@ -188,7 +188,7 @@ func TestEventWireSubPipelineSoftFailure(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"wire-fail-step": {
 						ID: "wire-fail-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return nil, core.NewSystemError(core.ErrCodeExecutionFailed, boom.Error()).WithCause(boom)
 						},
 					},
@@ -266,7 +266,7 @@ func TestEventWireSubPipelineHardFailure(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"wire-hard-step": {
 						ID: "wire-hard-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "hard failure")
 						},
 					},

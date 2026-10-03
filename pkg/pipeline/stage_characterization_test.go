@@ -27,7 +27,7 @@ func TestConcurrentSiblingsDoNotSeeEachOthersMutations(t *testing.T) {
 		id := letter + "-step"
 		steps[id] = Step{
 			ID: id,
-			Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+			Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 				// Any sibling's write ("<letter>-wrote" for a different
 				// letter) visible in this snapshot is an isolation breach.
 				for k := range state {
@@ -74,7 +74,7 @@ func TestStageCommitIsAtomic(t *testing.T) {
 		letter := string(rune('a' + i))
 		steps[letter+"-step"] = Step{
 			ID: letter + "-step",
-			Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+			Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 				return store.SetValue(letter+"-wrote", true), nil
 			},
 		}

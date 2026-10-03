@@ -80,7 +80,7 @@ func materializeDefinition(gd goldenDef) *pipeline.PipelineDefinition {
 			if gstep.Effect == 1 || fails != "" {
 				// Pure steps re-execute during replay: materialize a real
 				// Action that performs the declared writes.
-				step.Action = func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+				step.Action = func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 					if fails != "" {
 						return nil, &goldenActionError{msg: fails}
 					}

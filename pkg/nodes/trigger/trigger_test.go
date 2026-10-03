@@ -12,17 +12,15 @@ func TestRunCoercesInitialState(t *testing.T) {
 	ctx := context.Background()
 
 	nCtx := &nodekit.TypedRunContext[TriggerConfig]{
-		NodeRunContext: nodekit.NodeRunContext{
-			Config: map[string]any{
-				"initialState": map[string]any{
-					"flag":    "true",
-					"off":     "false",
-					"count":   "42",
-					"ratio":   "3.5",
-					"zero":    "0",
-					"text":    "hello",
-					"untrust": "TRUE",
-				},
+		RawConfig: map[string]any{
+			"initialState": map[string]any{
+				"flag":    "true",
+				"off":     "false",
+				"count":   "42",
+				"ratio":   "3.5",
+				"zero":    "0",
+				"text":    "hello",
+				"untrust": "TRUE",
 			},
 		},
 		Config: &TriggerConfig{

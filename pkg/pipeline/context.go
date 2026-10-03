@@ -11,6 +11,8 @@ import (
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
+
+	"go.uber.org/zap"
 )
 
 // RunContextImpl is the state machine execution engine for a pipeline run.
@@ -19,8 +21,8 @@ type RunContextImpl struct {
 	runID        string
 	definition   PipelineDefinition
 	store        store.Store
-	eventBus     events.ScopedEventBus
-	logger       core.Logger
+	eventBus     *events.MemoryScopedBus
+	logger       *zap.SugaredLogger
 	entryAddress *EntryAddress
 
 	// actionLog records every significant event during execution for
@@ -57,8 +59,8 @@ func NewRunContext(
 	runID string,
 	def PipelineDefinition,
 	st store.Store,
-	bus events.ScopedEventBus,
-	logger core.Logger,
+	bus *events.MemoryScopedBus,
+	logger *zap.SugaredLogger,
 	entry ...EntryAddress,
 ) *RunContextImpl {
 	var entryAddr *EntryAddress
@@ -78,15 +80,12 @@ func NewRunContext(
 func (r *RunContextImpl) ID() string                      { return r.runID }
 func (r *RunContextImpl) PipelineID() string              { return r.definition.ID }
 func (r *RunContextImpl) Store() store.Store              { return r.store }
-func (r *RunContextImpl) EventBus() events.ScopedEventBus { return r.eventBus }
+func (r *RunContextImpl) EventBus() *events.MemoryScopedBus { return r.eventBus }
 
-// ActionLog returns the run's action log store. Nil-safe — returns a NopLog
-// if no log was configured, so callers never need a nil check.
+// ActionLog returns the run's action log store, or nil when logging is
+// disabled (R.3 deleted NopLog; callers nil-check).
 func (r *RunContextImpl) ActionLog() actionlog.Store {
-	if r.actionLog != nil {
-		return r.actionLog
-	}
-	return actionlog.NopLog{}
+	return r.actionLog
 }
 
 // SetResourceResolver attaches a run-scoped resource resolver to this context.
@@ -143,7 +142,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		r.eventBus = events.NewMemoryScopedBus()
 	}
 	if r.logger == nil {
-		r.logger = core.NopLogger{}
+		r.logger = zap.NewNop().Sugar()
 	}
 	// Derive a cancellable context from the abort channel so in-flight steps
 	// (e.g. delay) observe aborts via ctx.Done() instead of only between stages.
@@ -693,8 +692,6 @@ func (r *RunContextImpl) abortedResult(ctx context.Context, pipePath events.Even
 		Error:      abortErr,
 	}, abortErr
 }
-
-var _ RunContext = (*RunContextImpl)(nil)
 
 // Context keys for values RunContextImpl.Run stamps onto the execution
 // context. Unexported: values are read through the accessors below.

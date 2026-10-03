@@ -114,21 +114,6 @@ type Store interface {
 	LatestRerunIndex(ctx context.Context, runID string) (int, error)
 }
 
-// NopLog is a no-op Store implementation used when action logging is
-// disabled or not yet configured. All methods return zero values and nil error.
-type NopLog struct{}
-
-func (NopLog) Append(_ context.Context, _ Entry) (uint64, error)       { return 0, nil }
-func (NopLog) All(_ context.Context, _ string, _ int) ([]Entry, error) { return nil, nil }
-func (NopLog) ByStepID(_ context.Context, _ string, _ int, _ string) ([]Entry, error) {
-	return nil, nil
-}
-func (NopLog) LastByStageID(_ context.Context, _ string, _ int, _ string) (*Entry, error) {
-	return nil, nil
-}
-func (NopLog) Count(_ context.Context, _ string, _ int) (uint64, error)  { return 0, nil }
-func (NopLog) LatestRerunIndex(_ context.Context, _ string) (int, error) { return -1, nil }
-
 // MemoryActionLog is an in-memory Store implementation for testing and
 // development. Not durable — data is lost on process exit. Callers that
 // need persistence should provide a Store backed by a database.

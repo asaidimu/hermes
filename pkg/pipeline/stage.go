@@ -13,6 +13,8 @@ import (
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
+
+	"go.uber.org/zap"
 )
 
 // @note #review-20260910-010 todo P2 resolved status=resolved priority=P2 tags=#review,#style : gofmt -s was not clean — 12 files failed gofmt -s -l at review time
@@ -42,8 +44,8 @@ func ExecuteStageSteps(
 	stage Stage,
 	path events.EventPath,
 	st store.Store,
-	bus events.ScopedEventBus,
-	logger core.Logger,
+	bus *events.MemoryScopedBus,
+	logger *zap.SugaredLogger,
 	skipStepID string,
 	resolver func(key string) (any, bool),
 	runEnv map[string]any,
@@ -399,7 +401,7 @@ func ExecuteStageSteps(
 // third-party NodeRunner — see #review-20260910-008) is recovered and
 // converted into the normal step error path, so it participates in retries
 // and the standard failure reporting instead of terminating the host process.
-func executeStepAttempt(ctx context.Context, pCtx PipelineContext, step Step, state map[string]any) (mutator store.Mutator, err error) {
+func executeStepAttempt(ctx context.Context, pCtx *PipelineContext, step Step, state map[string]any) (mutator store.Mutator, err error) {
 	if step.Action == nil {
 		return nil, nil
 	}

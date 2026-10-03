@@ -417,7 +417,7 @@ func TestPauseResumeEventSource(t *testing.T) {
 					"step:code:Run Code": {
 						ID:    "step:code:Run Code",
 						Label: "Run Code",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("total", float64(10)), nil
 						},
 					},
@@ -503,7 +503,7 @@ func TestResumeWithPayload(t *testing.T) {
 					"step:code:Run Code": {
 						ID:    "step:code:Run Code",
 						Label: "Run Code",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							// The resume payload should be available in state.
 							return store.SetValue("fromPayload", "hello from event"), nil
 						},

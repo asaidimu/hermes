@@ -37,7 +37,7 @@ func multiPauseWorkflow(t *testing.T, secondPause func(ctx context.Context, stat
 			{
 				ID: "stage:a", Label: "Set A",
 				Steps: map[string]pipeline.Step{
-					"step:a": {ID: "step:a", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					"step:a": {ID: "step:a", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue("a", float64(1)), nil
 					}},
 				},
@@ -51,7 +51,7 @@ func multiPauseWorkflow(t *testing.T, secondPause func(ctx context.Context, stat
 			{
 				ID: "stage:b", Label: "Set B",
 				Steps: map[string]pipeline.Step{
-					"step:b": {ID: "step:b", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					"step:b": {ID: "step:b", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue("b", float64(2)), nil
 					}},
 				},
@@ -63,7 +63,7 @@ func multiPauseWorkflow(t *testing.T, secondPause func(ctx context.Context, stat
 			{
 				ID: "stage:c", Label: "Set C",
 				Steps: map[string]pipeline.Step{
-					"step:c": {ID: "step:c", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					"step:c": {ID: "step:c", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue("c", float64(3)), nil
 					}},
 				},

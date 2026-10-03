@@ -42,9 +42,6 @@ type Replayer struct {
 // NewReplayer creates a Replayer that reads from the given action log
 // and resolves pipeline definitions via the provided resolver.
 func NewReplayer(log actionlog.Store, resolve DefinitionResolver) *Replayer {
-	if log == nil {
-		log = actionlog.NopLog{}
-	}
 	return &Replayer{
 		log:     log,
 		resolve: resolve,

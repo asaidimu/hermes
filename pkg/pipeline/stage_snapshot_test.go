@@ -33,7 +33,7 @@ func TestActionRunsOnSnapshotOutsideStoreLock(t *testing.T) {
 				Steps: map[string]Step{
 					"mutator-step": {
 						ID: "mutator-step",
-						Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 							// Direct "mutations" — the pre-fix bug let these
 							// hit the LIVE store map.
 							state["hacked"] = true
@@ -46,7 +46,7 @@ func TestActionRunsOnSnapshotOutsideStoreLock(t *testing.T) {
 					},
 					"slow-step": {
 						ID: "slow-step",
-						Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 							// Runs concurrently with mutator-step; under the
 							// pre-fix lock-held execution the stage serialized
 							// behind this sleep.
@@ -111,7 +111,7 @@ func TestConcurrentStepsRaceFree(t *testing.T) {
 		id := string(rune('a'+i)) + "-step"
 		steps[id] = Step{
 			ID: id,
-			Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+			Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 				// Read nested shared state AND (attempt) a direct write —
 				// the snapshot makes both race-free.
 				_ = state["shared"]

@@ -64,7 +64,7 @@ func durableEchoWorkflow() *pipeline.Workflow {
 			{
 				ID: "stage:echo", Label: "Echo",
 				Steps: map[string]pipeline.Step{
-					"step:echo": {ID: "step:echo", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					"step:echo": {ID: "step:echo", Effect: int(pipeline.EffectSideEffecting), Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue("done", true), nil
 					}},
 				},

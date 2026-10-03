@@ -63,11 +63,9 @@ func httpRun(ctx context.Context, nodeID string, config map[string]any) (func(ma
 		}
 	}
 	nCtx := &nodekit.TypedRunContext[HTTPConfig]{
-		NodeRunContext: nodekit.NodeRunContext{
-			NodeID: nodeID,
-			Config: config,
-		},
-		Config: &cfg,
+		NodeID:    nodeID,
+		RawConfig: config,
+		Config:    &cfg,
 	}
 	return run(ctx, nCtx)
 }

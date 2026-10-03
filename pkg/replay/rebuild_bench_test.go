@@ -46,7 +46,7 @@ func benchRebuildPipeline() *pipeline.PipelineDefinition {
 				stepID: {
 					ID:     stepID,
 					Effect: 2, // SideEffecting — replayer injects the recorded delta
-					Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+					Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 						return store.SetValue(key, val), nil
 					},
 				},

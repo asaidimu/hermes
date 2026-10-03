@@ -49,7 +49,7 @@ func TestPauseFailsWhenCheckpointPersistFails(t *testing.T) {
 					"noop": {
 						ID:     "noop",
 						Effect: 1, // pure — re-executed on replay, no log needed
-						Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 							st.armed = true
 							return nil, nil
 						},

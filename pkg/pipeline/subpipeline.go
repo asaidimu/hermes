@@ -11,6 +11,8 @@ import (
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
+
+	"go.uber.org/zap"
 )
 
 // ExecuteSubPipelines executes child pipelines concurrently and aggregates
@@ -35,8 +37,8 @@ func ExecuteSubPipelines(
 	stage Stage,
 	path events.EventPath,
 	parentStore store.Store,
-	bus events.ScopedEventBus,
-	logger core.Logger,
+	bus *events.MemoryScopedBus,
+	logger *zap.SugaredLogger,
 	subAddr *SubPipelineAddress,
 	resolver func(key string) (any, bool),
 	runEnv map[string]any,

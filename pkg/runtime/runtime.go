@@ -36,25 +36,23 @@ import (
 	"time"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/scheduler"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/asaidimu/hermes/pkg/timeline"
+
+	"go.uber.org/zap"
 )
 
-// SecretProvider supplies credentials to runs declaring secret requirements.
-// Implementations back onto the host's credential store (settings, vault,
-// keychain). Get values are consumed in-process by steps; implementations and
-// callers must never persist or log them.
-type SecretProvider interface {
-	// Get resolves a secret by key. Returns (nil, false) when unknown.
-	Get(ctx context.Context, key string) (any, bool)
-	// Has reports whether a key is resolvable without reading its value.
-	// Used for pre-flight validation at workflow registration time.
-	Has(ctx context.Context, key string) bool
-}
+// 20261003 refactor (plan R.3): the former SecretProvider interface had zero
+// implementations in the tree — hosts back the two operations with plain
+// funcs on Options instead:
+//
+//   - SecretGet resolves a secret by key (nil, false) when unknown. Values
+//     are consumed in-process by steps and must never be persisted or logged.
+//   - SecretHas reports whether a key is resolvable WITHOUT reading its
+//     value; used for pre-flight validation at workflow registration time.
 
 // Event names used by the runtime (mirror the TS constants).
 const (
@@ -67,18 +65,22 @@ type Options struct {
 	// Bus is the root event bus. Subscribers (including callers) see all
 	// pipeline/run events emitted during execution. When nil, the runtime
 	// creates an isolated in-memory bus.
-	Bus events.ScopedEventBus
+	Bus *events.MemoryScopedBus
 	// StoreFactory mints a brand-new store per run. The returned store's ID()
 	// becomes the run identifier: a run IS its state document, and creating
 	// that document creates the run's identity (a system-minted UUIDv7). When
 	// nil, a bare store.NewMemoryStore is used for every run.
 	StoreFactory func() (store.Store, error)
-	// Secrets resolves credentials requested by nodes via their declared
+	// SecretGet resolves credentials requested by nodes via their declared
 	// Requirements. Values surface to steps only through NodeRunContext.Secret
 	// lookups — they never persist to state, checkpoints, or events. When nil,
 	// workflows whose nodes declare required secrets fail registration.
-	Secrets SecretProvider
-	Logger  core.Logger
+	SecretGet func(ctx context.Context, key string) (any, bool)
+	// SecretHas reports whether a secret key is resolvable without reading
+	// its value (Register-time pre-flight). When nil, no secret requirements
+	// can be satisfied.
+	SecretHas func(ctx context.Context, key string) bool
+	Logger  *zap.SugaredLogger
 	// Env holds global environment layers available to runs.
 	Env map[string]any
 	// Services are runtime-global services. Kept for API parity with the TS
@@ -95,7 +97,7 @@ type Options struct {
 	// significant event during execution is recorded here, keyed by
 	// (runID, rerunIndex). It is the source of truth for crash recovery
 	// (via the Replayer) and for run history (ListRuns/GetEvents derive
-	// from it). When nil, a NopLog is used (no entries recorded).
+	// from it). When nil, logging is disabled.
 	ActionLog actionlog.Store
 	// RunHistoryTTL bounds how long the runtime keeps per-run bookkeeping
 	// in memory (#review-20260910-004).
@@ -153,7 +155,7 @@ type RunHandle struct {
 	Store      store.Store
 	Event      events.PipelineEvent
 	Context    *pipeline.RunContextImpl
-	Events     events.ScopedEventBus
+	Events     *events.MemoryScopedBus
 }
 
 func (h *RunHandle) ID() string { return h.RunID }
@@ -193,10 +195,11 @@ type RunOptions struct {
 
 // WorkflowRuntime orchestrates workflow runs. It is safe for concurrent use.
 type WorkflowRuntime struct {
-	bus          events.ScopedEventBus
-	logger       core.Logger
+	bus          *events.MemoryScopedBus
+	logger       *zap.SugaredLogger
 	env          map[string]any
-	secrets      SecretProvider
+	secretGet    func(ctx context.Context, key string) (any, bool)
+	secretHas    func(ctx context.Context, key string) bool
 	storeFactory func() (store.Store, error)
 	eventSource  EventSource
 	scheduler    scheduler.Scheduler
@@ -308,7 +311,8 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	rt := &WorkflowRuntime{
 		logger:        opts.Logger,
 		env:           opts.Env,
-		secrets:       opts.Secrets,
+		secretGet:     opts.SecretGet,
+		secretHas:     opts.SecretHas,
 		storeFactory:  opts.StoreFactory,
 		actionLog:     opts.ActionLog,
 		workflows:     make(map[string]*workflowRecord),
@@ -323,9 +327,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		runHistoryTTL: opts.RunHistoryTTL,
 	}
 	rt.startHistoryJanitor()
-	if rt.actionLog == nil {
-		rt.actionLog = actionlog.NopLog{}
-	}
+	// rt.actionLog nil = logging disabled (R.3 deleted NopLog).
 	if opts.EventSource != nil {
 		rt.eventSource = opts.EventSource
 	} else {
@@ -337,7 +339,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		rt.scheduler = scheduler.New()
 	}
 	if rt.logger == nil {
-		rt.logger = core.NopLogger{}
+		rt.logger = zap.NewNop().Sugar()
 	}
 	rt.bus = opts.Bus
 	if rt.bus == nil {
@@ -389,7 +391,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 }
 
 // Bus returns the runtime's root event bus.
-func (rt *WorkflowRuntime) Bus() events.ScopedEventBus { return rt.bus }
+func (rt *WorkflowRuntime) Bus() *events.MemoryScopedBus { return rt.bus }
 
 // Store returns the store created for a run (nil if the run never prepared).
 func (rt *WorkflowRuntime) Store(runID string) store.Store {

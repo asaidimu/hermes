@@ -84,11 +84,11 @@ func BuildRouter(nodeID string, def NodeDefinition, config map[string]any, resol
 			return pipeline.RoutingInstruction{}, err
 		}
 		handle, err := def.Router(ctx, NodeRunContext{
-			NodeID:  nodeID,
-			RunID:   pipeline.RunIDFromContext(ctx),
-			Config:  cfg,
-			State: state,
-			Store: st,
+			NodeID: nodeID,
+			RunID:  pipeline.RunIDFromContext(ctx),
+			Config: cfg,
+			State:  state,
+			Store:  st,
 		})
 		if err != nil {
 			return pipeline.RoutingInstruction{}, err
@@ -119,11 +119,11 @@ func buildRouterFunc(nodeID string, def NodeDefinition, config map[string]any, r
 			return pipeline.RoutingInstruction{}, err
 		}
 		inst, err := def.RouterFunc(ctx, NodeRunContext{
-			NodeID:  nodeID,
-			RunID:   pipeline.RunIDFromContext(ctx),
-			Config:  cfg,
-			State: state,
-			Store: st,
+			NodeID: nodeID,
+			RunID:  pipeline.RunIDFromContext(ctx),
+			Config: cfg,
+			State:  state,
+			Store:  st,
 		})
 		if err != nil {
 			return pipeline.RoutingInstruction{}, err
@@ -432,7 +432,7 @@ func BuildDistributeStage(
 						nodeID + "__inject": {
 							ID:    nodeID + "__inject",
 							Label: "inject item",
-							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 								return func(state map[string]any) error {
 									state[itemKey] = itemVal
 									return nil

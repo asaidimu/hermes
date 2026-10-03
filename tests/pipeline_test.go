@@ -39,7 +39,7 @@ func TestSequentialPipelineExecution(t *testing.T) {
 					"step-1": {
 						ID:    "step-1",
 						Label: "Step 1",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("count", int64(10)), nil
 						},
 					},
@@ -52,7 +52,7 @@ func TestSequentialPipelineExecution(t *testing.T) {
 					"step-2": {
 						ID:    "step-2",
 						Label: "Step 2",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							cur := toInt64(state["count"])
 							return store.SetValue("count", cur+5), nil
 						},
@@ -100,7 +100,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID: "init",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("jumped", true), nil
 						},
 					},
@@ -114,7 +114,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"never": {
 						ID: "never",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("skipped_executed", true), nil
 						},
 					},
@@ -125,7 +125,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID: "done",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("completed", true), nil
 						},
 					},
@@ -165,7 +165,7 @@ func TestPipelineStepRetryAndTimeout(t *testing.T) {
 						ID:      "flaky-step",
 						Retries: 2,
 						Timeout: 50 * time.Millisecond,
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							attempts++
 							if attempts < 3 {
 								return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "temporary glitch")

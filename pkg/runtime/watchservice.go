@@ -30,12 +30,12 @@ type WatchService struct {
 	// registrations, which must not resume until every watched type has
 	// delivered (a single matching event resumes mode=any waits immediately).
 	delivered      map[string]map[string]bool
-	bus            events.ScopedEventBus
+	bus            *events.MemoryScopedBus
 	resumeCallback func(runID string, patch map[string]any)
 }
 
 // NewWatchService creates a new WatchService.
-func NewWatchService(bus events.ScopedEventBus, resumeCallback func(runID string, patch map[string]any)) *WatchService {
+func NewWatchService(bus *events.MemoryScopedBus, resumeCallback func(runID string, patch map[string]any)) *WatchService {
 	return &WatchService{
 		registrations:  make(map[string]map[string]*watchRegistration),
 		byEventType:    make(map[string]map[string]bool),

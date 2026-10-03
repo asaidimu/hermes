@@ -11,6 +11,8 @@ import (
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/zap"
 )
 
 // TestStepPanicRecovered guards the fix for review-20260910-008: a panicking
@@ -24,7 +26,7 @@ func TestStepPanicRecovered(t *testing.T) {
 		Steps: map[string]Step{
 			"step:boom": {
 				ID: "step:boom",
-				Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+				Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 					panic("boom: nil map write")
 				},
 			},
@@ -32,7 +34,7 @@ func TestStepPanicRecovered(t *testing.T) {
 			// when the stage fails — the stage commit is all-or-nothing.
 			"step:ok": {
 				ID: "step:ok",
-				Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+				Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 					return store.SetValue("ok", true), nil
 				},
 			},
@@ -42,7 +44,7 @@ func TestStepPanicRecovered(t *testing.T) {
 	st := store.NewMemoryStore(nil)
 	err := ExecuteStageSteps(
 		context.Background(), "run-1", "pipe-1", stage, events.EventPath{}, st,
-		events.NewMemoryScopedBus(), core.NopLogger{}, "", nil, nil, nil,
+		events.NewMemoryScopedBus(), zap.NewNop().Sugar(), "", nil, nil, nil,
 		nil, 0,
 	)
 	require.Error(t, err)
@@ -60,14 +62,14 @@ func TestStepPanicRecovered(t *testing.T) {
 	healthy := Stage{
 		ID: "stage:ok", Label: "OK Stage",
 		Steps: map[string]Step{
-			"step:ok": {ID: "step:ok", Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+			"step:ok": {ID: "step:ok", Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 				return store.SetValue("ok", true), nil
 			}},
 		},
 	}
 	require.NoError(t, ExecuteStageSteps(
 		context.Background(), "run-1", "pipe-1", healthy, events.EventPath{}, st,
-		events.NewMemoryScopedBus(), core.NopLogger{}, "", nil, nil, nil,
+		events.NewMemoryScopedBus(), zap.NewNop().Sugar(), "", nil, nil, nil,
 		nil, 0,
 	))
 	_ = st.Read(func(state map[string]any) error { ok = state["ok"]; return nil })
@@ -85,7 +87,7 @@ func TestStepPanicRetries(t *testing.T) {
 			"step:flaky": {
 				ID:      "step:flaky",
 				Retries: 1,
-				Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+				Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 					attempts++
 					if attempts == 1 {
 						panic("first attempt blows up")
@@ -99,7 +101,7 @@ func TestStepPanicRetries(t *testing.T) {
 	st := store.NewMemoryStore(nil)
 	require.NoError(t, ExecuteStageSteps(
 		context.Background(), "run-1", "pipe-1", stage, events.EventPath{}, st,
-		events.NewMemoryScopedBus(), core.NopLogger{}, "", nil, nil, nil,
+		events.NewMemoryScopedBus(), zap.NewNop().Sugar(), "", nil, nil, nil,
 		nil, 0,
 	))
 	require.Equal(t, 2, attempts, "panicking attempt must be retried")
@@ -133,7 +135,7 @@ func TestSubpipelinePanicRecovered(t *testing.T) {
 					{
 						ID: "child:ok:stage", Label: "OK",
 						Steps: map[string]Step{
-							"child:ok:step": {ID: "child:ok:step", Action: func(ctx context.Context, pcxt PipelineContext, state map[string]any) (store.Mutator, error) {
+							"child:ok:step": {ID: "child:ok:step", Action: func(ctx context.Context, pcxt *PipelineContext, state map[string]any) (store.Mutator, error) {
 								return store.SetValue("ok", true), nil
 							}},
 						},
@@ -146,7 +148,7 @@ func TestSubpipelinePanicRecovered(t *testing.T) {
 	parent := store.NewMemoryStore(nil)
 	results, err := ExecuteSubPipelines(
 		context.Background(), "run-1", "parent", stage, events.EventPath{}, parent,
-		events.NewMemoryScopedBus(), core.NopLogger{}, nil, nil, nil, nil,
+		events.NewMemoryScopedBus(), zap.NewNop().Sugar(), nil, nil, nil, nil,
 		nil, 0,
 	)
 	// The panic is a per-child failure, not an infrastructural error.

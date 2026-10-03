@@ -483,15 +483,16 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	return result
 }
 
-// secretLookup adapts the configured SecretProvider into the context-free
+// secretLookup adapts the configured secret funcs (Options.SecretGet, R.3)
+// into the context-free
 // lookup function steps receive. Secrets are resolved lazily at execution
 // time; no request context is available (or needed) for host-backed stores.
 func (rt *WorkflowRuntime) secretLookup() func(key string) (any, bool) {
 	return func(key string) (any, bool) {
-		if rt.secrets == nil {
+		if rt.secretGet == nil {
 			return nil, false
 		}
-		return rt.secrets.Get(context.Background(), key)
+		return rt.secretGet(context.Background(), key)
 	}
 }
 

@@ -22,7 +22,7 @@ func TestConcurrentSubPipelines(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"c1-step": {
 						ID: "c1-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("c1_done", true), nil
 						},
 					},
@@ -40,7 +40,7 @@ func TestConcurrentSubPipelines(t *testing.T) {
 				Steps: map[string]pipeline.Step{
 					"c2-step": {
 						ID: "c2-step",
-						Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+						Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 							return store.SetValue("c2_done", true), nil
 						},
 					},
@@ -91,7 +91,7 @@ func TestHighConcurrencySubPipelines(t *testing.T) {
 					Steps: map[string]pipeline.Step{
 						"s-step": {
 							ID: "s-step",
-							Action: func(ctx context.Context, pcxt pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+							Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
 								return store.SetValue(fmt.Sprintf("key_%d", idx), idx), nil
 							},
 						},

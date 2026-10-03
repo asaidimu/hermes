@@ -104,10 +104,10 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 
 	// Wire the Rebuilder (Replayer) so factory.Resume uses event-sourced
 	// recovery from the action log instead of the legacy checkpoint path.
-	// Skip when the action log is a NopLog — event-sourced recovery needs
+	// Skip when no action log is configured — event-sourced recovery needs
 	// durable entries to reconstruct state.
-	var rp pipeline.Rebuilder
-	if _, isNop := rt.actionLog.(actionlog.NopLog); !isNop {
+	var rp pipeline.RebuildFunc
+	if rt.actionLog != nil {
 		// @note #review-20260910-003 issue P2 resolved status=resolved priority=P2 tags=#review,#replay : DefinitionResolver answered every id with the root pipeline definition
 		// @author hermes-review
 		//
@@ -137,7 +137,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 			}
 			return nil, false
 		}
-		rp = replay.NewReplayer(rt.actionLog, definitionResolver)
+		rp = replay.NewReplayer(rt.actionLog, definitionResolver).Rebuild
 	}
 
 	// Advance the rerun index for this attempt — see the resolved
@@ -152,7 +152,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	factory := pipeline.NewFactory(pdef, pipeline.FactoryOptions{
 		Logger:       rt.logger,
 		ActionLog:    rt.actionLog,
-		Rebuilder:    rp,
+		Rebuild:      rp,
 		RerunIndex:   rerunIndex,
 		RunEnv:       rt.env,
 		SecretLookup: rt.secretLookup(),
@@ -201,14 +201,16 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 
 	// Record the resume in the action log so the Replayer knows this run
 	// is no longer paused.
-	rt.actionLog.Append(context.Background(), actionlog.Entry{
-		RunID:      runID,
-		RerunIndex: rt.rerunIndexOf(runID),
-		PipelineID: paused.pipelineID,
-		Kind:       actionlog.KindResumed,
-		Type:       "pipeline:resumed",
-		StageID:    ckpt.ResumeAt.Stage,
-	})
+	if rt.actionLog != nil {
+		rt.actionLog.Append(context.Background(), actionlog.Entry{
+			RunID:      runID,
+			RerunIndex: rt.rerunIndexOf(runID),
+			PipelineID: paused.pipelineID,
+			Kind:       actionlog.KindResumed,
+			Type:       "pipeline:resumed",
+			StageID:    ckpt.ResumeAt.Stage,
+		})
+	}
 
 	// The rebuilt store was adopted as the canonical store above (see the
 	// resolved #review-20260910-002 note): st, rt.stores[runID], and the
