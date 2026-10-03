@@ -1,7 +1,16 @@
+// Package registry tracks active runs in memory. It is a passive,
+// best-effort view: registration is manual (a host or test registers a run
+// it wants to track), nothing in pkg/runtime consults it, and it holds no
+// recovery responsibility.
+//
+// 20261003 refactor (plan D.1): the "two-tier resumption" machinery —
+// MarkPaused with time.AfterFunc pause-expiration timers and
+// FastPathResume — was deleted. Nothing called it (the runtime has its own
+// paused-run tracking; the single caller was a test), the expiration timer
+// flipped a status no one read, and the README claim it backed was false.
 package registry
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -12,43 +21,24 @@ import (
 
 // ActiveRun represents a live, in-flight or paused pipeline execution.
 type ActiveRun struct {
-	RunID        string
-	PipelineID   string
-	RunContext   *pipeline.RunContextImpl
-	Store        store.Store
-	Status       string // "running" | "paused" | "completed" | "failed" | "aborted"
-	CreatedAt    time.Time
-	PausedAt     *time.Time
-	ExpiresAt    *time.Time
-	timer        *time.Timer
-	onExpiration func(runID string)
-}
-
-// RegistryOptions configures the pipeline registry.
-type RegistryOptions struct {
-	Logger       core.Logger
-	OnExpiration func(runID string)
+	RunID      string
+	PipelineID string
+	RunContext *pipeline.RunContextImpl
+	Store      store.Store
+	Status     string // "running" | "paused" | "completed" | "failed" | "aborted"
+	CreatedAt  time.Time
 }
 
 // PipelineRegistry tracks active runs in memory.
 type PipelineRegistry struct {
-	mu      sync.RWMutex
-	runs    map[string]*ActiveRun
-	options RegistryOptions
+	mu   sync.RWMutex
+	runs map[string]*ActiveRun
 }
 
 // NewPipelineRegistry creates a new pipeline registry.
-func NewPipelineRegistry(opts ...RegistryOptions) *PipelineRegistry {
-	var opt RegistryOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
-	if opt.Logger == nil {
-		opt.Logger = core.NopLogger{}
-	}
+func NewPipelineRegistry() *PipelineRegistry {
 	return &PipelineRegistry{
-		runs:    make(map[string]*ActiveRun),
-		options: opt,
+		runs: make(map[string]*ActiveRun),
 	}
 }
 
@@ -78,12 +68,9 @@ func (r *PipelineRegistry) Register(run *ActiveRun) error {
 // Resolved: return a shallow copy of the registry's internal ActiveRun
 // instead of the live pointer. RunContext and Store are still shared (they
 // are meant to be — the actual live execution context and its store), but
-// the ActiveRun struct's own bookkeeping fields (Status, PausedAt,
-// ExpiresAt, timer) are now decoupled: a caller mutating the returned
-// value's Status can no longer race with MarkPaused/FastPathResume/the
-// expiration timer's callback, which all operate on the registry's own
-// r.runs[runID] entry under r.mu, not on whatever a past Get() caller is
-// holding.
+// the ActiveRun struct's own bookkeeping fields (Status, CreatedAt) are now
+// decoupled: a caller mutating the returned value's Status can no longer
+// race with the registry's own r.runs[runID] entry under r.mu.
 func (r *PipelineRegistry) Get(runID string) (*ActiveRun, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -100,82 +87,11 @@ func copyActiveRun(run *ActiveRun) *ActiveRun {
 	return &cp
 }
 
-// Deregister removes a run from the registry and stops any expiration timers.
+// Deregister removes a run from the registry.
 func (r *PipelineRegistry) Deregister(runID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	if run, ok := r.runs[runID]; ok {
-		if run.timer != nil {
-			run.timer.Stop()
-		}
-		delete(r.runs, runID)
-	}
-}
-
-// MarkPaused sets a run to paused state and initiates an expiration timer if timeout > 0.
-func (r *PipelineRegistry) MarkPaused(runID string, timeout time.Duration, onExpired ...func(runID string)) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	run, ok := r.runs[runID]
-	if !ok {
-		return core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
-	}
-
-	now := time.Now()
-	run.Status = "paused"
-	run.PausedAt = &now
-
-	if timeout > 0 {
-		exp := now.Add(timeout)
-		run.ExpiresAt = &exp
-
-		var expCb func(id string)
-		if len(onExpired) > 0 && onExpired[0] != nil {
-			expCb = onExpired[0]
-		} else if r.options.OnExpiration != nil {
-			expCb = r.options.OnExpiration
-		}
-
-		if run.timer != nil {
-			run.timer.Stop()
-		}
-
-		run.timer = time.AfterFunc(timeout, func() {
-			r.mu.Lock()
-			if active, exists := r.runs[runID]; exists && active.Status == "paused" {
-				active.Status = "expired"
-			}
-			r.mu.Unlock()
-
-			if expCb != nil {
-				expCb(runID)
-			}
-		})
-	}
-
-	return nil
-}
-
-// FastPathResume retrieves an in-memory run for fast resumption.
-func (r *PipelineRegistry) FastPathResume(ctx context.Context, runID string) (*ActiveRun, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	run, ok := r.runs[runID]
-	if !ok {
-		return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
-	}
-
-	if run.timer != nil {
-		run.timer.Stop()
-		run.timer = nil
-	}
-
-	run.Status = "running"
-	run.ExpiresAt = nil
-	return run, nil
+	delete(r.runs, runID)
 }
 
 // List returns copies of all active runs (see the note on Get for why these

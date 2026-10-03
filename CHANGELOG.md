@@ -1,3 +1,16 @@
+# Unreleased — 20261003 refactor (branch refactor/20261003-audits)
+
+Pre-production delete policy: the library has no production consumers, so
+removed symbols are deleted outright. This `Removed` section is the record.
+
+## Removed
+
+- `runtime.Options.StoreLoader` and `WorkflowRuntime.newStoreForID` — dead recovery path: zero callers anywhere in the tree; the only "call site" was its own wiring. Restart recovery returns (plan S.3) as one startup-rebuild procedure off the action log.
+- `store.AnansiStoreFactory.Loader()` — adapter for the deleted `StoreLoader`.
+- `pkg/events/durable.go` entirely (`NewDurableEventBus`, `NewDurableMemoryScopedBus`, `WithDurableBackend`, `DurableBusConfig`, the in-memory "durable" store) — the bus's store was an in-memory map, `Underlying()` had zero callers, and `Subscribe` never read the backend: a durable shape with no durability.
+- `events.MemoryScopedBus.Underlying()` — accessor for the deleted backend, zero callers.
+- `registry.PipelineRegistry.MarkPaused` / `FastPathResume` and the `ActiveRun` pause-expiration timer machinery (`timer`, `onExpiration`, `ExpiresAt`, `PausedAt`, `RegistryOptions`) — nothing called them (the runtime tracks paused runs itself); the README's "two-tier resumption" claim was false and has been removed.
+
 ## [1.2.1](https://github.com/asaidimu/hermes/compare/v1.2.0...v1.2.1) (2026-09-18)
 
 

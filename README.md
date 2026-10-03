@@ -29,7 +29,7 @@ The project is deliberately **polyglot**. Every built-in node kind lives in its 
 ### Key Features
 - **Routing State Machine**: Stages evaluate routing instructions — `Advance`, `Terminate`, `Jump`, `JumpTo`, `Pause` — driven by document queries and step outcomes.
 - **Atomic Stage Commits**: Concurrent steps produce isolated mutations that are merged and committed atomically to the Anansi-backed document store at stage boundaries.
-- **Checkpoint Pause & Resume**: Suspend workflows at stage boundaries with serialized resume addresses; restore from the in-memory registry cache or reload from cold storage via two-tier resumption.
+- **Checkpoint Pause & Resume**: Suspend workflows at stage boundaries with serialized resume addresses; the runtime tracks paused runs and resumes them from the event-sourced action log (the Replayer rebuilds state; the checkpoint in the run state is the fallback).
 - **Time-Travel Timeline**: Sequence-indexed event recording with periodic snapshots, playable forward/backward and consumable directly by the frontend timeline scrubber.
 - **Subpipeline Fork/Join**: Stages can fan out into concurrent child pipelines whose results are aggregated by a pipelines router.
 - **Event-Driven Runtime**: A bus-driven orchestrator dispatches external events to registered workflows, supports per-workflow concurrency modes (`transient`, `serialized`, `exclusive`, `loop`), and resumes paused runs on matching events via a pre-buffering watch service.
@@ -273,7 +273,7 @@ func main() {
 - **Runtime (`pkg/runtime`)**: Bus-driven orchestrator. Dispatches trigger events, spawns per-run stores, enforces per-workflow concurrency modes, records the unified action log, tracks outcomes, parks/resumes paused runs (single- or multi-event waits, any/all semantics), and integrates the scheduler.
 - **Node Kit & Catalog (`pkg/nodekit`, `pkg/nodes/*`): Shared registration types (`NodeDefinition`, `HandleSpec`, runners/routers/resource hooks). Each kind's package registers itself via `init()`; the `pkg/nodes` aggregator pulls them all in. Every kind also declares a TypeScript twin consumed by the npm build.
 - **Observability Log (`pkg/actionlog`)**: Append-only log keyed by `(runID, rerunIndex)` recording every step/stage/lifecycle event with state deltas. Source of truth for crash recovery (via `pkg/replay`) and run history; `pkg/timeline` holds only the frontend wire projection.
-- **Registry (`pkg/registry`)**: Thread-safe tracking of active runs with `time.AfterFunc` pause-expiration timers and expiry hooks powering two-tier resumption.
+- **Registry (`pkg/registry`)**: Passive, thread-safe tracking of active runs. It holds no recovery responsibility — pause/resume belongs to the runtime and the action log.
 - **Scheduler (`pkg/scheduler`)**: Pluggable cron/delay interface with an in-memory reference implementation suitable for single-process deployments.
 - **Watch Service (`pkg/watch`, `pkg/runtime/watchservice.go`)**: Registers event watchers on behalf of `pause` nodes, buffers events arriving before the pause settles, and resolves waits by payload conditions.
 - **Expression Sandbox (`pkg/expr`)**: goja-based JavaScript evaluation used by the `code` node and expression handling.
