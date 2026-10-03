@@ -1,12 +1,12 @@
 package scheduler
 
 import (
-        "fmt"
-        "log/slog"
-        "strconv"
-        "strings"
-        "sync"
-        "time"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 // @note #improvement-cron-cache-001 issue P2 status=proposed priority=P2 tags=#improvement,#performance : CronDelay re-parses the 5-field cron expression on every call
@@ -36,15 +36,15 @@ var cronParseCache sync.Map // map[string]*Cron
 // validation fix that makes the expression valid should not be masked
 // by a stale negative cache entry).
 func parseCronCached(expr string) (*Cron, error) {
-        if cached, ok := cronParseCache.Load(expr); ok {
-                return cached.(*Cron), nil
-        }
-        c, err := parseCron(expr)
-        if err != nil {
-                return nil, err
-        }
-        cronParseCache.Store(expr, c)
-        return c, nil
+	if cached, ok := cronParseCache.Load(expr); ok {
+		return cached.(*Cron), nil
+	}
+	c, err := parseCron(expr)
+	if err != nil {
+		return nil, err
+	}
+	cronParseCache.Store(expr, c)
+	return c, nil
 }
 
 // CronDelay computes the duration from now until the next cron fire.
@@ -58,57 +58,57 @@ func parseCronCached(expr string) (*Cron, error) {
 // immutable and the cache hit rate is effectively 100% after the first
 // fire of each distinct expression.
 func CronDelay(expr string) time.Duration {
-        expr = strings.TrimSpace(expr)
+	expr = strings.TrimSpace(expr)
 
-        // Handle @every, @daily, @hourly, @weekly
-        if strings.HasPrefix(expr, "@every ") {
-                d, err := time.ParseDuration(expr[7:])
-                if err != nil {
-                        // @note #review-20260822-053 issue P2 resolved status=resolved priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
-                        //
-                        // Resolved: log the error before falling back. Kept the
-                        // time.Hour fallback and CronDelay's `time.Duration`-only
-                        // signature unchanged — CronDelay is called from
-                        // scheduleNextLocked's recursive re-arm path on every single
-                        // tick of every running job, and from existing tests as
-                        // `d := CronDelay(...)`; changing the signature to return an
-                        // error would touch every call site and every test assertion
-                        // for a change that doesn't change runtime behavior (the
-                        // fallback still has to be *some* duration either way). Logging
-                        // closes the "silently masks" half of the note without that
-                        // wider, unverifiable change.
-                        slog.Warn("scheduler: invalid @every duration in cron expression, falling back to hourly", "expr", expr, "error", err)
-                        return time.Hour
-                }
-                return d
-        }
-        switch expr {
-        case "@daily", "@midnight":
-                return untilNext(time.Hour * 24)
-        case "@hourly":
-                return untilNext(time.Hour)
-        case "@weekly":
-                return untilNext(time.Hour * 24 * 7)
-        }
+	// Handle @every, @daily, @hourly, @weekly
+	if strings.HasPrefix(expr, "@every ") {
+		d, err := time.ParseDuration(expr[7:])
+		if err != nil {
+			// @note #review-20260822-053 issue P2 resolved status=resolved priority=P2 tags=#review,#error-handling : CronDelay silently masks invalid cron expressions
+			//
+			// Resolved: log the error before falling back. Kept the
+			// time.Hour fallback and CronDelay's `time.Duration`-only
+			// signature unchanged — CronDelay is called from
+			// scheduleNextLocked's recursive re-arm path on every single
+			// tick of every running job, and from existing tests as
+			// `d := CronDelay(...)`; changing the signature to return an
+			// error would touch every call site and every test assertion
+			// for a change that doesn't change runtime behavior (the
+			// fallback still has to be *some* duration either way). Logging
+			// closes the "silently masks" half of the note without that
+			// wider, unverifiable change.
+			slog.Warn("scheduler: invalid @every duration in cron expression, falling back to hourly", "expr", expr, "error", err)
+			return time.Hour
+		}
+		return d
+	}
+	switch expr {
+	case "@daily", "@midnight":
+		return untilNext(time.Hour * 24)
+	case "@hourly":
+		return untilNext(time.Hour)
+	case "@weekly":
+		return untilNext(time.Hour * 24 * 7)
+	}
 
-        // Standard 5-field cron — parse is cached, only Next runs per call.
-        c, err := parseCronCached(expr)
-        if err != nil {
-                slog.Warn("scheduler: invalid cron expression, falling back to hourly", "expr", expr, "error", err)
-                return time.Hour // fallback
-        }
-        next := c.Next(time.Now())
-        d := time.Until(next)
-        if d <= 0 {
-                d = time.Second
-        }
-        return d
+	// Standard 5-field cron — parse is cached, only Next runs per call.
+	c, err := parseCronCached(expr)
+	if err != nil {
+		slog.Warn("scheduler: invalid cron expression, falling back to hourly", "expr", expr, "error", err)
+		return time.Hour // fallback
+	}
+	next := c.Next(time.Now())
+	d := time.Until(next)
+	if d <= 0 {
+		d = time.Second
+	}
+	return d
 }
 
 func untilNext(interval time.Duration) time.Duration {
-        now := time.Now()
-        next := now.Truncate(interval).Add(interval)
-        return time.Until(next)
+	now := time.Now()
+	next := now.Truncate(interval).Add(interval)
+	return time.Until(next)
 }
 
 // ValidateCron reports whether expr is a cron expression this scheduler can
@@ -118,156 +118,156 @@ func untilNext(interval time.Duration) time.Duration {
 // registration time instead of silently falling back to an hourly fire
 // (#review-20260910-013).
 func ValidateCron(expr string) error {
-        expr = strings.TrimSpace(expr)
+	expr = strings.TrimSpace(expr)
 
-        if strings.HasPrefix(expr, "@every ") {
-                d, err := time.ParseDuration(expr[7:])
-                if err != nil {
-                        return fmt.Errorf("invalid @every duration in cron expression %q: %w", expr, err)
-                }
-                if d <= 0 {
-                        return fmt.Errorf("invalid @every duration in cron expression %q: must be positive", expr)
-                }
-                return nil
-        }
-        switch expr {
-        case "@daily", "@midnight", "@hourly", "@weekly":
-                return nil
-        }
-        if expr == "" {
-                return fmt.Errorf("cron expression is empty")
-        }
+	if strings.HasPrefix(expr, "@every ") {
+		d, err := time.ParseDuration(expr[7:])
+		if err != nil {
+			return fmt.Errorf("invalid @every duration in cron expression %q: %w", expr, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("invalid @every duration in cron expression %q: must be positive", expr)
+		}
+		return nil
+	}
+	switch expr {
+	case "@daily", "@midnight", "@hourly", "@weekly":
+		return nil
+	}
+	if expr == "" {
+		return fmt.Errorf("cron expression is empty")
+	}
 
-        // Standard 5-field cron
-        if _, err := parseCron(expr); err != nil {
-                return fmt.Errorf("invalid cron expression %q: %w", expr, err)
-        }
-        return nil
+	// Standard 5-field cron
+	if _, err := parseCron(expr); err != nil {
+		return fmt.Errorf("invalid cron expression %q: %w", expr, err)
+	}
+	return nil
 }
 
 // Cron represents a parsed 5-field cron expression.
 type Cron struct {
-        Minute, Hour, Day, Month, Weekday []int
+	Minute, Hour, Day, Month, Weekday []int
 }
 
 func parseCron(expr string) (*Cron, error) {
-        fields := strings.Fields(expr)
-        if len(fields) != 5 {
-                return nil, fmt.Errorf("cron: expected 5 fields, got %d", len(fields))
-        }
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return nil, fmt.Errorf("cron: expected 5 fields, got %d", len(fields))
+	}
 
-        c := &Cron{}
-        var err error
+	c := &Cron{}
+	var err error
 
-        if c.Minute, err = parseField(fields[0], 0, 59); err != nil {
-                return nil, fmt.Errorf("cron: minute: %w", err)
-        }
-        if c.Hour, err = parseField(fields[1], 0, 23); err != nil {
-                return nil, fmt.Errorf("cron: hour: %w", err)
-        }
-        if c.Day, err = parseField(fields[2], 1, 31); err != nil {
-                return nil, fmt.Errorf("cron: day: %w", err)
-        }
-        if c.Month, err = parseField(fields[3], 1, 12); err != nil {
-                return nil, fmt.Errorf("cron: month: %w", err)
-        }
-        if c.Weekday, err = parseField(fields[4], 0, 6); err != nil {
-                return nil, fmt.Errorf("cron: weekday: %w", err)
-        }
-        return c, nil
+	if c.Minute, err = parseField(fields[0], 0, 59); err != nil {
+		return nil, fmt.Errorf("cron: minute: %w", err)
+	}
+	if c.Hour, err = parseField(fields[1], 0, 23); err != nil {
+		return nil, fmt.Errorf("cron: hour: %w", err)
+	}
+	if c.Day, err = parseField(fields[2], 1, 31); err != nil {
+		return nil, fmt.Errorf("cron: day: %w", err)
+	}
+	if c.Month, err = parseField(fields[3], 1, 12); err != nil {
+		return nil, fmt.Errorf("cron: month: %w", err)
+	}
+	if c.Weekday, err = parseField(fields[4], 0, 6); err != nil {
+		return nil, fmt.Errorf("cron: weekday: %w", err)
+	}
+	return c, nil
 }
 
 // Next returns the next time the cron matches after t.
 func (c *Cron) Next(t time.Time) time.Time {
-        t = t.Add(time.Minute).Truncate(time.Minute)
+	t = t.Add(time.Minute).Truncate(time.Minute)
 
-        for y := t.Year(); y <= t.Year()+1; y++ {
-                for m := 1; m <= 12; m++ {
-                        if !contains(c.Month, m) {
-                                continue
-                        }
-                        daysInMonth := time.Date(y, time.Month(m+1), 0, 0, 0, 0, 0, t.Location()).Day()
-                        for d := 1; d <= daysInMonth; d++ {
-                                if !contains(c.Day, d) {
-                                        continue
-                                }
-                                wd := int(time.Date(y, time.Month(m), d, 0, 0, 0, 0, t.Location()).Weekday())
-                                if !contains(c.Weekday, wd) {
-                                        continue
-                                }
-                                for h := 0; h < 24; h++ {
-                                        if !contains(c.Hour, h) {
-                                                continue
-                                        }
-                                        for min := 0; min < 60; min++ {
-                                                if !contains(c.Minute, min) {
-                                                        continue
-                                                }
-                                                candidate := time.Date(y, time.Month(m), d, h, min, 0, 0, t.Location())
-                                                if candidate.After(t) {
-                                                        return candidate
-                                                }
-                                        }
-                                }
-                        }
-                }
-        }
-        return t.Add(time.Hour)
+	for y := t.Year(); y <= t.Year()+1; y++ {
+		for m := 1; m <= 12; m++ {
+			if !contains(c.Month, m) {
+				continue
+			}
+			daysInMonth := time.Date(y, time.Month(m+1), 0, 0, 0, 0, 0, t.Location()).Day()
+			for d := 1; d <= daysInMonth; d++ {
+				if !contains(c.Day, d) {
+					continue
+				}
+				wd := int(time.Date(y, time.Month(m), d, 0, 0, 0, 0, t.Location()).Weekday())
+				if !contains(c.Weekday, wd) {
+					continue
+				}
+				for h := 0; h < 24; h++ {
+					if !contains(c.Hour, h) {
+						continue
+					}
+					for min := 0; min < 60; min++ {
+						if !contains(c.Minute, min) {
+							continue
+						}
+						candidate := time.Date(y, time.Month(m), d, h, min, 0, 0, t.Location())
+						if candidate.After(t) {
+							return candidate
+						}
+					}
+				}
+			}
+		}
+	}
+	return t.Add(time.Hour)
 }
 
 func contains(vals []int, v int) bool {
-        for _, x := range vals {
-                if x == v {
-                        return true
-                }
-        }
-        return false
+	for _, x := range vals {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func parseField(field string, min, max int) ([]int, error) {
-        var result []int
-        parts := strings.Split(field, ",")
-        for _, part := range parts {
-                part = strings.TrimSpace(part)
-                if part == "*" {
-                        for i := min; i <= max; i++ {
-                                result = append(result, i)
-                        }
-                        continue
-                }
-                if strings.Contains(part, "-") {
-                        bounds := strings.SplitN(part, "-", 2)
-                        lo, err := strconv.Atoi(bounds[0])
-                        if err != nil {
-                                return nil, err
-                        }
-                        hi, err := strconv.Atoi(bounds[1])
-                        if err != nil {
-                                return nil, err
-                        }
-                        for i := lo; i <= hi; i++ {
-                                result = append(result, i)
-                        }
-                        continue
-                }
-                if strings.HasPrefix(part, "*/") {
-                        step, err := strconv.Atoi(part[2:])
-                        if err != nil {
-                                return nil, err
-                        }
-                        for i := min; i <= max; i += step {
-                                result = append(result, i)
-                        }
-                        continue
-                }
-                v, err := strconv.Atoi(part)
-                if err != nil {
-                        return nil, err
-                }
-                if v < min || v > max {
-                        return nil, fmt.Errorf("value %d out of range [%d, %d]", v, min, max)
-                }
-                result = append(result, v)
-        }
-        return result, nil
+	var result []int
+	parts := strings.Split(field, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "*" {
+			for i := min; i <= max; i++ {
+				result = append(result, i)
+			}
+			continue
+		}
+		if strings.Contains(part, "-") {
+			bounds := strings.SplitN(part, "-", 2)
+			lo, err := strconv.Atoi(bounds[0])
+			if err != nil {
+				return nil, err
+			}
+			hi, err := strconv.Atoi(bounds[1])
+			if err != nil {
+				return nil, err
+			}
+			for i := lo; i <= hi; i++ {
+				result = append(result, i)
+			}
+			continue
+		}
+		if strings.HasPrefix(part, "*/") {
+			step, err := strconv.Atoi(part[2:])
+			if err != nil {
+				return nil, err
+			}
+			for i := min; i <= max; i += step {
+				result = append(result, i)
+			}
+			continue
+		}
+		v, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, err
+		}
+		if v < min || v > max {
+			return nil, fmt.Errorf("value %d out of range [%d, %d]", v, min, max)
+		}
+		result = append(result, v)
+	}
+	return result, nil
 }
