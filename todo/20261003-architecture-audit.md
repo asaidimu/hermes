@@ -186,3 +186,24 @@ concentrated in four places:
 4. **Per-attempt recompilation**: schema/interpolation/binding/VM construction on
    the hot path where the inputs are static. Move to compile time (graph
    compilation already exists — it's the natural place).
+
+---
+
+### §E Dispositions (20261003 refactor — recorded item-by-item by D.5)
+
+| §E Item | Disposition |
+|---|---|
+| `Options.StoreLoader` / `newStoreForID` | → D.1: deleted outright (zero callers; restart recovery returns as ONE startup-rebuild procedure in S.3) |
+| Durable event log reader (`Underlying()`) | → D.1: deleted with the whole of `pkg/events/durable.go` (durable shape, no durability) |
+| `registry` two-tier resume | → D.1: `MarkPaused`/`FastPathResume`/timer machinery deleted; README claim removed same commit |
+| `TimelineStore.Append`, snapshots | → D.2: SPEC.md §9 carries an explicit NOT IMPLEMENTED marker; no code existed to delete |
+| `pkg/server` HTTP layer | → D.2: SPEC.md directory line marked NOT IMPLEMENTED; `Run()` doc reference corrected in D.2/P6.1 |
+| `store.Flush` | → D.2: deleted from interface + both impls; `Sync` remains |
+| `PipelineFactory.schema`, `PipelineDefinition.Schema` | → D.2: field, factory field, and `NewFactory` parameter deleted; call sites updated |
+| `Stage.Order` | → D.2: field deleted; `WorkflowView` emits slice index under the existing `"order"` key (view shape stable) |
+| `state["results"]` | → D.4: three dead reads + `NodeRunContext.Results` deleted; the LIVE pipelines-router channel (`resultsByID` → `InterpolationContext.Results`, `${results.*}` interpolation, `PipelinesRouterFunc` results argument) is kept — the audit's read-never-written observation held for the step path only |
+| `placeholder` edge role | → D.2: kept as accepted-and-ignored wire compat, documented in `pkg/compiler/wire.go` |
+| `wfResources` | → D.2 DISPOSITION DEVIATION (recorded in-code): the map is a LIVE init-once cache read by `initResources`, not write-only state — deleting it would re-init shared services per run (Trap #5: demolition ≠ behavior change). The audit's real finding (never iterated for cleanup) is remedied by C2, which adds the teardown that iterates it in Deregister/Shutdown |
+| Event-source unsubscribe discarded | → C2 (Phase 3): the unsubscribe func is retained in `workflowRecord` and invoked on Deregister |
+
+OA dead-weight rows are dispositioned in the over-abstraction audit file (R.3) and CHANGELOG `Removed` (D.1–D.4); the machine gate for both is `tests/deletion_audit_test.go` (zero `// Deprecated:` declarations; deleted symbols stay dead) plus zero-declaration grep proofs in each demolition commit.

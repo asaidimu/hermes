@@ -59,9 +59,3 @@ func LoggerFromContext(ctx context.Context) Logger {
 	return NopLogger{}
 }
 
-// GetLogger retrieves the logger from the context.
-//
-// Deprecated: use LoggerFromContext instead. Kept for backward compatibility.
-func GetLogger(ctx context.Context) Logger {
-	return LoggerFromContext(ctx)
-}

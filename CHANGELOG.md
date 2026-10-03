@@ -9,6 +9,8 @@ removed symbols are deleted outright. This `Removed` section is the record.
 - `store.AnansiStoreFactory.Loader()` — adapter for the deleted `StoreLoader`.
 - `pkg/events/durable.go` entirely (`NewDurableEventBus`, `NewDurableMemoryScopedBus`, `WithDurableBackend`, `DurableBusConfig`, the in-memory "durable" store) — the bus's store was an in-memory map, `Underlying()` had zero callers, and `Subscribe` never read the backend: a durable shape with no durability.
 - `events.MemoryScopedBus.Underlying()` — accessor for the deleted backend, zero callers.
+- `core.GetLogger` — a pre-existing `// Deprecated:` stub (zero callers); superseded by `core.LoggerFromContext`. The deletion audit (`tests/deletion_audit_test.go`) now enforces zero `// Deprecated:` declarations on the branch.
+
 - `pkg/effect` package entirely (`effect.Pure`, `effect.SideEffecting`) — a 15-LOC import-cycle workaround whose constants were hand-synced with `nodekit.Effect` (§F consistency obligation). The canonical `Effect` enum now lives in `pkg/pipeline` (next to `Step.Effect`); `pkg/nodekit` re-exports aliases at its authoring-SDK boundary. Integer values unchanged.
 - `nodekit.NodeRunContext.Results` — on the step/router paths it was fed from `state["results"]`, which nothing in the tree ever wrote (always nil). The pipelines-mode router keeps its live child-results channel (`InterpolationContext.Results`, fed by `resultsByID`) and the `results []pipeline.PipelineRunResult` argument; only the dead field and the three dead reads are gone.
 
