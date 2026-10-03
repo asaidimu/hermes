@@ -193,18 +193,115 @@ func buildResourceServices(nodes []Node) ([]pipeline.Service, error) {
 // Outer BFS
 // ---------------------------------------------------------------------------
 
-func bfsStages(startID string, byID map[string]Node, allEdges []Edge) (reached []string, orderByID map[string]int) {
+// ---------------------------------------------------------------------------
+// ONE graph walk (R.7): the three former BFS walks (outer pipeline, bounded
+// body, fork branch) shared near-identical queue/seen/order bookkeeping and
+// differed only in seeds, stop nodes, exclusion fences, and the child-target
+// policy. walkGraph owns the bookkeeping; call sites pass their nuances.
+// ---------------------------------------------------------------------------
+
+// defaultTargetFor returns the first outgoing flow edge target from
+// sourceID, or "" — with the given stage/node ids excluded (the per-walk
+// nuances: terminal leaves, bounded bodies, fork/join fences).
+func defaultTargetFor(sourceID string, flow []Edge, exclude ...string) string {
+	t := nextDefaultTarget(sourceID, flow)
+	if t == "" {
+		return ""
+	}
+	for _, x := range exclude {
+		if t == x {
+			return ""
+		}
+	}
+	return t
+}
+
+// walkMode selects the child-target policy:
+//
+//	walkOuter: executable nodes with a body handle enqueue only their
+//	non-body children (the body is walked separately as its own subgraph);
+//	router nodes fan out on every flow edge; everything else follows the
+//	default edge. (The original bfsStages policy.)
+//
+//	walkInner: inside a bounded body or fork branch, executable nodes with
+//	a body handle OR a router fan out on every flow edge (all targets are
+//	inside the walked subgraph); everything else follows the default edge.
+//	(The original bfsBodyNodes / bfsForkBranchNodes policy.)
+type walkMode int
+
+const (
+	walkOuter walkMode = iota
+	walkInner
+)
+
+func nodeTargets(id string, node Node, mode walkMode, flow []Edge, exclude ...string) []string {
+	excluded := func(t string) bool {
+		if t == "" {
+			return true
+		}
+		for _, x := range exclude {
+			if t == x {
+				return true
+			}
+		}
+		return false
+	}
+	if node.Type == NodeExecutable {
+		if def, hasDef := nodekit.Get(node.Kind); hasDef {
+			fanAll := false
+			if mode == walkInner && (def.BodyHandle != "" || def.Router != nil) {
+				fanAll = true
+			}
+			switch {
+			case def.BodyHandle != "" && mode == walkOuter:
+				var out []string
+				for _, e := range flow {
+					if e.Source == id && e.SourceHandle != def.BodyHandle && !excluded(e.Target) {
+						out = append(out, e.Target)
+					}
+				}
+				return out
+			case def.Router != nil && mode == walkOuter, fanAll:
+				var out []string
+				for _, e := range flow {
+					if e.Source == id && !excluded(e.Target) {
+						out = append(out, e.Target)
+					}
+				}
+				return out
+			}
+		}
+	}
+	if t := defaultTargetFor(id, flow, exclude...); t != "" {
+		return []string{t}
+	}
+	return nil
+}
+
+// walkGraph BFS-walks the graph from seeds, assigning stage/node order in
+// multiples of 10. preSeen marks ids that must never be entered (bounded
+// body roots, the fork node itself); skipOnDequeue drops extra stop nodes
+// (the join fence). reachedSet is returned so callers can collect the edges
+// within the walked subgraph (fork-membership folds in here as a collector).
+func walkGraph(seeds []string, preSeen map[string]bool, byID map[string]Node, allEdges []Edge, skipOnDequeue func(id string) bool, mode walkMode, exclude ...string) (reached []string, orderByID map[string]int, reachedSet map[string]bool) {
 	flow := flowEdges(allEdges)
 	orderByID = map[string]int{}
 	reached = []string{}
-	queue := []string{startID}
+	reachedSet = map[string]bool{}
+	queue := append([]string{}, seeds...)
 	seen := map[string]bool{}
+	for id, pre := range preSeen {
+		seen[id] = pre
+	}
 	ord := 0
 
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
 		if seen[id] {
+			continue
+		}
+		if skipOnDequeue != nil && skipOnDequeue(id) {
 			continue
 		}
 		node, ok := byID[id]
@@ -215,33 +312,26 @@ func bfsStages(startID string, byID map[string]Node, allEdges []Edge) (reached [
 		ord += 10
 		orderByID[id] = ord
 		reached = append(reached, id)
+		reachedSet[id] = true
 
-		if node.Type == NodeExecutable {
-			def, hasDef := nodekit.Get(node.Kind)
-			if hasDef && def.BodyHandle != "" {
-				for _, e := range flow {
-					if e.Source == id && e.SourceHandle != def.BodyHandle {
-						queue = append(queue, e.Target)
-					}
-				}
-			} else if hasDef && def.Router != nil {
-				for _, e := range flow {
-					if e.Source == id {
-						queue = append(queue, e.Target)
-					}
-				}
-			} else {
-				if t := nextDefaultTarget(id, flow); t != "" {
-					queue = append(queue, t)
-				}
-			}
-		} else {
-			if t := nextDefaultTarget(id, flow); t != "" {
-				queue = append(queue, t)
-			}
+		queue = append(queue, nodeTargets(id, node, mode, flow, exclude...)...)
+	}
+	return reached, orderByID, reachedSet
+}
+
+// edgesWithin collects the edges whose endpoints both sit in the walked set.
+func edgesWithin(allEdges []Edge, reachedSet map[string]bool) []Edge {
+	var out []Edge
+	for _, e := range allEdges {
+		if reachedSet[e.Source] && reachedSet[e.Target] {
+			out = append(out, e)
 		}
 	}
+	return out
+}
 
+func bfsStages(startID string, byID map[string]Node, allEdges []Edge) (reached []string, orderByID map[string]int) {
+	reached, orderByID, _ = walkGraph([]string{startID}, nil, byID, allEdges, nil, walkOuter)
 	return reached, orderByID
 }
 
@@ -250,118 +340,27 @@ func bfsStages(startID string, byID map[string]Node, allEdges []Edge) (reached [
 // ---------------------------------------------------------------------------
 
 func bfsBodyNodes(boundedNodeID, bodyEntryID string, byID map[string]Node, allEdges []Edge) (reached []string, orderByID map[string]int, bodyEdges []Edge) {
-	flow := flowEdges(allEdges)
-	orderByID = map[string]int{}
-	reached = []string{}
-	reachedSet := map[string]bool{}
-	queue := []string{bodyEntryID}
-	seen := map[string]bool{boundedNodeID: true}
-	ord := 0
-
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		if seen[id] {
-			continue
-		}
-		node, ok := byID[id]
-		if !ok || node.ParentID != "" || node.Type == NodeResource {
-			continue
-		}
-		seen[id] = true
-		ord += 10
-		orderByID[id] = ord
-		reached = append(reached, id)
-		reachedSet[id] = true
-
-		if node.Type == NodeExecutable {
-			def, hasDef := nodekit.Get(node.Kind)
-			if hasDef && (def.BodyHandle != "" || def.Router != nil) {
-				for _, e := range flow {
-					if e.Source == id && e.Target != "" && e.Target != boundedNodeID {
-						queue = append(queue, e.Target)
-					}
-				}
-			} else {
-				if t := nextDefaultTarget(id, flow); t != "" && t != boundedNodeID {
-					queue = append(queue, t)
-				}
-			}
-		} else {
-			if t := nextDefaultTarget(id, flow); t != "" && t != boundedNodeID {
-				queue = append(queue, t)
-			}
-		}
-	}
-
-	for _, e := range allEdges {
-		if reachedSet[e.Source] && reachedSet[e.Target] {
-			bodyEdges = append(bodyEdges, e)
-		}
-	}
-
+	reached, orderByID, reachedSet := walkGraph(
+		[]string{bodyEntryID},
+		map[string]bool{boundedNodeID: true},
+		byID, allEdges, nil, walkInner, boundedNodeID,
+	)
+	bodyEdges = edgesWithin(allEdges, reachedSet)
 	return reached, orderByID, bodyEdges
 }
 
 // bfsForkBranchNodes traverses nodes within a fork branch stopping before the join node.
 func bfsForkBranchNodes(forkID, branchEntryID, joinID string, byID map[string]Node, allEdges []Edge) (reached []string, orderByID map[string]int, bodyEdges []Edge) {
-	flow := flowEdges(allEdges)
-	orderByID = map[string]int{}
-	reached = []string{}
-	reachedSet := map[string]bool{}
-	queue := []string{branchEntryID}
-	seen := map[string]bool{forkID: true}
-	ord := 0
-
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		if id == joinID || id == forkID || seen[id] {
-			continue
-		}
-		node, ok := byID[id]
-		if !ok || node.ParentID != "" || node.Type == NodeResource {
-			continue
-		}
-		seen[id] = true
-		ord += 10
-		orderByID[id] = ord
-		reached = append(reached, id)
-		reachedSet[id] = true
-
-		if node.Type == NodeExecutable {
-			def, hasDef := nodekit.Get(node.Kind)
-			if hasDef && (def.BodyHandle != "" || def.Router != nil) {
-				for _, e := range flow {
-					if e.Source == id && e.Target != "" && e.Target != forkID && e.Target != joinID {
-						queue = append(queue, e.Target)
-					}
-				}
-			} else {
-				if t := nextDefaultTarget(id, flow); t != "" && t != forkID && t != joinID {
-					queue = append(queue, t)
-				}
-			}
-		} else {
-			if t := nextDefaultTarget(id, flow); t != "" && t != forkID && t != joinID {
-				queue = append(queue, t)
-			}
-		}
-	}
-
-	for _, e := range allEdges {
-		if reachedSet[e.Source] && reachedSet[e.Target] {
-			bodyEdges = append(bodyEdges, e)
-		}
-	}
-
+	reached, orderByID, reachedSet := walkGraph(
+		[]string{branchEntryID},
+		map[string]bool{forkID: true},
+		byID, allEdges,
+		func(id string) bool { return id == joinID },
+		walkInner, forkID, joinID,
+	)
+	bodyEdges = edgesWithin(allEdges, reachedSet)
 	return reached, orderByID, bodyEdges
 }
-
-// ---------------------------------------------------------------------------
-// Stage container compilation
-// ---------------------------------------------------------------------------
-
 func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, byID map[string]Node, allEdges []Edge) (pipeline.Stage, error) {
 	flow := flowEdges(allEdges)
 	stageID := stageNode.ID
@@ -410,7 +409,7 @@ func compileStageNode(stageNode Node, order int, childrenOf map[string][]Node, b
 			Label: stageLabel,
 			Steps: steps,
 			Router: func(ctx context.Context, state map[string]any, st store.Store) (pipeline.RoutingInstruction, error) {
-				target := nextDefaultTarget(stageID, flow)
+				target := defaultTargetFor(stageID, flow)
 				if target == "" {
 					return pipeline.RoutingInstruction{}, nil
 				}
@@ -560,7 +559,7 @@ func compileStages(
 				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {
 					for _, r := range results {
 						if r.PipelineID == pipelineID && r.Status == "succeeded" {
-							target := nextDefaultTarget(id, flow)
+							target := defaultTargetFor(id, flow)
 							if target == "" {
 								return pipeline.RoutingInstruction{}, nil
 							}
