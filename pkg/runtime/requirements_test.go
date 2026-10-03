@@ -110,7 +110,7 @@ func TestValidateRequirementsMissingKeys(t *testing.T) {
 
 func TestRegisterSucceedsWhenSatisfied(t *testing.T) {
 	rt := NewWorkflowRuntime(Options{
-		Env:     map[string]any{"REQ_TEST_ENV": "prod-value"},
+		Env:       map[string]any{"REQ_TEST_ENV": "prod-value"},
 		SecretGet: mustSecretGet(t, map[string]string{"REQ_TEST_SECRET": "s3cr3t"}),
 		SecretHas: mustSecretHas(t, map[string]string{"REQ_TEST_SECRET": "s3cr3t"}),
 	})

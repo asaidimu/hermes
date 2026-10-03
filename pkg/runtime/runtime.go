@@ -80,7 +80,7 @@ type Options struct {
 	// its value (Register-time pre-flight). When nil, no secret requirements
 	// can be satisfied.
 	SecretHas func(ctx context.Context, key string) bool
-	Logger  *zap.SugaredLogger
+	Logger    *zap.SugaredLogger
 	// Env holds global environment layers available to runs.
 	Env map[string]any
 	// Services are runtime-global services. Kept for API parity with the TS

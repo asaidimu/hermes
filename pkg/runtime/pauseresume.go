@@ -10,8 +10,6 @@ import (
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
-	"github.com/asaidimu/hermes/pkg/pipeline"
-	"github.com/asaidimu/hermes/pkg/replay"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
@@ -102,43 +100,10 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// frontend timeline).
 	bus := rt.bus.Scope(events.EventPath{}.Append("pipeline", runID, pdef.Label))
 
-	// Wire the Rebuilder (Replayer) so factory.Resume uses event-sourced
-	// recovery from the action log instead of the legacy checkpoint path.
-	// Skip when no action log is configured — event-sourced recovery needs
-	// durable entries to reconstruct state.
-	var rp pipeline.RebuildFunc
-	if rt.actionLog != nil {
-		// @note #review-20260910-003 issue P2 resolved status=resolved priority=P2 tags=#review,#replay : DefinitionResolver answered every id with the root pipeline definition
-		// @author hermes-review
-		//
-		// Resolved: the resolver now answers with the definition the id
-		// actually names, looked up across the whole compiled workflow
-		// (Workflow.FindPipeline: the trigger-keyed Pipelines map, then
-		// subpipeline definitions embedded in stages, recursively).
-		// Previously it returned pdef (the run's root pipeline) for ANY
-		// resolvedID, so runs containing subpipelines (fork branches,
-		// try-catch bodies, distribute children, pipeline-ref stages)
-		// replayed child entries against the root definition,
-		// attributing stages to the wrong pipeline and producing wrong
-		// resume addresses. Combined with the per-pipeline entry
-		// partitioning from #review-20260910-015 (the resolver now keys
-		// on pipeline id, not run id), event-sourced recovery is
-		// trustworthy for subpipeline-bearing pipelines. Dynamic
-		// distribute children are runtime-generated and are never
-		// resolved here — the Replayer regenerates them from the parent
-		// stage's DynamicPipelines closure.
-		definitionResolver := func(resolvedID string) (*pipeline.PipelineDefinition, bool) {
-			if d, ok := record.workflow.FindPipeline(resolvedID); ok {
-				return d, true
-			}
-			if resolvedID == pdef.ID {
-				d := pdef
-				return &d, true
-			}
-			return nil, false
-		}
-		rp = replay.NewReplayer(rt.actionLog, definitionResolver).Rebuild
-	}
+	// R.4: recovery.go is the single decision point — capability by data
+	// (log entries for this run), rebuild attempt, logged checkpoint
+	// fallback. Resume itself no longer decides anything.
+	rebuild := rt.rebuildCapability(context.Background(), runID, record, pdef)
 
 	// Advance the rerun index for this attempt — see the resolved
 	// #review-20260910-006 note on executePipeline's rerunIndex seed above
@@ -149,33 +114,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	rt.rerunIdx[runID] = rerunIndex
 	rt.mu.Unlock()
 
-	factory := pipeline.NewFactory(pdef, pipeline.FactoryOptions{
-		Logger:       rt.logger,
-		ActionLog:    rt.actionLog,
-		Rebuild:      rp,
-		RerunIndex:   rerunIndex,
-		RunEnv:       rt.env,
-		SecretLookup: rt.secretLookup(),
-	})
-
-	var runCtx *pipeline.RunContextImpl
-	rebuiltStoreUsed := false
-	if rp != nil {
-		// Event-sourced recovery path: reconstruct state from action log.
-		var resumeErr error
-		runCtx, resumeErr = factory.Resume(context.Background(), runID, st, bus)
-		if resumeErr != nil {
-			// Rebuilder failed — fall back to the legacy checkpoint path.
-			rt.logger.Warn("resume: replayer rebuild failed, falling back to checkpoint",
-				"runId", runID, "error", resumeErr)
-			runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
-		} else {
-			rebuiltStoreUsed = true
-		}
-	} else {
-		// Legacy checkpoint path (no durable action log).
-		runCtx = factory.PrepareWithEntry(runID, st, bus, ckpt.ResumeAt)
-	}
+	runCtx, rebuiltStoreUsed := rt.resumeRunContext(context.Background(), runID, pdef, st, bus, ckpt, rebuild, rerunIndex)
 
 	// @note #review-20260910-002 issue P1 resolved status=resolved priority=P1 tags=#review,#replay,#state : Replayer-path resume executes on a rebuilt store but reports and re-pauses with the stale original
 	// @author hermes-review
