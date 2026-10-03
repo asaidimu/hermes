@@ -14,17 +14,17 @@ all: test
 # resolved #review-20260910-010, whose gofmt drift would have been caught
 # here).
 test:
-        go clean -testcache && go vet ./... && go test -race ./...
+	go clean -testcache && go vet ./... && go test -race ./...
 
 # check is the fast subset CI can also use on its own: formatting + vet
 # without the (slower) race test run.
 check:
-        @test -z "$$(gofmt -s -l .)" || (echo "gofmt -s needed on:" && gofmt -s -l . && exit 1)
-        go vet ./...
+	@test -z "$$(gofmt -s -l .)" || (echo "gofmt -s needed on:" && gofmt -s -l . && exit 1)
+	go vet ./...
 
 # fmt normalizes the tree in place.
 fmt:
-        gofmt -s -w .
+	gofmt -s -w .
 
 # @note #improvement-bench-ci-001 issue P3 status=proposed priority=P3 tags=#improvement,#ci,#testing : No CI gate for benchmark race-safety or regressions
 #
@@ -38,7 +38,7 @@ fmt:
 # per op and need `-benchtime=Nx`); see pkg/actionlog/critical_bench_test.go
 # for the explicit invocation.
 bench:
-        go test -run='^$$' -bench=. -benchmem -benchtime=1s ./pkg/pipeline/ ./pkg/actionlog/ ./pkg/registry/ ./pkg/scheduler/ ./pkg/events/ ./pkg/store/ ./pkg/replay/
+	go test -run='^$$' -bench=. -benchmem -benchtime=1s ./pkg/pipeline/ ./pkg/actionlog/ ./pkg/registry/ ./pkg/scheduler/ ./pkg/events/ ./pkg/store/ ./pkg/replay/
 
 # bench-race runs a representative subset of benchmarks under the race
 # detector with bounded iterations. The race detector's overhead makes
@@ -46,7 +46,7 @@ bench:
 # total runtime under ~2 minutes while still exercising every concurrent
 # path the benchmarks target.
 bench-race:
-        go test -race -run='^$$' -bench=. -benchmem -benchtime=20x \
+	go test -race -run='^$$' -bench=. -benchmem -benchtime=20x \
                 ./pkg/pipeline/ \
                 ./pkg/registry/ \
                 ./pkg/scheduler/ \
@@ -56,7 +56,7 @@ bench-race:
                 ./pkg/actionlog/
 
 version:
-        @echo $(VERSION)
+	@echo $(VERSION)
 
 release:
-        @echo $(RELEASE)
+	@echo $(RELEASE)

@@ -3,7 +3,7 @@ module github.com/asaidimu/hermes
 go 1.27.0
 
 require (
-	github.com/asaidimu/go-anansi/v8 v8.6.4
+	github.com/asaidimu/go-anansi/v8 v8.10.1
 	github.com/asaidimu/go-events/v2 v2.0.1
 	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
 	github.com/google/uuid v1.6.0
