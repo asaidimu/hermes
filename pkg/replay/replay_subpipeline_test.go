@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
-		"github.com/asaidimu/hermes/pkg/events"
+	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ func buildForkishDef() pipeline.PipelineDefinition {
 			Label: id,
 			Stages: []pipeline.Stage{
 				{
-					ID:    "shared-stage",
+					ID: "shared-stage",
 					Steps: map[string]pipeline.Step{
 						"shared-step": {
 							ID:     "shared-step",
@@ -50,7 +50,7 @@ func buildForkishDef() pipeline.PipelineDefinition {
 				},
 			},
 			{
-				ID:    "after",
+				ID: "after",
 				Steps: map[string]pipeline.Step{
 					"after-step": {
 						ID:     "after-step",
@@ -138,7 +138,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 
 	items := []any{"x", "y"}
 	dynStage := pipeline.Stage{
-		ID:    "dyn-stage",
+		ID: "dyn-stage",
 		DynamicPipelines: func(state map[string]any) []pipeline.PipelineDefinition {
 			raw, _ := state["items"].([]any)
 			defs := make([]pipeline.PipelineDefinition, 0, len(raw))
@@ -148,7 +148,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 					ID: "dyn__" + jsonNumber(idx),
 					Stages: []pipeline.Stage{
 						{
-							ID:    "item-stage",
+							ID: "item-stage",
 							Steps: map[string]pipeline.Step{
 								"item-step": {
 									ID:     "item-step",
@@ -169,7 +169,7 @@ func TestRebuildDynamicSubpipelines(t *testing.T) {
 	// do (the setup stage's step records the items in state), so the
 	// DynamicPipelines closure can regenerate children from the REBUILT state.
 	seedStage := pipeline.Stage{
-		ID:    "seed-stage",
+		ID: "seed-stage",
 		Steps: map[string]pipeline.Step{
 			"seed-step": {
 				ID:     "seed-step",
@@ -226,7 +226,7 @@ func TestRebuildChildPauseBubblesNestedAddress(t *testing.T) {
 		ID: "child-pause",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "child-stage-1",
+				ID: "child-stage-1",
 				Steps: map[string]pipeline.Step{
 					"child-step": {
 						ID:     "child-step",

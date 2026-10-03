@@ -22,7 +22,7 @@ func TestRebuild_PureStepsOnly(t *testing.T) {
 		Label: "Pure Pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"step-1": {
 						ID:     "step-1",
@@ -34,7 +34,7 @@ func TestRebuild_PureStepsOnly(t *testing.T) {
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"step-2": {
 						ID:     "step-2",
@@ -99,7 +99,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 		ID: "effectful-pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"http-step": {
 						ID:     "http-step",
@@ -113,7 +113,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"db-step": {
 						ID:     "db-step",
@@ -169,7 +169,7 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 		ID: "partial-pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"http-step-1": {
 						ID:     "http-step-1",
@@ -182,7 +182,7 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"http-step-2": {
 						ID:     "http-step-2",
@@ -228,7 +228,7 @@ func TestRebuild_PureBeforeEffectful(t *testing.T) {
 		ID: "mixed-pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"pure-step": {
 						ID:     "pure-step",
@@ -240,7 +240,7 @@ func TestRebuild_PureBeforeEffectful(t *testing.T) {
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"effectful-step": {
 						ID:     "effectful-step",
@@ -293,7 +293,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 		ID: "routing-pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "start",
+				ID: "start",
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID:     "init",
@@ -311,7 +311,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 				},
 			},
 			{
-				ID:    "middle",
+				ID: "middle",
 				Steps: map[string]pipeline.Step{
 					"skipped": {
 						ID:     "skipped",
@@ -323,7 +323,7 @@ func TestRebuild_RoutingDecisionRecorded(t *testing.T) {
 				},
 			},
 			{
-				ID:    "finish",
+				ID: "finish",
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID:     "done",
@@ -391,7 +391,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 		ID: "failed-pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"failing-step": {
 						ID:     "failing-step",
@@ -403,7 +403,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"next-step": {
 						ID:     "next-step",
@@ -447,7 +447,7 @@ func TestStateAt(t *testing.T) {
 		ID: "stateat-pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]pipeline.Step{
 					"step-a": {
 						ID:     "step-a",
@@ -466,7 +466,7 @@ func TestStateAt(t *testing.T) {
 				},
 			},
 			{
-				ID:    "stage-2",
+				ID: "stage-2",
 				Steps: map[string]pipeline.Step{
 					"step-c": {
 						ID:     "step-c",

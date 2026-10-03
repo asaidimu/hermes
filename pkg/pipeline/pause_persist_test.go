@@ -44,7 +44,7 @@ func TestPauseFailsWhenCheckpointPersistFails(t *testing.T) {
 		Label: "Persist Fail Pipeline",
 		Stages: []Stage{
 			{
-				ID:    "pause-stage",
+				ID: "pause-stage",
 				Steps: map[string]Step{
 					"noop": {
 						ID:     "noop",

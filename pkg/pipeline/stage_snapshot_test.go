@@ -29,7 +29,7 @@ func TestActionRunsOnSnapshotOutsideStoreLock(t *testing.T) {
 		Label: "Snapshot Pipeline",
 		Stages: []Stage{
 			{
-				ID:    "stage-1",
+				ID: "stage-1",
 				Steps: map[string]Step{
 					"mutator-step": {
 						ID: "mutator-step",
