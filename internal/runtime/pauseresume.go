@@ -284,6 +284,12 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// Don't call OnComplete if the run paused again — the next resume event
 	// will trigger completion.
 	if result.Status != "paused" {
+		// C3-fix (20261003): a terminal outcome must cancel the cron
+		// auto-resume the pause armed (H9). Pre-fix, every run that paused
+		// with Checkpoint.Cron and then completed leaked a permanent
+		// self-re-arming timer grabbing rt.mu on every fire. Timers belong
+		// to the scheduler; orchestration releases what it asked it to hold.
+		rt.scheduler.Cancel(runID)
 		// Clean up watch service when run completes
 		rt.watchService.OnRunEnded(runID)
 		rt.callOnComplete(record, result)

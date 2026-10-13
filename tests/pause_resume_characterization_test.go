@@ -369,12 +369,12 @@ func TestRepauseCancelsStaleCronCharacterization(t *testing.T) {
         require.True(t, res.OK, "run failed after re-pause: %v", res.Error)
 }
 
-// TestTerminalOutcomeLeavesCronArmedCharacterization documents H9 as
-// today's behavior: a run that pauses with a cron checkpoint and then
-// completes through its event never cancels the auto-resume timer — a
-// permanent scheduler leak that grabs rt.mu on every fire. The C3-fix
-// commit flips the final assertion to require cancellation.
-func TestTerminalOutcomeLeavesCronArmedCharacterization(t *testing.T) {
+// TestTerminalOutcomeCancelsCronAutoResume pins the C3-fix behavior
+// (formerly a characterization of the H9 leak): a run that pauses with a
+// cron checkpoint and then completes through its event must cancel the
+// auto-resume timer. Pre-fix, the timer leaked — a permanent
+// self-re-arming timer grabbing rt.mu on every fire.
+func TestTerminalOutcomeCancelsCronAutoResume(t *testing.T) {
         rt, fake, ms, prepared, done := newRuntimeWithFakeScheduler(t, cronWorkflow("wf-cron-leak", true))
         runID := <-prepared
         awaitArmed(t, fake, runID)
@@ -383,8 +383,8 @@ func TestTerminalOutcomeLeavesCronArmedCharacterization(t *testing.T) {
         res := awaitResult(t, done)
         require.Equal(t, "succeeded", res.Status)
 
-        // H9 (today): no cancel on terminal outcome.
-        require.False(t, fake.wasCancelled(runID),
-                "today's behavior: terminal outcome leaves the cron auto-resume armed (H9 leak)")
+        // H9 (fixed): terminal outcome releases the scheduler's timer.
+        require.True(t, fake.wasCancelled(runID),
+                "terminal outcome must cancel the cron auto-resume (H9)")
         rt.Shutdown(context.Background())
 }

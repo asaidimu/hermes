@@ -402,38 +402,41 @@ func (s *WatchService) startTimeoutLocked(runID string, timeoutMs int64) {
 		return
 	}
 
+	// Stop all existing timers for the run, then start a fresh timer per
+	// registration that declares a timeout. (C3-fix/L2, 20261003: the old
+	// code started one timer and assigned it to an ARBITRARY registration —
+	// "first" hit of Go's randomized map iteration — so which descriptor's
+	// timer survived was nondeterministic and a renewal could leave a wait
+	// with no live timer at all. Per-registration timers make ownership
+	// deterministic: each registration's timer unparks that registration.)
 	for _, reg := range runMap {
 		if reg.timer != nil {
 			reg.timer.Stop()
+			reg.timer = nil
 		}
 	}
 
-	timer := time.AfterFunc(time.Duration(timeoutMs)*time.Millisecond, func() {
-		s.mu.Lock()
-		regMap, ok := s.registrations[runID]
-		if !ok {
-			s.mu.Unlock()
-			return
+	for eventType, reg := range runMap {
+		if reg.descriptor.Timeout <= 0 {
+			continue
 		}
-		parked := false
-		for _, reg := range regMap {
-			if reg.parked {
-				parked = true
-				reg.parked = false
-				break
+		et := eventType
+		reg.timer = time.AfterFunc(time.Duration(reg.descriptor.Timeout)*time.Millisecond, func() {
+			s.mu.Lock()
+			regMap, ok := s.registrations[runID]
+			if !ok {
+				s.mu.Unlock()
+				return
 			}
-		}
-		if !parked {
+			current, ok := regMap[et]
+			if !ok || !current.parked {
+				s.mu.Unlock()
+				return
+			}
+			current.parked = false
 			s.mu.Unlock()
-			return
-		}
-		s.mu.Unlock()
-		s.resumeCallback(runID, map[string]any{"__resume_reason__": "timeout"})
-	})
-
-	for _, reg := range runMap {
-		reg.timer = timer
-		break
+			s.resumeCallback(runID, map[string]any{"__resume_reason__": "timeout"})
+		})
 	}
 }
 
