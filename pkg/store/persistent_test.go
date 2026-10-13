@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/asaidimu/go-anansi/v8/core/persistence/base"
 	anansicollection "github.com/asaidimu/go-anansi/v8/core/persistence/collection"
@@ -174,5 +175,99 @@ func toFloat(v any) float64 {
 		return f
 	default:
 		return 0
+	}
+}
+
+// TestSyncDoesNotHoldDataLockAcrossIO pins the P4.7 (H7) contract: the
+// DB write runs OUTSIDE the data lock, so state reads and mutations
+// proceed while a flush is stuck on the backend. The proof blocks the
+// backend's write with an exclusive sqlite lock from a second
+// connection (temp-file DB — real file locking, so busy_timeout
+// applies), then requires an Update+Read to complete while Sync is
+// still blocked.
+func TestSyncDoesNotHoldDataLockAcrossIO(t *testing.T) {
+	ctx := context.Background()
+
+	// File-backed sqlite: shared-cache in-memory DBs return SQLITE_LOCKED
+	// immediately without honoring busy_timeout — file locking doesn't.
+	dir := t.TempDir()
+	dsn := "file:" + dir + "/runs.db?_busy_timeout=10000"
+	db, err := sql.Open("sqlite3", dsn)
+	require.NoError(t, err)
+	defer db.Close()
+
+	logger := zap.NewNop()
+	exec, err := sqliteExecutor.NewSQLiteExecutor(db, logger)
+	require.NoError(t, err)
+	queryFactory := sqliteQuery.NewSQLiteFactory(nil)
+	interactor, err := native.NewNativeInteractor(exec, queryFactory, logger)
+	require.NoError(t, err)
+
+	bus, err := rootutils.NewInMemoryGoEventsBus(t.Name())
+	require.NoError(t, err)
+	p, err := persistence.NewPersistence(interactor, pevents.NewGoEventsBusAdapter[base.PersistenceEvent](bus), logger, nil)
+	require.NoError(t, err)
+	models, err := store.NewAnansiStateCollection(ctx, p, "runs")
+	require.NoError(t, err)
+
+	s := store.NewPersistentStore(models, nil)
+	require.NoError(t, s.Update(ctx, store.SetValue("k", "v")))
+
+	// First Sync creates the document (warms the exists flag) so the
+	// blocked write below goes down the Update path.
+	require.NoError(t, s.Sync(ctx))
+
+	// Second connection to the SAME file, holding the exclusive sqlite
+	// write lock — the store's write blocks until we release.
+	blocker, err := sql.Open("sqlite3", dsn)
+	require.NoError(t, err)
+	defer blocker.Close()
+	_, err = blocker.Exec("BEGIN EXCLUSIVE")
+	require.NoError(t, err)
+
+	syncDone := make(chan error, 1)
+	go func() { syncDone <- s.Sync(ctx) }()
+
+	// Give the blocked Sync a moment to reach the DB write.
+	time.Sleep(200 * time.Millisecond)
+
+	// While the flush is stuck on the backend, the DATA lock must be
+	// free: a mutation + read completes promptly.
+	procDone := make(chan error, 1)
+	go func() {
+		if err := s.Update(ctx, store.SetValue("k2", "v2")); err != nil {
+			procDone <- err
+			return
+		}
+		var got any
+		readErr := s.Read(func(state map[string]any) error {
+			got = state["k2"]
+			return nil
+		})
+		if readErr != nil {
+			procDone <- readErr
+			return
+		}
+		if got != "v2" {
+			procDone <- fmt.Errorf("read during blocked flush saw %v", got)
+			return
+		}
+		procDone <- nil
+	}()
+	select {
+	case err := <-procDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("state access blocked behind a stuck flush — Sync is holding the data lock across I/O")
+	}
+
+	// Release the backend; the flush completes.
+	_, err = blocker.Exec("COMMIT")
+	require.NoError(t, err)
+	select {
+	case err := <-syncDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("sync never completed after the backend unblocked")
 	}
 }
