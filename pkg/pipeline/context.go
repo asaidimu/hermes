@@ -77,9 +77,9 @@ func NewRunContext(
 	}
 }
 
-func (r *RunContextImpl) ID() string                      { return r.runID }
-func (r *RunContextImpl) PipelineID() string              { return r.definition.ID }
-func (r *RunContextImpl) Store() store.Store              { return r.store }
+func (r *RunContextImpl) ID() string                        { return r.runID }
+func (r *RunContextImpl) PipelineID() string                { return r.definition.ID }
+func (r *RunContextImpl) Store() store.Store                { return r.store }
 func (r *RunContextImpl) EventBus() *events.MemoryScopedBus { return r.eventBus }
 
 // ActionLog returns the run's action log store, or nil when logging is
@@ -569,7 +569,11 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 	}
 
 	duration := time.Since(startTime).Milliseconds()
-	finalState, _ := r.store.ExportJSON()
+	// M1 (plan P4.9): export the final state ONCE and share the snapshot
+	// between the pipeline:success payload and the run result — the
+	// success path used to deep-copy the full state three times (payload
+	// export, result snapshot, and the runtime's own re-export downstream).
+	finalState := stateSnapshot(r.store)
 	r.eventBus.Emit(ctx, "pipeline:success", events.PipelineEvent{
 		RunID:      r.runID,
 		PipelineID: r.definition.ID,
@@ -594,7 +598,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 		Status:     "succeeded",
 		RunID:      r.runID,
 		PipelineID: r.definition.ID,
-		FinalState: stateSnapshot(r.store),
+		FinalState: finalState,
 	}, nil
 
 }

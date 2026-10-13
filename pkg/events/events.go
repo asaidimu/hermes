@@ -3,7 +3,7 @@ package events
 import (
 	"context"
 	"reflect"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	gevents "github.com/asaidimu/go-events/v2"
@@ -74,14 +74,18 @@ type EventHandler func(ctx context.Context, evt PipelineEvent) error
 // b.mu where they're touched. A future change that introduces
 // post-construction mutation of parent/underlying/logger must add locking
 // around those specific fields.
+// handlerMap is the immutable snapshot of a bus's subscriptions. P4.9
+// (M3): published via atomic.Pointer and replaced wholesale on every
+// Subscribe/unsubscribe, so Emit reads subscriptions LOCK-FREE (the old
+// path RLock'd and copy-allocated the handler slice on every emit).
+type handlerMap map[string][]EventHandler
+
 type MemoryScopedBus struct {
-	mu         sync.RWMutex
 	parent     *MemoryScopedBus
 	path       EventPath
-	handlers   map[string][]EventHandler
+        handlers   atomic.Pointer[handlerMap]
 	underlying gevents.SimpleEventBus[PipelineEvent]
-	logger     *zap.SugaredLogger
-}
+	logger     *zap.SugaredLogger}
 
 // NewMemoryScopedBus creates a root scoped bus with an optional backing go-events bus.
 func NewMemoryScopedBus(underlying ...gevents.SimpleEventBus[PipelineEvent]) *MemoryScopedBus {
@@ -89,12 +93,13 @@ func NewMemoryScopedBus(underlying ...gevents.SimpleEventBus[PipelineEvent]) *Me
 	if len(underlying) > 0 {
 		ub = underlying[0]
 	}
-	return &MemoryScopedBus{
+	b := &MemoryScopedBus{
 		path:       make(EventPath, 0),
-		handlers:   make(map[string][]EventHandler),
 		underlying: ub,
 		logger:     zap.NewNop().Sugar(),
 	}
+	b.handlers.Store(func() *handlerMap { h := handlerMap{}; return &h }())
+	return b
 }
 
 // WithLogger returns a copy of the root bus's construction settings with the
@@ -112,13 +117,14 @@ func (b *MemoryScopedBus) WithLogger(logger *zap.SugaredLogger) *MemoryScopedBus
 
 // Scope returns a child bus with the specified path prefix appended.
 func (b *MemoryScopedBus) Scope(prefix EventPath) *MemoryScopedBus {
-	return &MemoryScopedBus{
+	child := &MemoryScopedBus{
 		parent:     b,
 		path:       prefix.Clone(),
-		handlers:   make(map[string][]EventHandler),
 		underlying: b.underlying,
 		logger:     b.logger,
 	}
+	child.handlers.Store(&handlerMap{})
+	return child
 }
 
 // Emit broadcasts the event to local subscribers, forwards to go-events if present, and bubbles up to parent.
@@ -140,33 +146,16 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 		evt.Path = b.path.Clone()
 	}
 
-	// 1. Dispatch locally to exact match and wildcard "*"
-	var toCall []EventHandler
-	b.mu.RLock()
-	if hList, ok := b.handlers[eventType]; ok {
-		toCall = append(toCall, hList...)
-	}
-	if hList, ok := b.handlers["*"]; ok {
-		toCall = append(toCall, hList...)
-	}
-	b.mu.RUnlock()
-
-	for _, h := range toCall {
-		// @note #review-20260822-006 issue P1 resolved status=resolved priority=P1 tags=#review,#error-handling : Emit silently discards all handler errors
-		//
-		// Resolved (partial, without the full ScopedBus migration): handler
-		// errors are now logged instead of silently discarded via `_ = h(...)`.
-		// Emit's signature is `Emit(ctx, eventType, evt)` with no return value,
-		// used pervasively across the runtime as a fire-and-forget call —
-		// changing it to return an error (or an aggregated slice of errors)
-		// is a breaking API change to every call site in this repo and is
-		// exactly the kind of change the go-events ScopedBus migration
-		// (scoped-bus-opportunity-001, deliberately deferred) would need to
-		// make properly, together with a decision on how callers should
-		// react to a failed subscriber. Logging closes the "no way to know"
-		// gap without that wider signature change.
-		if err := h(ctx, evt); err != nil && b.logger != nil {
-			b.logger.Error("event handler error", "eventType", eventType, "runId", evt.RunID, "error", err)
+	// 1. Dispatch locally to exact match and wildcard "*". P4.9 (M3):
+	// the subscription snapshot is read via atomic pointer — no lock, no
+	// per-emit slice concatenation. Exact-match handlers run before
+	// wildcard handlers, same order as before.
+	if handlers := b.handlers.Load(); handlers != nil {
+		for _, h := range (*handlers)[eventType] {
+			callHandler(ctx, b, h, eventType, evt)
+		}
+		for _, h := range (*handlers)["*"] {
+			callHandler(ctx, b, h, eventType, evt)
 		}
 	}
 
@@ -181,44 +170,58 @@ func (b *MemoryScopedBus) Emit(ctx context.Context, eventType string, evt Pipeli
 	}
 }
 
+// callHandler invokes one event handler, logging (never discarding)
+// errors — the resolved #review-20260822-006 semantics, extracted so
+// both the exact-match and wildcard dispatch paths share it.
+func callHandler(ctx context.Context, b *MemoryScopedBus, h EventHandler, eventType string, evt PipelineEvent) {
+	if err := h(ctx, evt); err != nil && b.logger != nil {
+		b.logger.Error("event handler error", "eventType", eventType, "runId", evt.RunID, "error", err)
+	}
+}
+
 // Subscribe registers an event handler for the given eventType or "*" for all.
 func (b *MemoryScopedBus) Subscribe(eventType string, handler EventHandler) (unsubscribe func()) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	// @note #review-20260822-017 issue P2 wontfix status=wontfix priority=P2 tags=#review,#concurrency : Subscribe holds write lock for append-only operation
-	//
-	// Investigated and declined: b.handlers is a plain map[string][]EventHandler,
-	// not just a slice. Concurrent access to a Go map must be synchronized
-	// even for what looks like a single "append" — Subscribe both reads
-	// b.handlers[eventType] and (on first subscriber for that eventType,
-	// implicitly) writes a new map entry, which races with Emit's read
-	// unless serialized. The exclusive Lock here isn't overcautious, it's
-	// the actual safety requirement for the map. A copy-on-write scheme
-	// (RLock for Emit, atomic slice/map replacement for Subscribe) could
-	// reduce contention, but is nontrivial to get right (needs
-	// atomic.Pointer to the whole handlers map, replaced wholesale on every
-	// Subscribe/unsubscribe) and there's no profiling evidence this lock is
-	// a real bottleneck — Subscribe is called at pipeline/watch
-	// registration time, not per-event. Not implementing a nontrivial
-	// concurrency redesign against a suspected-but-unmeasured performance
-	// concern.
-	b.handlers[eventType] = append(b.handlers[eventType], handler)
+	// P4.9 (M3): copy-on-write publication. The review-20260822-017
+	// "wontfix" note sketched exactly this scheme and declined it for
+	// lack of profiling evidence; H3's emit-storm finding (handler slice
+	// allocation + lock per emit on every bus event) is that evidence,
+	// and the scheme also removes the lock from the read path entirely.
+	for {
+		old := b.handlers.Load()
+		next := handlerMap{}
+		if old != nil {
+			for k, v := range *old {
+				next[k] = v
+			}
+		}
+		next[eventType] = append(next[eventType], handler)
+		if b.handlers.CompareAndSwap(old, &next) {
+			break
+		}
+	}
 
 	return func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		list := b.handlers[eventType]
-		// @note #review-20260822-004 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Incorrect func pointer comparison in unsubscribe closure
-		//
-		// Fixed by using reflect.ValueOf to compare function pointers instead of
-		// comparing addresses of loop variables. The original `&h == &handler`
-		// compared the address of the loop variable `h` with the address of the
-		// captured `handler` parameter, which would never match.
+		// reflect-based function-pointer identity: see the resolved
+		// #review-20260822-004 (comparing loop-variable addresses never
+		// matches).
 		handlerPtr := reflect.ValueOf(handler).Pointer()
-		for i, h := range list {
-			if reflect.ValueOf(h).Pointer() == handlerPtr {
-				b.handlers[eventType] = append(list[:i], list[i+1:]...)
-				break
+		for {
+			old := b.handlers.Load()
+			next := handlerMap{}
+			if old != nil {
+				for k, v := range *old {
+					next[k] = v
+				}
+			}
+			list := next[eventType]
+			for i, h := range list {
+				if reflect.ValueOf(h).Pointer() == handlerPtr {
+					next[eventType] = append(list[:i:i], list[i+1:]...)
+					break
+				}
+			}
+			if b.handlers.CompareAndSwap(old, &next) {
+				return
 			}
 		}
 	}
