@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
@@ -92,9 +93,13 @@ func stageForked(own []actionlog.Entry, stageID string) bool {
 // where forward execution should pick up.
 func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinition, groups pipelineGroups, st store.Store) (StepAddress, error) {
 	own := groups[def.ID]
-	byStep := indexByStepID(own)
-	routes := indexByStage(own)
-	checkpoints := indexCheckpoints(own)
+	// P4.8: one pass over this pipeline's entries memoizes every lookup
+	// the stage loop needs (pre-P4.8 the per-stage helpers re-scanned the
+	// slice per stage — O(stages x entries)).
+	idx := buildLogIndex(own)
+	byStep := idx.byStep
+	routes := idx.routes
+	checkpoints := idx.checkpoints
 
 	// Build a stage-indexed lookup for jump resolution.
 	stageIdx := make(map[string]int, len(def.Stages))
@@ -109,7 +114,7 @@ func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinitio
 		// Pipelines-mode stage: replay each child instance against its
 		// own entries and definition, then merge like the runtime does.
 		if isPipelinesModeStage(stage) {
-			if !stageForked(own, stage.ID) {
+			if !idx.forked[stage.ID] {
 				// No fork entry — the stage never ran. Forward
 				// execution resumes at this stage.
 				return StepAddress{Stage: stage.ID}, nil
@@ -136,8 +141,12 @@ func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinitio
 			}
 			// Children settled — fall through to routing.
 		} else {
-			// Steps-mode stage: process all steps.
-			for _, step := range stage.Steps {
+			// Steps-mode stage: process all steps in DETERMINISTIC order
+			// (P4.8: Go map iteration is randomized; the first unrecorded
+			// effectful step defines the resume address, so the order must
+			// not depend on map luck — sorted step IDs, pinned by golden
+			// vectors).
+			for _, step := range sortedSteps(stage.Steps) {
 				if step.Effect == int(pipeline.EffectSideEffecting) {
 					entry, done := byStep[step.ID]
 					if done {
@@ -170,7 +179,7 @@ func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinitio
 			// Both mean execution WAITED here instead of jumping.
 			if ckptResume, isCkpt := checkpoints[stage.ID]; isCkpt &&
 				(handle == pipeline.PauseRouteHandle || handle == ckptResume) {
-				if !resumedAfterCheckpoint(own, stage.ID) {
+				if !idx.resumedAfter(stage.ID) {
 					// The latest pause has not been resumed yet — the
 					// log ends inside the wait. Forward execution
 					// starts at the checkpoint's resume stage (the
@@ -366,11 +375,12 @@ func mergeChildResult(
 // match ("state at stage entry") returns before the stage's steps.
 func (rp *Replayer) foldDef(ctx context.Context, def *pipeline.PipelineDefinition, groups pipelineGroups, st store.Store, addr StepAddress) error {
 	own := groups[def.ID]
-	byStep := indexByStepID(own)
+	idx := buildLogIndex(own)
+	byStep := idx.byStep
 
 	for _, stage := range def.Stages {
 		if isPipelinesModeStage(stage) {
-			if !stageForked(own, stage.ID) {
+			if !idx.forked[stage.ID] {
 				// Stage never ran — contributes nothing.
 				if stage.ID == addr.Stage {
 					return nil
@@ -408,8 +418,8 @@ func (rp *Replayer) foldDef(ctx context.Context, def *pipeline.PipelineDefinitio
 		if stage.ID == addr.Stage {
 			// Step-level target: fold in every sibling's contribution
 			// regardless of map iteration order, skip the target's own.
-			for stepID, step := range stage.Steps {
-				if stepID == addr.Step {
+			for _, step := range sortedSteps(stage.Steps) {
+				if step.ID == addr.Step {
 					continue
 				}
 				if err := foldStep(ctx, st, byStep, step); err != nil {
@@ -420,7 +430,7 @@ func (rp *Replayer) foldDef(ctx context.Context, def *pipeline.PipelineDefinitio
 		}
 
 		// Stages before the target: fold in every step.
-		for _, step := range stage.Steps {
+		for _, step := range sortedSteps(stage.Steps) {
 			if err := foldStep(ctx, st, byStep, step); err != nil {
 				return err
 			}
@@ -441,6 +451,24 @@ func foldStep(ctx context.Context, st store.Store, byStep map[string]actionlog.E
 		return applyRecordedDelta(st, entry)
 	}
 	return replayStep(ctx, st, step)
+}
+
+// sortedSteps returns a definition's steps ordered by ID — a
+// deterministic iteration order over the Steps map (plan P4.8). The
+// runtime executes a stage's steps concurrently, so replay order is a
+// canonicalization choice, not a semantic one; sorting makes replays
+// reproducible run to run.
+func sortedSteps(steps map[string]pipeline.Step) []pipeline.Step {
+	ids := make([]string, 0, len(steps))
+	for id := range steps {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]pipeline.Step, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, steps[id])
+	}
+	return out
 }
 
 // --- helpers ---

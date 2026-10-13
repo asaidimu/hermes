@@ -76,82 +76,77 @@ func (rp *Replayer) allEntries(ctx context.Context, runID string) ([]actionlog.E
 	return stitched, nil
 }
 
-// indexByStepID builds a map from StepID to the first completed entry.
-// For effectful steps, this is the KindEffectCompleted or KindEffectFailed
-// entry that records the step's outcome. Callers must pre-filter entries to
-// a single pipeline's own entries (#review-20260910-015).
-func indexByStepID(entries []actionlog.Entry) map[string]actionlog.Entry {
-	m := make(map[string]actionlog.Entry)
+// logIndex is the memoized view of one pipeline's own entries (plan
+// P4.8, H8): every lookup walkDef/foldDef needs, built in ONE pass over
+// the entry slice. Pre-P4.8, the per-stage helpers (checkpointSeq,
+// resumedAfterCheckpoint, stageForked) re-scanned the whole slice for
+// every stage — O(stages x entries) per replay.
+type logIndex struct {
+	byStep      map[string]actionlog.Entry // stepID -> first effect-outcome entry
+	routes      map[string]string          // stageID -> latest routed handle
+	checkpoints map[string]string          // stageID -> checkpoint ResumeAt stage
+	forked      map[string]bool            // stageID -> subpipeline forked here
+	ckptSeq     map[string]uint64          // stageID -> latest checkpoint seq
+	maxResumed  uint64                     // highest KindResumed seq in the slice
+}
+
+// buildLogIndex makes one pass over the entries, computing every index
+// the walk needs. Kind values are disjoint, so the switch is total over
+// the interesting kinds.
+func buildLogIndex(entries []actionlog.Entry) *logIndex {
+	idx := &logIndex{
+		byStep:      make(map[string]actionlog.Entry),
+		routes:      make(map[string]string),
+		checkpoints: make(map[string]string),
+		forked:      make(map[string]bool),
+		ckptSeq:     make(map[string]uint64),
+	}
 	for _, e := range entries {
-		if e.StepID != "" && (e.Kind == actionlog.KindEffectCompleted || e.Kind == actionlog.KindEffectFailed) {
-			if _, exists := m[e.StepID]; !exists {
-				m[e.StepID] = e
+		switch e.Kind {
+		case actionlog.KindEffectCompleted, actionlog.KindEffectFailed:
+			if e.StepID != "" {
+				if _, exists := idx.byStep[e.StepID]; !exists {
+					idx.byStep[e.StepID] = e
+				}
+			}
+		case actionlog.KindRouted:
+			if e.StageID != "" {
+				idx.routes[e.StageID] = e.Handle
+			}
+		case actionlog.KindCheckpoint:
+			if e.StageID == "" {
+				continue
+			}
+			if e.Seq > idx.ckptSeq[e.StageID] {
+				idx.ckptSeq[e.StageID] = e.Seq
+			}
+			if len(e.Output) > 0 {
+				var ckpt pipeline.PipelineCheckpoint
+				if err := json.Unmarshal(e.Output, &ckpt); err == nil && ckpt.ResumeAt.Stage != "" {
+					idx.checkpoints[e.StageID] = ckpt.ResumeAt.Stage
+				}
+			}
+		case actionlog.KindSubpipelineForked:
+			if e.StageID != "" {
+				idx.forked[e.StageID] = true
+			}
+		case actionlog.KindResumed:
+			if e.Seq > idx.maxResumed {
+				idx.maxResumed = e.Seq
 			}
 		}
 	}
-	return m
+	return idx
 }
 
-// indexByStage builds a map from StageID to the routing handle of the
-// most recent KindRouted entry for that stage.
-func indexByStage(entries []actionlog.Entry) map[string]string {
-	m := make(map[string]string)
-	for _, e := range entries {
-		if e.Kind == actionlog.KindRouted && e.StageID != "" {
-			m[e.StageID] = e.Handle
-		}
-	}
-	return m
-}
-
-// checkpointSeq returns the Seq of the LATEST pause checkpoint recorded for
-// the stage (0 when the stage never paused).
-func checkpointSeq(entries []actionlog.Entry, stageID string) uint64 {
-	var last uint64
-	for _, e := range entries {
-		if e.Kind == actionlog.KindCheckpoint && e.StageID == stageID && e.Seq > last {
-			last = e.Seq
-		}
-	}
-	return last
-}
-
-// resumedAfterCheckpoint reports whether the log shows a resume of the
-// stage's latest pause: a KindResumed entry recorded after that checkpoint.
-// A pause whose latest checkpoint has no following KindResumed means the run
-// is STILL WAITING at that pause — replay must stop there and hand back the
-// checkpoint's resume address instead of walking on as if the route had been
-// taken.
-func resumedAfterCheckpoint(entries []actionlog.Entry, stageID string) bool {
-	ckptSeq := checkpointSeq(entries, stageID)
-	if ckptSeq == 0 {
+// resumedAfter reports whether a KindResumed entry follows the stage's
+// latest checkpoint: the run is NOT still waiting at that pause.
+// Memoized as maxResumed > ckptSeq — "some resume exists above the
+// threshold" is exactly "the highest resume is above it".
+func (idx *logIndex) resumedAfter(stageID string) bool {
+	ckpt, ok := idx.ckptSeq[stageID]
+	if !ok || ckpt == 0 {
 		return false
 	}
-	for _, e := range entries {
-		if e.Kind == actionlog.KindResumed && e.Seq > ckptSeq {
-			return true
-		}
-	}
-	return false
-}
-
-// indexCheckpoints builds a map from StageID to the resume stage recorded in
-// that stage's pause checkpoint (KindCheckpoint / "pipeline:pause"). The
-// checkpoint's ResumeAt is where execution continues after the wait — replay
-// resolves pause wait-marker routes through it (see walkDef).
-func indexCheckpoints(entries []actionlog.Entry) map[string]string {
-	m := make(map[string]string)
-	for _, e := range entries {
-		if e.Kind != actionlog.KindCheckpoint || e.StageID == "" || len(e.Output) == 0 {
-			continue
-		}
-		var ckpt pipeline.PipelineCheckpoint
-		if err := json.Unmarshal(e.Output, &ckpt); err != nil {
-			continue
-		}
-		if ckpt.ResumeAt.Stage != "" {
-			m[e.StageID] = ckpt.ResumeAt.Stage
-		}
-	}
-	return m
+	return idx.maxResumed > ckpt
 }
