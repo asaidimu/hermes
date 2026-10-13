@@ -239,11 +239,15 @@ func Registry() map[string]NodeDefinition {
 }
 
 // BuildStep creates a pipeline Step from a node definition and configuration.
-// The raw config is deep-interpolated against the live document state on every
-// execution (state changes across loop iterations), then coerced via the node's
-// compiled anansi schema, mirroring the TS buildStep action. resources (optional)
+// The config pipeline is planned once at build time (nodeConfigPlan, plan
+// P4.3): the schema compiles here, and static configs are coerced here —
+// dynamic configs still deep-interpolate against the live document state on
+// every execution (state changes across loop iterations). resources (optional)
 // supplies run-scoped resource handles (the compiler wires dependency edges).
 func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resources func() map[string]any) pipeline.Step {
+        // P4.3: schema compile (and coercion for static configs) hoisted to
+        // build time; see nodeConfigPlan.
+        plan := newNodeConfigPlan(def, config)
         return pipeline.Step{
                 ID:     nodeID,
                 Label:  def.Label,
@@ -253,7 +257,7 @@ func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resourc
                                 return nil, nil
                         }
                         res := resolveStepResources(pcxt, resources)
-                        cfg, err := prepareNodeConfig(def, config, state, res, nil) // results: state["results"] never existed (D.4)
+                        cfg, err := plan.config(state, res, nil) // results: state["results"] never existed (D.4)
                         if err != nil {
                                 return nil, err
                         }
