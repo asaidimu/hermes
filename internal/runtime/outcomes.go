@@ -14,8 +14,8 @@ import (
 
 // GetRunOutcome returns the recorded outcome for a completed run.
 func (rt *WorkflowRuntime) GetRunOutcome(runID string) (RunResult, bool) {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
 	res, ok := rt.outcomes[runID]
 	return res, ok
 }
@@ -23,34 +23,43 @@ func (rt *WorkflowRuntime) GetRunOutcome(runID string) (RunResult, bool) {
 // ListRuns returns metadata for all runs this runtime has started.
 // Event counts are refreshed from the action log.
 func (rt *WorkflowRuntime) ListRuns(ctx context.Context) ([]timeline.RunTimelineMeta, error) {
+	// P4.6: snapshot the metas under the lock, then run the per-run
+	// action-log queries OUTSIDE it — the DB round trips previously ran
+	// under the EXCLUSIVE runtime lock, stalling dispatch/Resume/Register
+	// process-wide for as long as the log backend took to answer.
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
 	list := make([]timeline.RunTimelineMeta, 0, len(rt.runMetas))
-	for runID, meta := range rt.runMetas {
-		cp := *meta
-		if rt.actionLog == nil {
-			list = append(list, cp)
-			continue
-		}
+	for _, meta := range rt.runMetas {
+		list = append(list, *meta)
+	}
+	rt.mu.Unlock()
+
+	if rt.actionLog == nil {
+		return list, nil
+	}
+	for i := range list {
+		runID := list[i].RunID
 		if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
 			if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
-				cp.EventCount = int64(n)
+				list[i].EventCount = int64(n)
 			}
 		}
-		list = append(list, cp)
 	}
 	return list, nil
 }
 
 // GetRunMeta returns metadata for a single run.
 func (rt *WorkflowRuntime) GetRunMeta(ctx context.Context, runID string) (*timeline.RunTimelineMeta, error) {
+	// P4.6: same split as ListRuns — copy under the lock, query outside.
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
 	meta, ok := rt.runMetas[runID]
 	if !ok {
+		rt.mu.Unlock()
 		return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
 	}
 	cp := *meta
+	rt.mu.Unlock()
+
 	if rt.actionLog != nil {
 		if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
 			if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {

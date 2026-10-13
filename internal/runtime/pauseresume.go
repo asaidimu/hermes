@@ -27,6 +27,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
                 }
         }
         delete(rt.paused, runID)
+        rt.pauseIndexDeleteLocked(paused)
         record := rt.workflows[paused.workflowID]
         st := paused.store
         ckpt := paused.checkpoint
@@ -240,7 +241,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
                 }
 
                 rt.mu.Lock()
-                rt.paused[runID] = &pausedRun{
+                repaused := &pausedRun{
                         runID:         runID,
                         workflowID:    paused.workflowID,
                         triggerID:     paused.triggerID,
@@ -251,6 +252,8 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
                         store:         st,
                         checkpoint:    res.Checkpoint,
                 }
+                rt.paused[runID] = repaused
+                rt.pauseIndexPutLocked(repaused)
                 rt.mu.Unlock()
 
                 // Deliver any event that arrived while the resumed segment was

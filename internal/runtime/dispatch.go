@@ -115,6 +115,42 @@ func (rt *WorkflowRuntime) dispatch(eventType string, evt events.PipelineEvent) 
         }
 }
 
+// waitEventTypes returns the event types a paused run waits on (the
+// dispatch index keys). Single-event waits report their one type;
+// multi-event waits report the full list.
+func (pr *pausedRun) waitEventTypes() []string {
+	if len(pr.waitForEvents) > 0 {
+		return pr.waitForEvents
+	}
+	if pr.waitForEvent != "" {
+		return []string{pr.waitForEvent}
+	}
+	return nil
+}
+
+// pauseIndexPutLocked registers a paused run under every event type it
+// waits for (P4.6 dispatch index). Caller holds rt.mu.
+func (rt *WorkflowRuntime) pauseIndexPutLocked(pr *pausedRun) {
+	for _, et := range pr.waitEventTypes() {
+		m := rt.pausedByEvent[et]
+		if m == nil {
+			m = make(map[string]*pausedRun)
+			rt.pausedByEvent[et] = m
+		}
+		m[pr.runID] = pr
+	}
+}
+
+// pauseIndexDeleteLocked removes a paused run from the dispatch index.
+// Caller holds rt.mu.
+func (rt *WorkflowRuntime) pauseIndexDeleteLocked(pr *pausedRun) {
+	for _, et := range pr.waitEventTypes() {
+		if m := rt.pausedByEvent[et]; m != nil {
+			delete(m, pr.runID)
+		}
+	}
+}
+
 // multiEventConditionMet checks if a multi-event pause condition is satisfied.
 func (rt *WorkflowRuntime) multiEventConditionMet(pr *pausedRun) bool {
         received := pr.checkpoint.ReceivedEvents
@@ -157,7 +193,7 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
                         }
 
                         rt.mu.Lock()
-                        rt.paused[runID] = &pausedRun{
+                        newPaused := &pausedRun{
                                 runID:         runID,
                                 workflowID:    record.workflow.ID,
                                 triggerID:     triggerID,
@@ -168,6 +204,8 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
                                 store:         rt.stores[runID],
                                 checkpoint:    result.Checkpoint,
                         }
+                        rt.paused[runID] = newPaused
+                        rt.pauseIndexPutLocked(newPaused)
                         if meta, ok := rt.runMetas[runID]; ok {
                                 meta.Status = timeline.StatusPaused
                         }
