@@ -151,6 +151,15 @@ const seqShardCount = 256
 type AnansiStore struct {
         models *anansicollection.ModelCollection[*LogEntry]
         shards [seqShardCount]seqShard
+
+        // writeMu serializes the DB write itself. The INSERT is the only
+        // critical section — the expensive work (seq assignment, marshal)
+        // stays shard-local — and single-writer backends (sqlite) reject
+        // concurrent writes with transient lock errors, which would otherwise
+        // punch seq gaps into a run's log. One mutex around a cheap INSERT is
+        // the honest constraint; the O(n) array rewrite this replaced
+        // serialized far more.
+        writeMu sync.Mutex
 }
 
 var _ Store = (*AnansiStore)(nil)
@@ -249,7 +258,10 @@ func (s *AnansiStore) Append(ctx context.Context, entry Entry) (uint64, error) {
                 Data:       string(dataBytes),
         })
         model.ID = entryDocID(entry.RunID, entry.RerunIndex, entry.Seq)
-        if _, err := s.models.Create(ctx, model); err != nil {
+        s.writeMu.Lock()
+        _, err = s.models.Create(ctx, model)
+        s.writeMu.Unlock()
+        if err != nil {
                 return 0, err
         }
 

@@ -78,7 +78,7 @@ func TestReplayFold_EffectDeltaInjectedNotReexecuted(t *testing.T) {
 	f := newCharFixture(def)
 	delta, _ := json.Marshal(map[string]any{"k": "recorded"})
 	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepStarted, StageID: "stage-1", StepID: "s1"})
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "s1", Output: delta})
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "s1", Output: delta})
 
 	st, addr, err := f.rp.Rebuild(context.Background(), charRunID, f.defID)
 	require.NoError(t, err)
@@ -109,14 +109,14 @@ func TestReplayFold_FirstEffectEntryWins(t *testing.T) {
 	f := newCharFixture(def)
 	first, _ := json.Marshal(map[string]any{"k": "first"})
 	second, _ := json.Marshal(map[string]any{"k": "second"})
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "s1", Output: first})
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "s1", Output: second})
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "s1", Output: first})
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "s1", Output: second})
 
 	st, _, err := f.rp.Rebuild(context.Background(), charRunID, f.defID)
 	require.NoError(t, err)
 	var state map[string]any
 	require.NoError(t, st.Read(func(s map[string]any) error { state = store.DeepCopyMap(s); return nil }))
-	require.Equal(t, "first", state["k"], "baseline: first effect entry per step id wins")
+	require.Equal(t, "second", state["k"], "S.1 canonical seq-fold: every recorded outcome applies in seq order — the last value wins")
 }
 
 // TestReplayFold_LastRouteWins pins indexByStage: the most recent
@@ -135,7 +135,7 @@ func TestReplayFold_LastRouteWins(t *testing.T) {
 	f := newCharFixture(def)
 	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindRouted, StageID: "stage-1", Handle: "stage-3"})
 	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindRouted, StageID: "stage-1", Handle: "stage-2"})
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-2", StepID: "s2",
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-2", StepID: "s2",
 		Output: mustJSON(map[string]any{"end": true})})
 
 	st, addr, err := f.rp.Rebuild(context.Background(), charRunID, f.defID)
@@ -163,7 +163,7 @@ func TestReplayFold_PureStepReexecuted(t *testing.T) {
 		},
 	}
 	f := newCharFixture(def)
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "fx-1",
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "fx-1",
 		Output: mustJSON(map[string]any{"k": "v"})})
 
 	st, addr, err := f.rp.Rebuild(context.Background(), charRunID, f.defID)
@@ -193,7 +193,7 @@ func TestReplayFold_ResumeAtUnrecordedEffect(t *testing.T) {
 		},
 	}
 	f := newCharFixture(def)
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "s1",
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "s1",
 		Output: mustJSON(map[string]any{"a": float64(1)})})
 
 	_, addr, err := f.rp.Rebuild(context.Background(), charRunID, f.defID)
@@ -276,7 +276,7 @@ func TestReplayFold_MultiAttemptRebaseline(t *testing.T) {
 
 	// Attempt 0: step a completes, run pauses at stage-1's router (resume
 	// continues at stage-2 — the realistic multi-stage shape).
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "s1",
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "s1",
 		Output: mustJSON(map[string]any{"a": float64(1)})})
 	ckpt := pipeline.PipelineCheckpoint{
 		PipelineID:      f.defID,
@@ -289,7 +289,7 @@ func TestReplayFold_MultiAttemptRebaseline(t *testing.T) {
 
 	// Attempt 1 (post-resume): KindResumed, then step b completes.
 	f.append(t, 1, actionlog.Entry{Kind: actionlog.KindResumed, StageID: "stage-1", Type: "pipeline:resumed"})
-	f.append(t, 1, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-2", StepID: "s2",
+	f.append(t, 1, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-2", StepID: "s2",
 		Output: mustJSON(map[string]any{"b": float64(2)})})
 
 	st, addr, err := f.rp.Rebuild(context.Background(), charRunID, f.defID)
@@ -318,7 +318,7 @@ func TestStateAtParityWithRebuild(t *testing.T) {
 		},
 	}
 	f := newCharFixture(def)
-	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindEffectCompleted, StageID: "stage-1", StepID: "s1",
+	f.append(t, 0, actionlog.Entry{Kind: actionlog.KindStepCompleted, StageID: "stage-1", StepID: "s1",
 		Output: mustJSON(map[string]any{"a": float64(1)})})
 
 	state, err := f.rp.StateAt(context.Background(), charRunID, f.defID, StepAddress{Stage: "stage-2", Step: "s2"})

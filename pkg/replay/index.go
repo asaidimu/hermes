@@ -82,7 +82,7 @@ func (rp *Replayer) allEntries(ctx context.Context, runID string) ([]actionlog.E
 // resumedAfterCheckpoint, stageForked) re-scanned the whole slice for
 // every stage — O(stages x entries) per replay.
 type logIndex struct {
-	byStep      map[string]actionlog.Entry // stepID -> first effect-outcome entry
+	byStep      map[string][]actionlog.Entry // stepID -> recorded outcomes, seq order (S.1)
 	routes      map[string]string          // stageID -> latest routed handle
 	checkpoints map[string]string          // stageID -> checkpoint ResumeAt stage
 	forked      map[string]bool            // stageID -> subpipeline forked here
@@ -95,7 +95,7 @@ type logIndex struct {
 // the interesting kinds.
 func buildLogIndex(entries []actionlog.Entry) *logIndex {
 	idx := &logIndex{
-		byStep:      make(map[string]actionlog.Entry),
+		byStep:      make(map[string][]actionlog.Entry),
 		routes:      make(map[string]string),
 		checkpoints: make(map[string]string),
 		forked:      make(map[string]bool),
@@ -103,11 +103,14 @@ func buildLogIndex(entries []actionlog.Entry) *logIndex {
 	}
 	for _, e := range entries {
 		switch e.Kind {
-		case actionlog.KindEffectCompleted, actionlog.KindEffectFailed:
+		case actionlog.KindStepCompleted, actionlog.KindStepFailed:
+			// S.1: KindStepCompleted/KindStepFailed are the ONLY
+			// completion records (the KindEffect* duplicates were
+			// deleted with this commit). Every recorded outcome for a
+			// step is kept IN SEQ ORDER — retries and loop iterations
+			// append, and the canonical fold replays the sequence.
 			if e.StepID != "" {
-				if _, exists := idx.byStep[e.StepID]; !exists {
-					idx.byStep[e.StepID] = e
-				}
+				idx.byStep[e.StepID] = append(idx.byStep[e.StepID], e)
 			}
 		case actionlog.KindRouted:
 			if e.StageID != "" {

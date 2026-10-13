@@ -1,23 +1,47 @@
 {
   "name": "happy-path-completed-run",
-  "semantics": "baseline",
-  "description": "A completed run: effectful delta injected, pure step re-executed, no routes recorded (natural advance). Resume address empty.",
+  "semantics": "seq-fold",
+  "description": "A completed run: effectful delta injected, pure step re-executed, no routes recorded (natural advance). Resume address empty. S.1: the completion record is KindStepCompleted (the KindEffectCompleted duplicate is deleted).",
   "definition": {
     "id": "g-happy",
     "stages": [
       {
         "id": "stage-1",
         "steps": [
-          { "id": "s1", "effect": 2 },
-          { "id": "pure-1", "effect": 1, "writes": { "derived": "computed" } }
+          {
+            "id": "s1",
+            "effect": 2
+          },
+          {
+            "id": "pure-1",
+            "effect": 1,
+            "writes": {
+              "derived": "computed"
+            }
+          }
         ]
       }
     ]
   },
   "entries": [
-    { "kind": "pipeline_started", "type": "pipeline:start" },
-    { "kind": "effect_completed", "stageId": "stage-1", "stepId": "s1", "output": { "k": "recorded" } }
+    {
+      "kind": "pipeline_started",
+      "type": "pipeline:start"
+    },
+    {
+      "kind": "step_completed",
+      "stageId": "stage-1",
+      "stepId": "s1",
+      "output": {
+        "k": "recorded"
+      }
+    }
   ],
-  "expectedResumeAddress": { "stage": "" },
-  "expectedState": { "k": "recorded", "derived": "computed" }
+  "expectedResumeAddress": {
+    "stage": ""
+  },
+  "expectedState": {
+    "k": "recorded",
+    "derived": "computed"
+  }
 }

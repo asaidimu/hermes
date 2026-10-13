@@ -23,8 +23,6 @@ func TestEntryKinds(t *testing.T) {
 		{KindStepCompleted, "step_completed"},
 		{KindStepFailed, "step_failed"},
 		{KindStepRetry, "step_retry"},
-		{KindEffectCompleted, "effect_completed"},
-		{KindEffectFailed, "effect_failed"},
 		{KindRouted, "routed"},
 		{KindCheckpoint, "checkpoint"},
 		{KindResumed, "resumed"},
@@ -44,7 +42,7 @@ func TestMemoryActionLogAppendAndAll(t *testing.T) {
 
 	seq1, err := log.Append(ctx, Entry{
 		RunID:   "run-1",
-		Kind:    KindEffectCompleted,
+		Kind:    KindStepCompleted,
 		StageID: "stage-a",
 		StepID:  "step-1",
 		Output:  json.RawMessage(`{"status":200}`),
@@ -76,8 +74,8 @@ func TestMemoryActionLogAppendAndAll(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("All returned %d entries, want 2", len(entries))
 	}
-	if entries[0].Kind != KindEffectCompleted {
-		t.Errorf("entry[0].Kind = %q, want %q", entries[0].Kind, KindEffectCompleted)
+	if entries[0].Kind != KindStepCompleted {
+		t.Errorf("entry[0].Kind = %q, want %q", entries[0].Kind, KindStepCompleted)
 	}
 	if entries[1].Kind != KindRouted {
 		t.Errorf("entry[1].Kind = %q, want %q", entries[1].Kind, KindRouted)
@@ -99,10 +97,10 @@ func TestMemoryActionLogByStepID(t *testing.T) {
 	log := NewMemoryActionLog()
 	ctx := context.Background()
 
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted, StepID: "s1", StageID: "a"})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepCompleted, StepID: "s1", StageID: "a"})
 	log.Append(ctx, Entry{RunID: "r1", Kind: KindRouted, StepID: "", StageID: "a"})
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectFailed, StepID: "s2", StageID: "b"})
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted, StepID: "s1", StageID: "a"})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepFailed, StepID: "s2", StageID: "b"})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepCompleted, StepID: "s1", StageID: "a"})
 
 	entries, err := log.ByStepID(ctx, "r1", 0, "s1")
 	if err != nil {
@@ -123,7 +121,7 @@ func TestMemoryActionLogLastByStageID(t *testing.T) {
 	ctx := context.Background()
 
 	log.Append(ctx, Entry{RunID: "r1", Kind: KindRouted, StageID: "a", Handle: "b"})
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted, StageID: "a", StepID: "s1"})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepCompleted, StageID: "a", StepID: "s1"})
 	log.Append(ctx, Entry{RunID: "r1", Kind: KindRouted, StageID: "a", Handle: "c"})
 
 	last, err := log.LastByStageID(ctx, "r1", 0, "a")
@@ -158,9 +156,9 @@ func TestMemoryActionLogCount(t *testing.T) {
 		t.Fatalf("Count = %d, want 0", count)
 	}
 
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted, StageID: "a"})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepCompleted, StageID: "a"})
 	log.Append(ctx, Entry{RunID: "r1", Kind: KindRouted, StageID: "a"})
-	log.Append(ctx, Entry{RunID: "r2", Kind: KindEffectCompleted, StageID: "b"})
+	log.Append(ctx, Entry{RunID: "r2", Kind: KindStepCompleted, StageID: "b"})
 
 	count, _ = log.Count(ctx, "r1", 0)
 	if count != 2 {
@@ -193,7 +191,7 @@ func TestMemoryActionLogReturnsCopies(t *testing.T) {
 	log := NewMemoryActionLog()
 	ctx := context.Background()
 
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted, StageID: "a", Output: json.RawMessage(`{"x":1}`)})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepCompleted, StageID: "a", Output: json.RawMessage(`{"x":1}`)})
 	log.Append(ctx, Entry{RunID: "r1", Kind: KindRouted, StageID: "a", Handle: "b"})
 
 	entries, _ := log.All(ctx, "r1", 0)
@@ -225,7 +223,7 @@ func TestMemoryActionLogConcurrentAppend(t *testing.T) {
 			for i := 0; i < perGoroutine; i++ {
 				_, err := log.Append(ctx, Entry{
 					RunID:   "r-concurrent",
-					Kind:    KindEffectCompleted,
+					Kind:    KindStepCompleted,
 					StageID: "stage",
 					StepID:  "step",
 				})
@@ -256,8 +254,8 @@ func TestMemoryActionLogMultipleRuns(t *testing.T) {
 	log := NewMemoryActionLog()
 	ctx := context.Background()
 
-	log.Append(ctx, Entry{RunID: "r1", Kind: KindEffectCompleted, StageID: "s1"})
-	log.Append(ctx, Entry{RunID: "r2", Kind: KindEffectCompleted, StageID: "s2"})
+	log.Append(ctx, Entry{RunID: "r1", Kind: KindStepCompleted, StageID: "s1"})
+	log.Append(ctx, Entry{RunID: "r2", Kind: KindStepCompleted, StageID: "s2"})
 	log.Append(ctx, Entry{RunID: "r1", Kind: KindRouted, StageID: "s1"})
 
 	e1, _ := log.All(ctx, "r1", 0)

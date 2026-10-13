@@ -83,7 +83,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 	delta1, _ := json.Marshal(map[string]any{"api_result": "ok"})
 	log.Append(ctx, actionlog.Entry{
 		RunID:   runID,
-		Kind:    actionlog.KindEffectCompleted,
+		Kind:    actionlog.KindStepCompleted,
 		StageID: "stage-1",
 		StepID:  "http-step",
 		Output:  delta1,
@@ -91,7 +91,7 @@ func TestRebuild_EffectfulStepsCompleted(t *testing.T) {
 	delta2, _ := json.Marshal(map[string]any{"db_result": int64(42)})
 	log.Append(ctx, actionlog.Entry{
 		RunID:   runID,
-		Kind:    actionlog.KindEffectCompleted,
+		Kind:    actionlog.KindStepCompleted,
 		StageID: "stage-2",
 		StepID:  "db-step",
 		Output:  delta2,
@@ -160,7 +160,7 @@ func TestRebuild_PartiallyCompletedEffectful(t *testing.T) {
 	delta1, _ := json.Marshal(map[string]any{"api_result": "ok"})
 	log.Append(ctx, actionlog.Entry{
 		RunID:   runID,
-		Kind:    actionlog.KindEffectCompleted,
+		Kind:    actionlog.KindStepCompleted,
 		StageID: "stage-1",
 		StepID:  "http-step-1",
 		Output:  delta1,
@@ -383,7 +383,7 @@ func TestRebuild_EffectfulStepFailure(t *testing.T) {
 	runID := "run-failed"
 	log.Append(ctx, actionlog.Entry{
 		RunID:   runID,
-		Kind:    actionlog.KindEffectFailed,
+		Kind:    actionlog.KindStepFailed,
 		StageID: "stage-1",
 		StepID:  "failing-step",
 		Error:   "connection refused",

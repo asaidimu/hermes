@@ -1,0 +1,43 @@
+{
+  "name": "seq-fold-duplicate-outputs",
+  "semantics": "seq-fold",
+  "description": "S.1 canonical seq-fold: two step_completed entries for the same step fold IN SEQ ORDER \u2014 every delta applies, so the LAST recorded value wins. (The baseline semantics kept the FIRST entry; that rule is gone with the KindEffectCompleted duplicate.)",
+  "definition": {
+    "id": "g-first-effect",
+    "stages": [
+      {
+        "id": "stage-1",
+        "steps": [
+          {
+            "id": "s1",
+            "effect": 2
+          }
+        ]
+      }
+    ]
+  },
+  "entries": [
+    {
+      "kind": "step_completed",
+      "stageId": "stage-1",
+      "stepId": "s1",
+      "output": {
+        "k": "first"
+      }
+    },
+    {
+      "kind": "step_completed",
+      "stageId": "stage-1",
+      "stepId": "s1",
+      "output": {
+        "k": "second"
+      }
+    }
+  ],
+  "expectedResumeAddress": {
+    "stage": ""
+  },
+  "expectedState": {
+    "k": "second"
+  }
+}

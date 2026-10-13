@@ -148,14 +148,17 @@ func (rp *Replayer) walkDef(ctx context.Context, def *pipeline.PipelineDefinitio
 			// vectors).
 			for _, step := range sortedSteps(stage.Steps) {
 				if step.Effect == int(pipeline.EffectSideEffecting) {
-					entry, done := byStep[step.ID]
-					if done {
-						// Effectful step completed: inject its recorded
-						// state delta. Don't re-execute — side effects
+					recorded := byStep[step.ID]
+					if len(recorded) > 0 {
+						// Effectful step has recorded outcomes: inject ALL
+						// of them in seq order (S.1 canonical seq-fold —
+						// retries and loop iterations each appended a
+						// delta; replaying the sequence reproduces the
+						// final state). Don't re-execute — side effects
 						// must not be duplicated.
-						if err := applyRecordedDelta(st, entry); err != nil {
+						if err := applyRecordedDeltas(st, recorded); err != nil {
 							return StepAddress{}, fmt.Errorf(
-								"apply recorded delta for step %s: %w", step.ID, err)
+								"apply recorded deltas for step %s: %w", step.ID, err)
 						}
 						continue
 					}
@@ -442,13 +445,13 @@ func (rp *Replayer) foldDef(ctx context.Context, def *pipeline.PipelineDefinitio
 // foldStep folds one step's contribution into a replayed store: the
 // recorded delta for an effectful step (a no-op when the step has no
 // recording yet), or re-execution for a pure step.
-func foldStep(ctx context.Context, st store.Store, byStep map[string]actionlog.Entry, step pipeline.Step) error {
+func foldStep(ctx context.Context, st store.Store, byStep map[string][]actionlog.Entry, step pipeline.Step) error {
 	if step.Effect == int(pipeline.EffectSideEffecting) {
-		entry, done := byStep[step.ID]
-		if !done {
+		recorded := byStep[step.ID]
+		if len(recorded) == 0 {
 			return nil
 		}
-		return applyRecordedDelta(st, entry)
+		return applyRecordedDeltas(st, recorded)
 	}
 	return replayStep(ctx, st, step)
 }
@@ -472,6 +475,19 @@ func sortedSteps(steps map[string]pipeline.Step) []pipeline.Step {
 }
 
 // --- helpers ---
+
+// applyRecordedDeltas injects a step's recorded outcomes into the store
+// IN SEQ ORDER (S.1 canonical seq-fold). Entries with no Output (step
+// failures) are no-ops; each recorded delta is applied on top of the
+// previous one, reproducing the state the run actually reached.
+func applyRecordedDeltas(st store.Store, entries []actionlog.Entry) error {
+	for _, entry := range entries {
+		if err := applyRecordedDelta(st, entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // applyRecordedDelta injects the state delta recorded in an action log
 // entry into the store. The delta is a flat map of key→value changes

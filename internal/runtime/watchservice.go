@@ -1,369 +1,369 @@
 package runtime
 
 import (
-        "context"
-        "sync"
-        "time"
+	"context"
+	"sync"
+	"time"
 
-        "github.com/asaidimu/hermes/pkg/core"
-        "github.com/asaidimu/hermes/pkg/events"
-        "github.com/asaidimu/hermes/pkg/watch"
+	"github.com/asaidimu/hermes/pkg/core"
+	"github.com/asaidimu/hermes/pkg/events"
+	"github.com/asaidimu/hermes/pkg/watch"
 )
 
 // watchRegistration tracks a single (runId, eventType) watch pair.
 type watchRegistration struct {
-        runID      string
-        descriptor watch.WatchDescriptor
-        queue      []watch.WatchEvent
-        parked     bool
-        timer      *time.Timer
+	runID      string
+	descriptor watch.WatchDescriptor
+	queue      []watch.WatchEvent
+	parked     bool
+	timer      *time.Timer
 }
 
 // WatchService manages watch registrations for all active runs.
 type WatchService struct {
-        mu            sync.Mutex
-        registrations map[string]map[string]*watchRegistration
-        byEventType   map[string]map[string]bool
-        busSubs       map[string]func()
-        // delivered tracks, per run, which watched event types have delivered an
-        // event in the current parked cycle. Only used for multi-event mode=all
-        // registrations, which must not resume until every watched type has
-        // delivered (a single matching event resumes mode=any waits immediately).
-        delivered      map[string]map[string]bool
-        bus            *events.MemoryScopedBus
-        resumeCallback func(runID string, patch map[string]any)
+	mu            sync.Mutex
+	registrations map[string]map[string]*watchRegistration
+	byEventType   map[string]map[string]bool
+	busSubs       map[string]func()
+	// delivered tracks, per run, which watched event types have delivered an
+	// event in the current parked cycle. Only used for multi-event mode=all
+	// registrations, which must not resume until every watched type has
+	// delivered (a single matching event resumes mode=any waits immediately).
+	delivered      map[string]map[string]bool
+	bus            *events.MemoryScopedBus
+	resumeCallback func(runID string, patch map[string]any)
 }
 
 // NewWatchService creates a new WatchService.
 func NewWatchService(bus *events.MemoryScopedBus, resumeCallback func(runID string, patch map[string]any)) *WatchService {
-        return &WatchService{
-                registrations:  make(map[string]map[string]*watchRegistration),
-                byEventType:    make(map[string]map[string]bool),
-                busSubs:        make(map[string]func()),
-                delivered:      make(map[string]map[string]bool),
-                bus:            bus,
-                resumeCallback: resumeCallback,
-        }
+	return &WatchService{
+		registrations:  make(map[string]map[string]*watchRegistration),
+		byEventType:    make(map[string]map[string]bool),
+		busSubs:        make(map[string]func()),
+		delivered:      make(map[string]map[string]bool),
+		bus:            bus,
+		resumeCallback: resumeCallback,
+	}
 }
 
 // markDeliveredLocked records that eventType delivered for runID in the
 // current parked cycle. Caller must hold s.mu.
 func (s *WatchService) markDeliveredLocked(runID, eventType string) {
-        set, ok := s.delivered[runID]
-        if !ok {
-                set = make(map[string]bool)
-                s.delivered[runID] = set
-        }
-        set[eventType] = true
+	set, ok := s.delivered[runID]
+	if !ok {
+		set = make(map[string]bool)
+		s.delivered[runID] = set
+	}
+	set[eventType] = true
 }
 
 // allDeliveredLocked reports whether every event type in types delivered for
 // runID in the current parked cycle. Caller must hold s.mu.
 func (s *WatchService) allDeliveredLocked(runID string, types []string) bool {
-        set := s.delivered[runID]
-        for _, t := range types {
-                if set == nil || !set[t] {
-                        return false
-                }
-        }
-        return true
+	set := s.delivered[runID]
+	for _, t := range types {
+		if set == nil || !set[t] {
+			return false
+		}
+	}
+	return true
 }
 
 // clearDeliveredLocked drops the per-run delivered tracking. Caller must
 // hold s.mu.
 func (s *WatchService) clearDeliveredLocked(runID string) {
-        delete(s.delivered, runID)
+	delete(s.delivered, runID)
 }
 
 // multiAllRegLocked returns the run's first multi-event mode=all
 // registration, or nil when the run has none. Caller must hold s.mu.
 func (s *WatchService) multiAllRegLocked(runID string) *watchRegistration {
-        for _, reg := range s.registrations[runID] {
-                if reg.descriptor.Mode == string(watch.WatchModeAll) && len(reg.descriptor.EventTypes) > 1 {
-                        return reg
-                }
-        }
-        return nil
+	for _, reg := range s.registrations[runID] {
+		if reg.descriptor.Mode == string(watch.WatchModeAll) && len(reg.descriptor.EventTypes) > 1 {
+			return reg
+		}
+	}
+	return nil
 }
 
 // parkLocked marks every registration of a run as parked and starts the
 // timeout timer for the first descriptor that declares one. Caller must
 // hold s.mu.
 func (s *WatchService) parkLocked(runID string, runMap map[string]*watchRegistration) {
-        for _, reg := range runMap {
-                reg.parked = true
-        }
-        for _, reg := range runMap {
-                if reg.descriptor.Timeout > 0 {
-                        s.startTimeoutLocked(runID, reg.descriptor.Timeout)
-                        break
-                }
-        }
+	for _, reg := range runMap {
+		reg.parked = true
+	}
+	for _, reg := range runMap {
+		if reg.descriptor.Timeout > 0 {
+			s.startTimeoutLocked(runID, reg.descriptor.Timeout)
+			break
+		}
+	}
 }
 
 // Register creates a watch registration for the given run.
 func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) error {
-        if runID == "" {
-                return core.NewSystemError(core.ErrCodeValidation, "watch: runID must not be empty")
-        }
-        if len(desc.EventTypes) == 0 {
-                return core.NewSystemError(core.ErrCodeValidation, "watch: descriptor must specify at least one event type")
-        }
+	if runID == "" {
+		return core.NewSystemError(core.ErrCodeValidation, "watch: runID must not be empty")
+	}
+	if len(desc.EventTypes) == 0 {
+		return core.NewSystemError(core.ErrCodeValidation, "watch: descriptor must specify at least one event type")
+	}
 
-        s.mu.Lock()
-        defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-        // A fresh registration starts a new watch cycle: any delivered-type
-        // tracking from a previous cycle for this run is stale (see onEvent's
-        // mode=all handling).
-        s.clearDeliveredLocked(runID)
+	// A fresh registration starts a new watch cycle: any delivered-type
+	// tracking from a previous cycle for this run is stale (see onEvent's
+	// mode=all handling).
+	s.clearDeliveredLocked(runID)
 
-        runMap, ok := s.registrations[runID]
-        if !ok {
-                runMap = make(map[string]*watchRegistration)
-                s.registrations[runID] = runMap
-        }
+	runMap, ok := s.registrations[runID]
+	if !ok {
+		runMap = make(map[string]*watchRegistration)
+		s.registrations[runID] = runMap
+	}
 
-        for _, eventType := range desc.EventTypes {
-                reg := &watchRegistration{
-                        runID:      runID,
-                        descriptor: desc,
-                        queue:      make([]watch.WatchEvent, 0),
-                        parked:     false,
-                }
-                // C5-fix (20261003): an event buffered while the previous wait's
-                // segment was executing is still pending delivery. Register used to
-                // reset the queue here, silently dropping every event that arrived
-                // during a resumed segment the moment the run re-paused watching the
-                // same type — which made the "deliver any event that arrived while
-                // the resumed segment was executing" path dead in practice. Carry
-                // pending events into the fresh registration; OnRunPaused drains
-                // them one resume at a time.
-                if old, ok := runMap[eventType]; ok && len(old.queue) > 0 {
-                        reg.queue = append(reg.queue, old.queue...)
-                }
-                runMap[eventType] = reg
+	for _, eventType := range desc.EventTypes {
+		reg := &watchRegistration{
+			runID:      runID,
+			descriptor: desc,
+			queue:      make([]watch.WatchEvent, 0),
+			parked:     false,
+		}
+		// C5-fix (20261003): an event buffered while the previous wait's
+		// segment was executing is still pending delivery. Register used to
+		// reset the queue here, silently dropping every event that arrived
+		// during a resumed segment the moment the run re-paused watching the
+		// same type — which made the "deliver any event that arrived while
+		// the resumed segment was executing" path dead in practice. Carry
+		// pending events into the fresh registration; OnRunPaused drains
+		// them one resume at a time.
+		if old, ok := runMap[eventType]; ok && len(old.queue) > 0 {
+			reg.queue = append(reg.queue, old.queue...)
+		}
+		runMap[eventType] = reg
 
-                runSet, ok := s.byEventType[eventType]
-                if !ok {
-                        runSet = make(map[string]bool)
-                        s.byEventType[eventType] = runSet
-                }
-                runSet[runID] = true
+		runSet, ok := s.byEventType[eventType]
+		if !ok {
+			runSet = make(map[string]bool)
+			s.byEventType[eventType] = runSet
+		}
+		runSet[runID] = true
 
-                s.acquireBusSubscriptionLocked(eventType)
-        }
-        return nil
+		s.acquireBusSubscriptionLocked(eventType)
+	}
+	return nil
 }
 
 // OnRunPaused returns buffered event or nil if run should wait.
 func (s *WatchService) OnRunPaused(runID string) *watch.WatchEvent {
-        s.mu.Lock()
-        defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-        runMap, ok := s.registrations[runID]
-        if !ok {
-                return nil
-        }
+	runMap, ok := s.registrations[runID]
+	if !ok {
+		return nil
+	}
 
-        // Fresh parked cycle: drop any delivered-type tracking left over from a
-        // previous one (see the mode=all handling in onEvent).
-        s.clearDeliveredLocked(runID)
+	// Fresh parked cycle: drop any delivered-type tracking left over from a
+	// previous one (see the mode=all handling in onEvent).
+	s.clearDeliveredLocked(runID)
 
-        // Single-event drain: hand back one buffered event for immediate resume.
-        // For a multi-event mode=all wait, a single drained entry must not resume
-        // the run unless every watched type already has a buffered event — in that
-        // case park (pre-crediting the buffered types, which onEvent's completed-
-        // set check would otherwise never see) and let onEvent complete the set.
-        if reg := s.multiAllRegLocked(runID); reg != nil {
-                allQueued := true
-                for _, t := range reg.descriptor.EventTypes {
-                        tr, ok := runMap[t]
-                        if !ok || len(tr.queue) == 0 {
-                                allQueued = false
-                                break
-                        }
-                }
-                if !allQueued {
-                        for t, r := range runMap {
-                                if len(r.queue) > 0 {
-                                        s.markDeliveredLocked(runID, t)
-                                }
-                        }
-                        s.parkLocked(runID, runMap)
-                        return nil
-                }
-        }
+	// Single-event drain: hand back one buffered event for immediate resume.
+	// For a multi-event mode=all wait, a single drained entry must not resume
+	// the run unless every watched type already has a buffered event — in that
+	// case park (pre-crediting the buffered types, which onEvent's completed-
+	// set check would otherwise never see) and let onEvent complete the set.
+	if reg := s.multiAllRegLocked(runID); reg != nil {
+		allQueued := true
+		for _, t := range reg.descriptor.EventTypes {
+			tr, ok := runMap[t]
+			if !ok || len(tr.queue) == 0 {
+				allQueued = false
+				break
+			}
+		}
+		if !allQueued {
+			for t, r := range runMap {
+				if len(r.queue) > 0 {
+					s.markDeliveredLocked(runID, t)
+				}
+			}
+			s.parkLocked(runID, runMap)
+			return nil
+		}
+	}
 
-        for _, reg := range runMap {
-                if len(reg.queue) > 0 {
-                        event := &reg.queue[0]
-                        reg.queue = reg.queue[1:]
-                        return event
-                }
-        }
+	for _, reg := range runMap {
+		if len(reg.queue) > 0 {
+			event := &reg.queue[0]
+			reg.queue = reg.queue[1:]
+			return event
+		}
+	}
 
-        s.parkLocked(runID, runMap)
-        return nil
+	s.parkLocked(runID, runMap)
+	return nil
 }
 
 // OnRunEnded cleans up all watches for a run.
 func (s *WatchService) OnRunEnded(runID string) {
-        s.mu.Lock()
-        defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-        runMap, ok := s.registrations[runID]
-        if !ok {
-                return
-        }
+	runMap, ok := s.registrations[runID]
+	if !ok {
+		return
+	}
 
-        for eventType, reg := range runMap {
-                if reg.timer != nil {
-                        reg.timer.Stop()
-                }
-                s.removeFromReverseIndexLocked(runID, eventType)
-                s.releaseBusSubscriptionLocked(eventType)
-        }
-        s.clearDeliveredLocked(runID)
+	for eventType, reg := range runMap {
+		if reg.timer != nil {
+			reg.timer.Stop()
+		}
+		s.removeFromReverseIndexLocked(runID, eventType)
+		s.releaseBusSubscriptionLocked(eventType)
+	}
+	s.clearDeliveredLocked(runID)
 
-        delete(s.registrations, runID)
+	delete(s.registrations, runID)
 }
 
 // PeekBufferedEvent checks if there's a buffered event without marking the run as parked.
 // This is used by bounded pause nodes to check for events before deciding to pause.
 func (s *WatchService) PeekBufferedEvent(runID string) (*watch.WatchEvent, bool) {
-        s.mu.Lock()
-        defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-        runMap, ok := s.registrations[runID]
-        if !ok {
-                return nil, false
-        }
+	runMap, ok := s.registrations[runID]
+	if !ok {
+		return nil, false
+	}
 
-        for _, reg := range runMap {
-                if len(reg.queue) > 0 {
-                        event := &reg.queue[0]
-                        return event, true
-                }
-        }
+	for _, reg := range runMap {
+		if len(reg.queue) > 0 {
+			event := &reg.queue[0]
+			return event, true
+		}
+	}
 
-        return nil, false
+	return nil, false
 }
 
 // onEvent is called when a bus event arrives for a watched event type.
 func (s *WatchService) onEvent(eventType string, payload map[string]any) {
-        s.mu.Lock()
-        defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-        runSet, ok := s.byEventType[eventType]
-        if !ok || len(runSet) == 0 {
-                return
-        }
+	runSet, ok := s.byEventType[eventType]
+	if !ok || len(runSet) == 0 {
+		return
+	}
 
-        type resumeEntry struct {
-                runID string
-                event watch.WatchEvent
-        }
-        var toResume []resumeEntry
+	type resumeEntry struct {
+		runID string
+		event watch.WatchEvent
+	}
+	var toResume []resumeEntry
 
-        for runID := range runSet {
-                runMap, ok := s.registrations[runID]
-                if !ok {
-                        continue
-                }
-                reg, ok := runMap[eventType]
-                if !ok {
-                        continue
-                }
+	for runID := range runSet {
+		runMap, ok := s.registrations[runID]
+		if !ok {
+			continue
+		}
+		reg, ok := runMap[eventType]
+		if !ok {
+			continue
+		}
 
-                if !s.evaluateConditions(reg.descriptor.Conditions, payload) {
-                        continue
-                }
+		if !s.evaluateConditions(reg.descriptor.Conditions, payload) {
+			continue
+		}
 
-                patch := make(map[string]any)
-                for k, v := range reg.descriptor.Patch {
-                        patch[k] = v
-                }
-                for k, v := range payload {
-                        patch[k] = v
-                }
+		patch := make(map[string]any)
+		for k, v := range reg.descriptor.Patch {
+			patch[k] = v
+		}
+		for k, v := range payload {
+			patch[k] = v
+		}
 
-                resolved := watch.WatchEvent{
-                        EventType: eventType,
-                        Payload:   payload,
-                        Patch:     patch,
-                }
+		resolved := watch.WatchEvent{
+			EventType: eventType,
+			Payload:   payload,
+			Patch:     patch,
+		}
 
-                if reg.parked {
-                        // Multi-event mode=all waits resume only when every watched
-                        // event type has delivered in this parked cycle; other waits
-                        // resume on the first matching event.
-                        if reg.descriptor.Mode == string(watch.WatchModeAll) && len(reg.descriptor.EventTypes) > 1 {
-                                s.markDeliveredLocked(runID, eventType)
-                                if !s.allDeliveredLocked(runID, reg.descriptor.EventTypes) {
-                                        continue
-                                }
-                                s.clearDeliveredLocked(runID)
-                        }
-                        reg.parked = false
-                        if reg.timer != nil {
-                                reg.timer.Stop()
-                                reg.timer = nil
-                        }
-                        toResume = append(toResume, resumeEntry{runID: runID, event: resolved})
-                } else {
-                        reg.queue = append(reg.queue, resolved)
-                }
-        }
+		if reg.parked {
+			// Multi-event mode=all waits resume only when every watched
+			// event type has delivered in this parked cycle; other waits
+			// resume on the first matching event.
+			if reg.descriptor.Mode == string(watch.WatchModeAll) && len(reg.descriptor.EventTypes) > 1 {
+				s.markDeliveredLocked(runID, eventType)
+				if !s.allDeliveredLocked(runID, reg.descriptor.EventTypes) {
+					continue
+				}
+				s.clearDeliveredLocked(runID)
+			}
+			reg.parked = false
+			if reg.timer != nil {
+				reg.timer.Stop()
+				reg.timer = nil
+			}
+			toResume = append(toResume, resumeEntry{runID: runID, event: resolved})
+		} else {
+			reg.queue = append(reg.queue, resolved)
+		}
+	}
 
-        s.mu.Unlock()
-        for _, entry := range toResume {
-                s.resumeCallback(entry.runID, entry.event.Patch)
-        }
-        s.mu.Lock()
+	s.mu.Unlock()
+	for _, entry := range toResume {
+		s.resumeCallback(entry.runID, entry.event.Patch)
+	}
+	s.mu.Lock()
 }
 
 func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, payload map[string]any) bool {
-        for _, cond := range conditions {
-                value := getField(payload, cond.Field)
-                if cond.Op == watch.OpExists {
-                        if value == nil {
-                                return false
-                        }
-                        continue
-                }
-                if value == nil {
-                        return false
-                }
-                // @note #review-20260822-001 observation P2 resolved status=resolved priority=P2 tags=#review,#design : Limited comparison operators
-                //
-                // Resolved: extended to support >, >=, <, <= for numeric values
-                // (via compareNumeric below), rather than leaving them to silently
-                // return false. Non-numeric operands with a relational operator
-                // still return false (there's no sensible ordering to fall back to
-                // for e.g. two unrelated maps), same as an unknown operator would.
-                // @note #review-20260822-044 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Unknown operator returns true
-                //
-                // Resolved: Added default: return false to reject unknown comparison operators.
-                switch cond.Op {
-                case watch.OpEqual:
-                        if value != cond.Value {
-                                return false
-                        }
-                case watch.OpNotEqual:
-                        if value == cond.Value {
-                                return false
-                        }
-                case ">", ">=", "<", "<=":
-                        ok, cmpOK := compareNumeric(value, cond.Value, string(cond.Op))
-                        if !cmpOK || !ok {
-                                return false
-                        }
-                default:
-                        return false
-                }
-        }
-        return true
+	for _, cond := range conditions {
+		value := getField(payload, cond.Field)
+		if cond.Op == watch.OpExists {
+			if value == nil {
+				return false
+			}
+			continue
+		}
+		if value == nil {
+			return false
+		}
+		// @note #review-20260822-001 observation P2 resolved status=resolved priority=P2 tags=#review,#design : Limited comparison operators
+		//
+		// Resolved: extended to support >, >=, <, <= for numeric values
+		// (via compareNumeric below), rather than leaving them to silently
+		// return false. Non-numeric operands with a relational operator
+		// still return false (there's no sensible ordering to fall back to
+		// for e.g. two unrelated maps), same as an unknown operator would.
+		// @note #review-20260822-044 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Unknown operator returns true
+		//
+		// Resolved: Added default: return false to reject unknown comparison operators.
+		switch cond.Op {
+		case watch.OpEqual:
+			if value != cond.Value {
+				return false
+			}
+		case watch.OpNotEqual:
+			if value == cond.Value {
+				return false
+			}
+		case ">", ">=", "<", "<=":
+			ok, cmpOK := compareNumeric(value, cond.Value, string(cond.Op))
+			if !cmpOK || !ok {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // compareNumeric compares a and b numerically using op ("> " | ">=" | "<" | "<=").
@@ -371,177 +371,177 @@ func (s *WatchService) evaluateConditions(conditions []watch.WatchCondition, pay
 // (int, int32, int64, float32, float64), in which case the comparison result
 // is meaningless and the caller should treat the condition as unmet.
 func compareNumeric(a, b any, op string) (result bool, ok bool) {
-        af, aok := toFloat64(a)
-        bf, bok := toFloat64(b)
-        if !aok || !bok {
-                return false, false
-        }
-        switch op {
-        case ">":
-                return af > bf, true
-        case ">=":
-                return af >= bf, true
-        case "<":
-                return af < bf, true
-        case "<=":
-                return af <= bf, true
-        default:
-                return false, false
-        }
+	af, aok := toFloat64(a)
+	bf, bok := toFloat64(b)
+	if !aok || !bok {
+		return false, false
+	}
+	switch op {
+	case ">":
+		return af > bf, true
+	case ">=":
+		return af >= bf, true
+	case "<":
+		return af < bf, true
+	case "<=":
+		return af <= bf, true
+	default:
+		return false, false
+	}
 }
 
 func toFloat64(v any) (float64, bool) {
-        switch n := v.(type) {
-        case float64:
-                return n, true
-        case float32:
-                return float64(n), true
-        case int:
-                return float64(n), true
-        case int32:
-                return float64(n), true
-        case int64:
-                return float64(n), true
-        default:
-                return 0, false
-        }
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
 }
 
 func (s *WatchService) startTimeoutLocked(runID string, timeoutMs int64) {
-        runMap, ok := s.registrations[runID]
-        if !ok {
-                return
-        }
+	runMap, ok := s.registrations[runID]
+	if !ok {
+		return
+	}
 
-        // Stop all existing timers for the run, then start a fresh timer per
-        // registration that declares a timeout. (C3-fix/L2, 20261003: the old
-        // code started one timer and assigned it to an ARBITRARY registration —
-        // "first" hit of Go's randomized map iteration — so which descriptor's
-        // timer survived was nondeterministic and a renewal could leave a wait
-        // with no live timer at all. Per-registration timers make ownership
-        // deterministic: each registration's timer unparks that registration.)
-        for _, reg := range runMap {
-                if reg.timer != nil {
-                        reg.timer.Stop()
-                        reg.timer = nil
-                }
-        }
+	// Stop all existing timers for the run, then start a fresh timer per
+	// registration that declares a timeout. (C3-fix/L2, 20261003: the old
+	// code started one timer and assigned it to an ARBITRARY registration —
+	// "first" hit of Go's randomized map iteration — so which descriptor's
+	// timer survived was nondeterministic and a renewal could leave a wait
+	// with no live timer at all. Per-registration timers make ownership
+	// deterministic: each registration's timer unparks that registration.)
+	for _, reg := range runMap {
+		if reg.timer != nil {
+			reg.timer.Stop()
+			reg.timer = nil
+		}
+	}
 
-        for eventType, reg := range runMap {
-                if reg.descriptor.Timeout <= 0 {
-                        continue
-                }
-                et := eventType
-                reg.timer = time.AfterFunc(time.Duration(reg.descriptor.Timeout)*time.Millisecond, func() {
-                        s.mu.Lock()
-                        regMap, ok := s.registrations[runID]
-                        if !ok {
-                                s.mu.Unlock()
-                                return
-                        }
-                        current, ok := regMap[et]
-                        if !ok || !current.parked {
-                                s.mu.Unlock()
-                                return
-                        }
-                        current.parked = false
-                        s.mu.Unlock()
-                        s.resumeCallback(runID, map[string]any{"__resume_reason__": "timeout"})
-                })
-        }
+	for eventType, reg := range runMap {
+		if reg.descriptor.Timeout <= 0 {
+			continue
+		}
+		et := eventType
+		reg.timer = time.AfterFunc(time.Duration(reg.descriptor.Timeout)*time.Millisecond, func() {
+			s.mu.Lock()
+			regMap, ok := s.registrations[runID]
+			if !ok {
+				s.mu.Unlock()
+				return
+			}
+			current, ok := regMap[et]
+			if !ok || !current.parked {
+				s.mu.Unlock()
+				return
+			}
+			current.parked = false
+			s.mu.Unlock()
+			s.resumeCallback(runID, map[string]any{"__resume_reason__": "timeout"})
+		})
+	}
 }
 
 func (s *WatchService) acquireBusSubscriptionLocked(eventType string) {
-        if _, ok := s.busSubs[eventType]; ok {
-                return
-        }
-        // @note #scoped-bus-opportunity-004 issue P2 wontfix status=wontfix priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
-        //
-        // Investigated and declined: this is not actually filtering "by runID" —
-        // checked onEvent/evaluateConditions directly, and neither ever compares
-        // the incoming event's RunID against the waiting run. That's
-        // intentional, not an oversight. The events WatchService cares about are
-        // external business signals (e.g. "order.approved") published by
-        // callers via the public rt.Bus() who have no idea what a "runID" is —
-        // they publish once, broadcast, and each waiting run's
-        // WatchDescriptor.Conditions (matched against payload, not run
-        // identity) decides whether it's the one waiting for it. Subscribing on
-        // per-run scoped buses instead of the root would mean a run's watch
-        // could only ever see events published *into that run's own scope* —
-        // which nothing does, since external callers publish globally. That
-        // would silently break every resume-on-external-event pause, not just
-        // reduce fan-out. If per-run subscription scoping is wanted later, it
-        // needs a companion change so external Dispatch-style calls can target
-        // a specific run's scope (or a set of scopes) — a real design decision,
-        // not a mechanical Subscribe-call swap.
-        unsubscribe := s.bus.Subscribe(eventType, func(ctx context.Context, evt events.PipelineEvent) error {
-                s.onEvent(eventType, evt.Payload)
-                return nil
-        })
-        s.busSubs[eventType] = unsubscribe
+	if _, ok := s.busSubs[eventType]; ok {
+		return
+	}
+	// @note #scoped-bus-opportunity-004 issue P2 wontfix status=wontfix priority=P2 tags=#event-bus,#performance : WatchService subscribes to root bus and manually filters by runID
+	//
+	// Investigated and declined: this is not actually filtering "by runID" —
+	// checked onEvent/evaluateConditions directly, and neither ever compares
+	// the incoming event's RunID against the waiting run. That's
+	// intentional, not an oversight. The events WatchService cares about are
+	// external business signals (e.g. "order.approved") published by
+	// callers via the public rt.Bus() who have no idea what a "runID" is —
+	// they publish once, broadcast, and each waiting run's
+	// WatchDescriptor.Conditions (matched against payload, not run
+	// identity) decides whether it's the one waiting for it. Subscribing on
+	// per-run scoped buses instead of the root would mean a run's watch
+	// could only ever see events published *into that run's own scope* —
+	// which nothing does, since external callers publish globally. That
+	// would silently break every resume-on-external-event pause, not just
+	// reduce fan-out. If per-run subscription scoping is wanted later, it
+	// needs a companion change so external Dispatch-style calls can target
+	// a specific run's scope (or a set of scopes) — a real design decision,
+	// not a mechanical Subscribe-call swap.
+	unsubscribe := s.bus.Subscribe(eventType, func(ctx context.Context, evt events.PipelineEvent) error {
+		s.onEvent(eventType, evt.Payload)
+		return nil
+	})
+	s.busSubs[eventType] = unsubscribe
 }
 
 func (s *WatchService) releaseBusSubscriptionLocked(eventType string) {
-        runSet, ok := s.byEventType[eventType]
-        if ok && len(runSet) > 0 {
-                return
-        }
-        unsubscribe, ok := s.busSubs[eventType]
-        if ok {
-                unsubscribe()
-                delete(s.busSubs, eventType)
-        }
+	runSet, ok := s.byEventType[eventType]
+	if ok && len(runSet) > 0 {
+		return
+	}
+	unsubscribe, ok := s.busSubs[eventType]
+	if ok {
+		unsubscribe()
+		delete(s.busSubs, eventType)
+	}
 }
 
 func (s *WatchService) removeFromReverseIndexLocked(runID string, eventType string) {
-        runSet, ok := s.byEventType[eventType]
-        if !ok {
-                return
-        }
-        delete(runSet, runID)
-        if len(runSet) == 0 {
-                delete(s.byEventType, eventType)
-        }
+	runSet, ok := s.byEventType[eventType]
+	if !ok {
+		return
+	}
+	delete(runSet, runID)
+	if len(runSet) == 0 {
+		delete(s.byEventType, eventType)
+	}
 }
 
 func getField(obj any, path string) any {
-        if path == "" {
-                return obj
-        }
-        m, ok := obj.(map[string]any)
-        if !ok {
-                return nil
-        }
-        parts := splitPath(path)
-        var current any = m
-        for _, part := range parts {
-                cm, ok := current.(map[string]any)
-                if !ok {
-                        return nil
-                }
-                current = cm[part]
-        }
-        return current
+	if path == "" {
+		return obj
+	}
+	m, ok := obj.(map[string]any)
+	if !ok {
+		return nil
+	}
+	parts := splitPath(path)
+	var current any = m
+	for _, part := range parts {
+		cm, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = cm[part]
+	}
+	return current
 }
 
 func splitPath(path string) []string {
-        if path == "" {
-                return nil
-        }
-        result := []string{}
-        current := ""
-        for _, ch := range path {
-                if ch == '.' {
-                        if current != "" {
-                                result = append(result, current)
-                        }
-                        current = ""
-                } else {
-                        current += string(ch)
-                }
-        }
-        if current != "" {
-                result = append(result, current)
-        }
-        return result
+	if path == "" {
+		return nil
+	}
+	result := []string{}
+	current := ""
+	for _, ch := range path {
+		if ch == '.' {
+			if current != "" {
+				result = append(result, current)
+			}
+			current = ""
+		} else {
+			current += string(ch)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
 }

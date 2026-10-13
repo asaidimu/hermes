@@ -41,9 +41,10 @@ const (
         KindStepFailed    EntryKind = "step_failed"
         KindStepRetry     EntryKind = "step_retry"
 
-        // Effectful step outcomes (for crash recovery — replayer filters to these)
-        KindEffectCompleted EntryKind = "effect_completed"
-        KindEffectFailed    EntryKind = "effect_failed"
+        // Effectful step outcomes: S.1 (plan Phase 5) — the former
+        // KindEffectCompleted/KindEffectFailed duplicates are deleted;
+        // KindStepCompleted / KindStepFailed are the only completion
+        // records (the replayer folds their outputs in seq order).
 
         // Routing decisions
         KindRouted EntryKind = "routed"

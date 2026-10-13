@@ -1,15 +1,21 @@
 {
   "name": "checkpoint-mid-stream-unresumed",
-  "semantics": "baseline",
-  "description": "A pause checkpoint folded mid-stream: the stage routed to the __pause__ wait marker, no KindResumed follows — the run is STILL WAITING. Replay returns the checkpoint's resumeAt address as the resume point.",
+  "semantics": "seq-fold",
+  "description": "A pause checkpoint folded mid-stream: the stage routed to the __pause__ wait marker, no KindResumed follows \u2014 the run is STILL WAITING. Replay returns the checkpoint's resumeAt address as the resume point.",
   "definition": {
     "id": "g-paused",
     "stages": [
-      { "id": "stage-1", "steps": [] },
+      {
+        "id": "stage-1",
+        "steps": []
+      },
       {
         "id": "stage-2",
         "steps": [
-          { "id": "s2", "effect": 2 }
+          {
+            "id": "s2",
+            "effect": 2
+          }
         ]
       }
     ]
@@ -22,11 +28,19 @@
         "runId": "golden-run",
         "pipelineId": "g-paused",
         "pausedAtStageId": "stage-1",
-        "resumeAt": { "stage": "stage-2" }
+        "resumeAt": {
+          "stage": "stage-2"
+        }
       }
     },
-    { "kind": "routed", "stageId": "stage-1", "handle": "__pause__" }
+    {
+      "kind": "routed",
+      "stageId": "stage-1",
+      "handle": "__pause__"
+    }
   ],
-  "expectedResumeAddress": { "stage": "stage-2" },
+  "expectedResumeAddress": {
+    "stage": "stage-2"
+  },
   "expectedState": {}
 }

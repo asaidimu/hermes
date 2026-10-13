@@ -13,7 +13,7 @@ import (
 )
 
 // TestActionLogRecordsEffectfulSteps verifies that effectful steps produce
-// KindEffectCompleted entries in the action log, while pure steps do not.
+// KindStepCompleted entries in the action log, while pure steps do not.
 func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 	ctx := context.Background()
 	log := actionlog.NewMemoryActionLog()
@@ -74,19 +74,21 @@ func TestActionLogRecordsEffectfulSteps(t *testing.T) {
 	entries, err := log.All(ctx, "run-actionlog", 0)
 	require.NoError(t, err)
 
-	// Should have: 2 KindEffectCompleted (effectful-step, another-effectful)
-	// + 2 KindRouted (one per stage router decision)
-	effectEntries := 0
+	// S.1: every step records ONE KindStepCompleted (the former
+	// KindEffectCompleted duplicate for effectful steps is gone) —
+	// 2 effectful + 1 pure = 3 — plus 2 KindRouted (one per stage router
+	// decision).
+	completions := 0
 	for _, e := range entries {
 		switch e.Kind {
-		case actionlog.KindEffectCompleted:
-			effectEntries++
-			require.NotEmpty(t, e.StepID, "effect entry must have StepID")
-			require.NotEmpty(t, e.StageID, "effect entry must have StageID")
+		case actionlog.KindStepCompleted:
+			completions++
+			require.NotEmpty(t, e.StepID, "completion entry must have StepID")
+			require.NotEmpty(t, e.StageID, "completion entry must have StageID")
 		}
 	}
 
-	require.Equal(t, 2, effectEntries, "expected 2 effect_completed entries")
+	require.Equal(t, 3, completions, "one completion record per step — no effect duplicates")
 }
 
 // TestActionLogRecordsRoutingDecisions verifies that routing decisions are
@@ -167,7 +169,7 @@ func TestActionLogRecordsRoutingDecisions(t *testing.T) {
 }
 
 // TestActionLogRecordsEffectfulStepFailure verifies that failed effectful
-// steps produce KindEffectFailed entries.
+// steps produce KindStepFailed entries.
 func TestActionLogRecordsEffectfulStepFailure(t *testing.T) {
 	ctx := context.Background()
 	log := actionlog.NewMemoryActionLog()
@@ -204,10 +206,10 @@ func TestActionLogRecordsEffectfulStepFailure(t *testing.T) {
 	entries, err := log.All(ctx, "run-fail", 0)
 	require.NoError(t, err)
 
-	// Should have a KindEffectFailed entry
+	// Should have a KindStepFailed entry
 	var failEntry *actionlog.Entry
 	for i := range entries {
-		if entries[i].Kind == actionlog.KindEffectFailed {
+		if entries[i].Kind == actionlog.KindStepFailed {
 			failEntry = &entries[i]
 			break
 		}
@@ -262,15 +264,19 @@ func TestActionLogNoEntriesForPureSteps(t *testing.T) {
 	entries, err := log.All(ctx, "run-pure", 0)
 	require.NoError(t, err)
 
-	// Pure steps should produce NO effect entries.
-	// Only routing entries are expected (and even those may be absent
-	// if the default router is used — the default advance router
-	// produces no routing entry since routingHandle returns "" for AdvanceInstruction).
+	// S.1 invariant: each pure step records EXACTLY ONE completion —
+	// no duplicate effect record beside it (the former KindEffect*
+	// pair would have doubled every recorded outcome).
+	completionsByStep := map[string]int{}
 	for _, e := range entries {
-		require.NotEqual(t, actionlog.KindEffectCompleted, e.Kind,
-			"pure step should not produce effect_completed entry")
-		require.NotEqual(t, actionlog.KindEffectFailed, e.Kind,
-			"pure step should not produce effect_failed entry")
+		switch e.Kind {
+		case actionlog.KindStepCompleted, actionlog.KindStepFailed:
+			completionsByStep[e.StepID]++
+		}
+	}
+	require.Len(t, completionsByStep, 2, "both pure steps recorded")
+	for stepID, n := range completionsByStep {
+		require.Equal(t, 1, n, "step %s must have exactly one completion record (S.1: duplicates deleted)", stepID)
 	}
 }
 
@@ -411,7 +417,7 @@ func TestActionLogEntriesHaveTimestamps(t *testing.T) {
 
 	// Verify output is valid JSON for effect entries
 	for _, e := range entries {
-		if e.Kind == actionlog.KindEffectCompleted && e.Output != nil {
+		if e.Kind == actionlog.KindStepCompleted && e.Output != nil {
 			var raw json.RawMessage
 			require.NoError(t, json.Unmarshal(e.Output, &raw), "Output should be valid JSON")
 		}

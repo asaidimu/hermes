@@ -267,19 +267,6 @@ func ExecuteStageSteps(
 					Duration:   duration,
 				})
 			}
-			// Record effectful step failure for the replayer (§4.1).
-			if step.Effect == int(EffectSideEffecting) && actLog != nil {
-				actLog.Append(stageCtx, actionlog.Entry{
-					RunID:      runID,
-					RerunIndex: rerunIndex,
-					PipelineID: pipelineID,
-					Kind:       actionlog.KindEffectFailed,
-					StageID:    stage.ID,
-					StepID:     sID,
-					Error:      stepErr.Error(),
-				})
-			}
-
 			bus.Emit(stageCtx, "step:failure", events.PipelineEvent{
 				RunID:      runID,
 				PipelineID: pipelineID,
@@ -343,21 +330,6 @@ func ExecuteStageSteps(
 				Output:     output,
 				Duration:   duration,
 			})
-
-			// Record effectful step outcome for the replayer (§4.1):
-			// same delta, so the Replayer can inject it during replay
-			// without re-executing the step's side effects.
-			if step.Effect == int(EffectSideEffecting) {
-				actLog.Append(stageCtx, actionlog.Entry{
-					RunID:      runID,
-					RerunIndex: rerunIndex,
-					PipelineID: pipelineID,
-					Kind:       actionlog.KindEffectCompleted,
-					StageID:    stage.ID,
-					StepID:     sID,
-					Output:     output,
-				})
-			}
 		}
 
 		if mutator != nil {

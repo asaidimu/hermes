@@ -80,7 +80,7 @@ func populateLog(ctx context.Context, log actionlog.Store, runID string, rerunIn
 			RunID:      runID,
 			RerunIndex: rerunIndex,
 			PipelineID: def.ID,
-			Kind:       actionlog.KindEffectCompleted,
+			Kind:       actionlog.KindStepCompleted,
 			StageID:    stage.ID,
 			StepID:     stepID,
 			Output:     delta,
