@@ -1,79 +1,80 @@
 package nodekit
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"sync"
+        "context"
+        "encoding/json"
+        "fmt"
+        "strings"
+        "sync"
 
-	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
-	"github.com/asaidimu/go-anansi/v8/core/schema/meta"
-	"github.com/asaidimu/hermes/pkg/pipeline"
-	"github.com/asaidimu/hermes/pkg/store"
+        "github.com/asaidimu/go-anansi/v8/core/schema/definition"
+        "github.com/asaidimu/go-anansi/v8/core/schema/meta"
+        "github.com/asaidimu/hermes/pkg/pipeline"
+        "github.com/asaidimu/hermes/pkg/store"
 
-	"go.uber.org/zap"
+        "go.uber.org/zap"
 )
 
 // Requirement kinds and the Requirement type are defined in pkg/pipeline and
 // aliased here so node authors declare dependencies without importing two
 // packages.
 type (
-	Requirement     = pipeline.Requirement
-	RequirementKind = pipeline.RequirementKind
+        Requirement     = pipeline.Requirement
+        RequirementKind = pipeline.RequirementKind
 )
 
 const (
-	ReqEnv    = pipeline.ReqEnv
-	ReqSecret = pipeline.ReqSecret
+        ReqEnv    = pipeline.ReqEnv
+        ReqSecret = pipeline.ReqSecret
 )
 
 type HandleType string
 
 const (
-	HandleSource HandleType = "source"
-	HandleTarget HandleType = "target"
+        HandleSource HandleType = "source"
+        HandleTarget HandleType = "target"
 )
 
 type HandleKind string
 
 const (
-	HandleExecutable HandleKind = "executable"
-	HandleResource   HandleKind = "resource"
+        HandleExecutable HandleKind = "executable"
+        HandleResource   HandleKind = "resource"
 )
 
 // HandleSpec declares connection points on a visual node.
 type HandleSpec struct {
-	Type  HandleType `json:"type"`
-	ID    string     `json:"id"`
-	Label string     `json:"label,omitempty"`
-	Kind  HandleKind `json:"kind,omitempty"`
+        Type  HandleType `json:"type"`
+        ID    string     `json:"id"`
+        Label string     `json:"label,omitempty"`
+        Kind  HandleKind `json:"kind,omitempty"`
 }
 
 // NodeRunContext provides configuration and state to a running node action.
 type NodeRunContext struct {
-	NodeID string
-	// RunID identifies the pipeline run this node executes under. Populated
-	// from the PipelineContext (steps) or the run-stamped execution context
-	// (routers — see pipeline.RunIDFromContext). Nodes that interact with
-	// run-scoped services must key them by this id, not NodeID: node ids are
-	// shared by every concurrent run of a workflow, while run-scoped state
-	// (watch registrations, cleanup lifecycles) is keyed by run id everywhere
-	// else in the engine (see #review-20260910-007).
-	RunID     string
-	Config    map[string]any
-	State     map[string]any
-	Errors    map[string]any
-	Resources map[string]any
-	Store     store.Store
-	Logger    *zap.SugaredLogger
-	// Env holds the run's environment layers (non-secret configuration from
-	// the host, via Options.Env). Nodes declared via Requirements(ReqEnv) read
-	// their keys here.
-	Env map[string]any
-	// Secret resolves credentials by key at execution time. Values are for
-	// immediate use only: never write them into state, checkpoints, or event
-	// payloads. Returns (nil, false) when unknown or no provider configured.
-	Secret func(key string) (any, bool)
+        NodeID string
+        // RunID identifies the pipeline run this node executes under. Populated
+        // from the PipelineContext (steps) or the run-stamped execution context
+        // (routers — see pipeline.RunIDFromContext). Nodes that interact with
+        // run-scoped services must key them by this id, not NodeID: node ids are
+        // shared by every concurrent run of a workflow, while run-scoped state
+        // (watch registrations, cleanup lifecycles) is keyed by run id everywhere
+        // else in the engine (see #review-20260910-007).
+        RunID     string
+        Config    map[string]any
+        State     map[string]any
+        Errors    map[string]any
+        Resources map[string]any
+        Store     store.Store
+        Logger    *zap.SugaredLogger
+        // Env holds the run's environment layers (non-secret configuration from
+        // the host, via Options.Env). Nodes declared via Requirements(ReqEnv) read
+        // their keys here.
+        Env map[string]any
+        // Secret resolves credentials by key at execution time. Values are for
+        // immediate use only: never write them into state, checkpoints, or event
+        // payloads. Returns (nil, false) when unknown or no provider configured.
+        Secret func(key string) (any, bool)
 }
 
 // NodeRunner executes step logic for an executable node.
@@ -95,108 +96,108 @@ type NodeResourceCleanup func(ctx context.Context, nCtx NodeRunContext, handle a
 
 // NodeDefinition declares the visual and execution metadata for a node.
 type NodeDefinition struct {
-	Kind         string          `json:"kind"`
-	Label        string          `json:"label"`
-	Description  string          `json:"description,omitempty"`
-	Icon         string          `json:"icon,omitempty"`
-	ConfigSchema json.RawMessage `json:"configSchema,omitempty"`
-	// Requirements declares the env/secret keys this node reads from run
-	// context at execution time. The compiler aggregates these onto
-	// Workflow.Requirements; the runtime validates them against what the host
-	// provides before a workflow may register or run. Never place secret
-	// VALUES in configs — configs persist verbatim in workflow definitions.
-	//
-	// @note #review-20260826-003 issue status=deprecated priority=P2 tags=#review,#security : Secrets in node configs (gemini experiment)
-	// @author ox-alpha
-	//
-	// The gemini node (removed) accepted an apiKey as plain config, which
-	// persisted verbatim into workflow definitions readable by anyone with
-	// definition read access. Deprecated by this requirements mechanism:
-	// credential-consuming nodes declare ReqSecret entries and resolve values
-	// via NodeRunContext.Secret at execution time through runtime
-	// Options.Secrets. Configs carry references, context carries credentials.
-	Requirements []Requirement                            `json:"requirements,omitempty"`
-	Scope        string                                   `json:"scope,omitempty"`
-	Type         string                                   `json:"type,omitempty"`
-	BodyHandle   string                                   `json:"bodyHandle,omitempty"`
-	Handles      func(config map[string]any) []HandleSpec `json:"-"`
-	HandlesJS    string                                   `json:"-"` // JS body of (config) => HandleSpec[] for /handles.js
-	Run          NodeRunner                               `json:"-"`
-	Router       NodeRouter                               `json:"-"`
-	RouterFunc   NodeRouterFunc                           `json:"-"`
-	// PipelinesRouterFunc is called after a bounded node's body completes.
-	// It receives the body results and returns a RoutingInstruction.
-	// This allows nodes like pause to check for buffered events and
-	// either resume immediately or pause the pipeline.
-	PipelinesRouterFunc func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) `json:"-"`
-	ResourceInit        NodeResourceInit                                                                                                          `json:"-"`
-	ResourceEnd         NodeResourceCleanup                                                                                                       `json:"-"`
-	// Effect classifies this node kind for event-sourced replay purposes
-	// (see effect.go). Required: Register panics if this is left as the
-	// zero value (EffectUnspecified) — there is no safe default.
-	Effect Effect `json:"effect"`
-	// validator is lazily compiled from ConfigSchema on first call to ValidateConfig.
-	validator *definition.DocumentValidator
-	// validateCustom runs optional node-author validation after schema validation.
-	// Set via Define[C] when the typed definition includes a ValidateConfig callback.
-	validateCustom func(map[string]any) error
+        Kind         string          `json:"kind"`
+        Label        string          `json:"label"`
+        Description  string          `json:"description,omitempty"`
+        Icon         string          `json:"icon,omitempty"`
+        ConfigSchema json.RawMessage `json:"configSchema,omitempty"`
+        // Requirements declares the env/secret keys this node reads from run
+        // context at execution time. The compiler aggregates these onto
+        // Workflow.Requirements; the runtime validates them against what the host
+        // provides before a workflow may register or run. Never place secret
+        // VALUES in configs — configs persist verbatim in workflow definitions.
+        //
+        // @note #review-20260826-003 issue status=deprecated priority=P2 tags=#review,#security : Secrets in node configs (gemini experiment)
+        // @author ox-alpha
+        //
+        // The gemini node (removed) accepted an apiKey as plain config, which
+        // persisted verbatim into workflow definitions readable by anyone with
+        // definition read access. Deprecated by this requirements mechanism:
+        // credential-consuming nodes declare ReqSecret entries and resolve values
+        // via NodeRunContext.Secret at execution time through runtime
+        // Options.Secrets. Configs carry references, context carries credentials.
+        Requirements []Requirement                            `json:"requirements,omitempty"`
+        Scope        string                                   `json:"scope,omitempty"`
+        Type         string                                   `json:"type,omitempty"`
+        BodyHandle   string                                   `json:"bodyHandle,omitempty"`
+        Handles      func(config map[string]any) []HandleSpec `json:"-"`
+        HandlesJS    string                                   `json:"-"` // JS body of (config) => HandleSpec[] for /handles.js
+        Run          NodeRunner                               `json:"-"`
+        Router       NodeRouter                               `json:"-"`
+        RouterFunc   NodeRouterFunc                           `json:"-"`
+        // PipelinesRouterFunc is called after a bounded node's body completes.
+        // It receives the body results and returns a RoutingInstruction.
+        // This allows nodes like pause to check for buffered events and
+        // either resume immediately or pause the pipeline.
+        PipelinesRouterFunc func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) `json:"-"`
+        ResourceInit        NodeResourceInit                                                                                                          `json:"-"`
+        ResourceEnd         NodeResourceCleanup                                                                                                       `json:"-"`
+        // Effect classifies this node kind for event-sourced replay purposes
+        // (see effect.go). Required: Register panics if this is left as the
+        // zero value (EffectUnspecified) — there is no safe default.
+        Effect Effect `json:"effect"`
+        // validator is lazily compiled from ConfigSchema on first call to ValidateConfig.
+        validator *definition.DocumentValidator
+        // validateCustom runs optional node-author validation after schema validation.
+        // Set via Define[C] when the typed definition includes a ValidateConfig callback.
+        validateCustom func(map[string]any) error
 }
 
 // ValidateConfig validates a raw config map against this node's ConfigSchema.
 // Returns nil if valid or if no schema is defined. Returns an error describing
 // the first validation issue found.
 func (d *NodeDefinition) ValidateConfig(raw map[string]any) error {
-	if len(d.ConfigSchema) == 0 && d.validateCustom == nil {
-		return nil
-	}
-	if err := d.ensureValidator(); err != nil {
-		return err
-	}
-	if len(d.ConfigSchema) > 0 {
-		issues, valid := d.validator.Validate(raw)
-		if !valid && len(issues) > 0 {
-			return fmt.Errorf("config validation failed: %s", issues[0].Message)
-		}
-	}
-	if d.validateCustom != nil {
-		if err := d.validateCustom(raw); err != nil {
-			return err
-		}
-	}
-	return nil
+        if len(d.ConfigSchema) == 0 && d.validateCustom == nil {
+                return nil
+        }
+        if err := d.ensureValidator(); err != nil {
+                return err
+        }
+        if len(d.ConfigSchema) > 0 {
+                issues, valid := d.validator.Validate(raw)
+                if !valid && len(issues) > 0 {
+                        return fmt.Errorf("config validation failed: %s", issues[0].Message)
+                }
+        }
+        if d.validateCustom != nil {
+                if err := d.validateCustom(raw); err != nil {
+                        return err
+                }
+        }
+        return nil
 }
 
 // ensureValidator lazily compiles the ConfigSchema into a DocumentValidator.
 func (d *NodeDefinition) ensureValidator() error {
-	if d.validator != nil {
-		return nil
-	}
-	schema, err := definition.FromJSON(d.ConfigSchema)
-	if err != nil {
-		return fmt.Errorf("failed to parse config schema for %q: %w", d.Kind, err)
-	}
-	validator, err := definition.NewDocumentValidator(schema, meta.MetaSchemaPredicates)
-	if err != nil {
-		return fmt.Errorf("failed to create validator for %q: %w", d.Kind, err)
-	}
-	d.validator = validator
-	return nil
+        if d.validator != nil {
+                return nil
+        }
+        schema, err := definition.FromJSON(d.ConfigSchema)
+        if err != nil {
+                return fmt.Errorf("failed to parse config schema for %q: %w", d.Kind, err)
+        }
+        validator, err := definition.NewDocumentValidator(schema, meta.MetaSchemaPredicates)
+        if err != nil {
+                return fmt.Errorf("failed to create validator for %q: %w", d.Kind, err)
+        }
+        d.validator = validator
+        return nil
 }
 
 // CompileConfigSchema compiles a node's ConfigSchema (an anansi schema) through
 // the anansi schema compiler, producing the resolved field descriptors used for
 // config coercion and defaults.
 func CompileConfigSchema(raw json.RawMessage) (*definition.ResolvedSchema, error) {
-	sc, err := definition.FromJSON(raw)
-	if err != nil {
-		return nil, err
-	}
-	return definition.Compile(sc)
+        sc, err := definition.FromJSON(raw)
+        if err != nil {
+                return nil, err
+        }
+        return definition.Compile(sc)
 }
 
 var (
-	registryMu sync.RWMutex
-	nodeTypes  = make(map[string]NodeDefinition)
+        registryMu sync.RWMutex
+        nodeTypes  = make(map[string]NodeDefinition)
 )
 
 // Register registers a node type definition.
@@ -208,33 +209,33 @@ var (
 // whose replay-safety classification was never decided must never make it
 // into a running registry silently.
 func Register(def NodeDefinition) {
-	if !def.Effect.Valid() {
-		panic(fmt.Sprintf(
-			"nodekit.Register(%q): Effect must be explicitly set to EffectPure or EffectSideEffecting (got %s) — see pkg/nodekit/effect.go",
-			def.Kind, def.Effect))
-	}
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	nodeTypes[def.Kind] = def
+        if !def.Effect.Valid() {
+                panic(fmt.Sprintf(
+                        "nodekit.Register(%q): Effect must be explicitly set to EffectPure or EffectSideEffecting (got %s) — see pkg/nodekit/effect.go",
+                        def.Kind, def.Effect))
+        }
+        registryMu.Lock()
+        defer registryMu.Unlock()
+        nodeTypes[def.Kind] = def
 }
 
 // Get returns a registered node definition by kind.
 func Get(kind string) (NodeDefinition, bool) {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	def, ok := nodeTypes[kind]
-	return def, ok
+        registryMu.RLock()
+        defer registryMu.RUnlock()
+        def, ok := nodeTypes[kind]
+        return def, ok
 }
 
 // Registry returns all registered node definitions.
 func Registry() map[string]NodeDefinition {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	res := make(map[string]NodeDefinition, len(nodeTypes))
-	for k, v := range nodeTypes {
-		res[k] = v
-	}
-	return res
+        registryMu.RLock()
+        defer registryMu.RUnlock()
+        res := make(map[string]NodeDefinition, len(nodeTypes))
+        for k, v := range nodeTypes {
+                res[k] = v
+        }
+        return res
 }
 
 // BuildStep creates a pipeline Step from a node definition and configuration.
@@ -243,31 +244,31 @@ func Registry() map[string]NodeDefinition {
 // compiled anansi schema, mirroring the TS buildStep action. resources (optional)
 // supplies run-scoped resource handles (the compiler wires dependency edges).
 func BuildStep(nodeID string, def NodeDefinition, config map[string]any, resources func() map[string]any) pipeline.Step {
-	return pipeline.Step{
-		ID:     nodeID,
-		Label:  def.Label,
-		Effect: int(def.Effect),
-		Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
-			if def.Run == nil {
-				return nil, nil
-			}
-			res := resolveStepResources(pcxt, resources)
-			cfg, err := prepareNodeConfig(def, config, state, res, nil) // results: state["results"] never existed (D.4)
-			if err != nil {
-				return nil, err
-			}
-			return def.Run(ctx, NodeRunContext{
-				NodeID:    nodeID,
-				RunID:     pcxt.RunID(),
-				Config:    cfg,
-				State:     state,
-				Resources: res,
-				Env:       pcxt.Env(),
-				Secret:    pcxt.ResolveSecret,
-				Logger:    pcxt.Logger(),
-			})
-		},
-	}
+        return pipeline.Step{
+                ID:     nodeID,
+                Label:  def.Label,
+                Effect: int(def.Effect),
+                Action: func(ctx context.Context, pcxt *pipeline.PipelineContext, state map[string]any) (store.Mutator, error) {
+                        if def.Run == nil {
+                                return nil, nil
+                        }
+                        res := resolveStepResources(pcxt, resources)
+                        cfg, err := prepareNodeConfig(def, config, state, res, nil) // results: state["results"] never existed (D.4)
+                        if err != nil {
+                                return nil, err
+                        }
+                        return def.Run(ctx, NodeRunContext{
+                                NodeID:    nodeID,
+                                RunID:     pcxt.RunID(),
+                                Config:    cfg,
+                                State:     state,
+                                Resources: res,
+                                Env:       pcxt.Env(),
+                                Secret:    pcxt.ResolveSecret,
+                                Logger:    pcxt.Logger(),
+                        })
+                },
+        }
 }
 
 // builtinResourceKeys are runtime-provided services nodes can address by
@@ -285,33 +286,53 @@ var builtinResourceKeys = []string{"resource:watch-service"}
 // watch-service lookup never succeeded and pausing silently became a no-op
 // (see #review-20260910-007).
 func resolveStepResources(pcxt *pipeline.PipelineContext, resources func() map[string]any) map[string]any {
-	res := map[string]any{}
-	if resources != nil {
-		for kind, key := range resources() {
-			if ks, ok := key.(string); ok {
-				if handle, ok := pcxt.ResolveResource(ks); ok {
-					res[kind] = handle
-					continue
-				}
-			}
-			res[kind] = key
-		}
-	}
-	for _, key := range builtinResourceKeys {
-		if _, ok := res[key]; ok {
-			continue
-		}
-		if handle, ok := pcxt.ResolveResource(key); ok {
-			res[key] = handle
-		}
-	}
-	return res
+        res := map[string]any{}
+        if resources != nil {
+                for kind, key := range resources() {
+                        if ks, ok := key.(string); ok {
+                                if handle, ok := pcxt.ResolveResource(ks); ok {
+                                        res[kind] = handle
+                                        continue
+                                }
+                        }
+                        res[kind] = key
+                }
+        }
+        for _, key := range builtinResourceKeys {
+                if _, ok := res[key]; ok {
+                        continue
+                }
+                if handle, ok := pcxt.ResolveResource(key); ok {
+                        res[key] = handle
+                }
+        }
+        return res
 }
 
-// PatchMutator wraps a flat (dotted-key) patch into a Mutator that
-// deep-merges it into state (deleting keys marked with Delete).
+// PatchMutator returns a Mutator applying a flat patch map (dotted keys)
+// to state. The mutator declares its write set via store.Touch (plan
+// P4.2): the top-level key of every dotted path is touched — including
+// Delete-marked paths, since deletion modifies the top-level entry too —
+// so the action-log delta path can scope its diff instead of
+// deep-comparing the whole state.
 func PatchMutator(flat map[string]any) store.Mutator {
-	return func(state map[string]any) error {
-		return ApplyPatch(state, flat)
-	}
+        touched := touchedTopKeys(flat)
+        return func(state map[string]any) error {
+                store.Touch(state, touched...)
+                return ApplyPatch(state, flat)
+        }
+}
+
+// touchedTopKeys derives the top-level state keys a flat patch map
+// modifies: the first segment of every dotted path.
+func touchedTopKeys(flat map[string]any) []string {
+        keys := make([]string, 0, len(flat))
+        for k := range flat {
+                if i := strings.IndexByte(k, '.'); i > 0 {
+                        keys = append(keys, k[:i])
+                } else {
+                        keys = append(keys, k)
+                }
+        }
+        return keys
 }
