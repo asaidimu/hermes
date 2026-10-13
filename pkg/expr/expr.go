@@ -2,9 +2,12 @@ package expr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/dop251/goja"
 )
@@ -51,9 +54,40 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bfor\s*\(\s*var\s+\w+\s+in\b`),
 }
 
+// validationCache memoizes ValidateExpression results (plan P4.4, H3):
+// validation is a pure function of the expression string but ran ~30
+// regexes on every eval. Bounded so unbounded user expression variety
+// cannot grow it without limit.
+var (
+	validationCache     sync.Map // string -> error (nil = valid)
+	validationCacheSize atomic.Int64
+)
+
+const validationCacheCap = 4096
+
 // ValidateExpression checks if a JS expression is safe to evaluate.
 // It rejects expressions that contain potentially dangerous patterns.
+// Results are memoized per expression string (pure function of input).
 func ValidateExpression(expr string) error {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return fmt.Errorf("expr: empty expression")
+	}
+	if v, ok := validationCache.Load(expr); ok {
+		err, _ := v.(error)
+		return err
+	}
+	err := validateExpressionUncached(expr)
+	if validationCacheSize.Load() < validationCacheCap {
+		if _, loaded := validationCache.LoadOrStore(expr, err); !loaded {
+			validationCacheSize.Add(1)
+		}
+	}
+	return err
+}
+
+// validateExpressionUncached is ValidateExpression without the memo.
+func validateExpressionUncached(expr string) error {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
 		return fmt.Errorf("expr: empty expression")
@@ -163,6 +197,79 @@ func newRuntime(ctx context.Context) (*goja.Runtime, func()) {
 	return rt, func() { close(stop) }
 }
 
+// vmPool pools goja runtimes across evaluations (plan P4.4, H3). Pre-fix
+// every EvalValue/EvalBody/RunSandbox call constructed a fresh runtime
+// AND an interrupt-watcher goroutine; both dominated small-expression
+// evals (~30-43µs/op). Pooled VMs cut it to the script execution itself.
+//
+// Safety against cross-eval contamination and stray interrupts:
+//   - every script sets the `state` binding fresh and runs in a strict
+//     mode IIFE, so user code cannot persist globals between evals
+//     (EvalBody gained "use strict" — implicit globals threw away a
+//     discarded VM before, they now throw with the same error shape);
+//   - a late Interrupt (cancel racing completion) is cleared with
+//     ClearInterrupt, probed with a no-op script, and a VM found
+//     poisoned mid-eval is retried once on a fresh runtime.
+var vmPool = sync.Pool{
+	New: func() any { return &pooledVM{rt: goja.New()} },
+}
+
+type pooledVM struct {
+	rt *goja.Runtime
+}
+
+// runPooled executes fn on a pooled runtime with ctx-cancellation
+// interrupt support. The watcher uses context.AfterFunc: no goroutine
+// is spawned unless the context actually cancels (pre-fix: one
+// goroutine per eval, always).
+func runPooled(ctx context.Context, fn func(rt *goja.Runtime) (any, error)) (any, error) {
+	vm := vmPool.Get().(*pooledVM)
+
+	var stop func() bool
+	if ctx != nil {
+		stop = context.AfterFunc(ctx, func() {
+			vm.rt.Interrupt(ctx.Err())
+		})
+	}
+
+	v, err := fn(vm.rt)
+
+	if stop != nil {
+		stop()
+	}
+	vm.rt.ClearInterrupt()
+
+	// Probe for a stray interrupt delivered between script end and the
+	// clear above; a poisoned VM is discarded, never pooled.
+	if _, perr := vm.rt.RunString("1"); perr != nil {
+		vmPool.Put(&pooledVM{rt: goja.New()})
+		return v, err
+	}
+
+	// A poisoned-VM race the probe cannot see: the late Interrupt lands
+	// AFTER the probe. If this eval failed with an interrupt error while
+	// its own context was never cancelled, the failure came from a
+	// previous eval's stray interrupt — retry once on a fresh runtime.
+	if err != nil && isInterruptError(err) && (ctx == nil || ctx.Err() == nil) {
+		fresh := &pooledVM{rt: goja.New()}
+		v, err = fn(fresh.rt)
+		fresh.rt.ClearInterrupt()
+		if _, perr := fresh.rt.RunString("1"); perr == nil {
+			vmPool.Put(fresh)
+		}
+		return v, err
+	}
+
+	vmPool.Put(vm)
+	return v, err
+}
+
+// isInterruptError reports whether err is goja's interrupt unwinding.
+func isInterruptError(err error) bool {
+	var ie *goja.InterruptedError
+	return errors.As(err, &ie)
+}
+
 // @note #review-20260910-019 observation P3 resolved status=resolved priority=P3 tags=#review,#security : EvalBody skips the validation EvalValue applies, and the blocklist is bypassable
 // @author hermes-review
 //
@@ -185,22 +292,29 @@ func EvalBody(ctx context.Context, body string, state map[string]any) (bool, err
 	if err := ValidateExpression(body); err != nil {
 		return false, err
 	}
-	rt, stop := newRuntime(ctx)
-	defer stop()
-	_ = rt.Set("state", state)
-	fn, err := rt.RunString("(function(state) {\n" + body + "\n})")
+	v, err := runPooled(ctx, func(rt *goja.Runtime) (any, error) {
+		_ = rt.Set("state", state)
+		// "use strict": pooled VMs must not accumulate implicit globals
+		// across evals (pre-pooling the whole VM was discarded, so the
+		// implicit-global effect was unobservable — now it throws).
+		fn, err := rt.RunString("(function(state) {\n\"use strict\";\n" + body + "\n})")
+		if err != nil {
+			return nil, err
+		}
+		call, ok := goja.AssertFunction(fn)
+		if !ok {
+			return nil, fmt.Errorf("expr: evaluated value is not callable")
+		}
+		return call(goja.Undefined(), rt.ToValue(state))
+	})
 	if err != nil {
 		return false, err
 	}
-	call, ok := goja.AssertFunction(fn)
+	bv, ok := v.(goja.Value)
 	if !ok {
-		return false, fmt.Errorf("expr: evaluated value is not callable")
+		return false, fmt.Errorf("expr: evaluated body returned a non-value")
 	}
-	v, err := call(goja.Undefined(), rt.ToValue(state))
-	if err != nil {
-		return false, err
-	}
-	return v.ToBoolean(), nil
+	return bv.ToBoolean(), nil
 }
 
 // EvalValue evaluates a plain JS expression against a `state` binding and
@@ -218,40 +332,39 @@ func EvalValue(ctx context.Context, expr string, state map[string]any) (any, err
 		return nil, err
 	}
 
-	// Use a more restrictive sandbox that masks dangerous globals
-	rt, stop := newRuntime(ctx)
-	defer stop()
-	_ = rt.Set("state", state)
+	return runPooled(ctx, func(rt *goja.Runtime) (any, error) {
+		_ = rt.Set("state", state)
 
-	// Wrap in a function with restricted globals to prevent injection
-	script := `(function(state, window, global, globalThis, fetch, XMLHttpRequest) {
+		// Wrap in a function with restricted globals to prevent injection
+		script := `(function(state, window, global, globalThis, fetch, XMLHttpRequest) {
 "use strict";
 return (` + expr + `);
 })(state, undefined, undefined, undefined, undefined, undefined)`
 
-	v, err := rt.RunString(script)
-	if err != nil {
-		return nil, err
-	}
-	return v.Export(), nil
+		v, err := rt.RunString(script)
+		if err != nil {
+			return nil, err
+		}
+		return v.Export(), nil
+	})
 }
 
 // RunSandbox evaluates the code node sandbox: user code runs inside a function
 // whose window/global/globalThis/fetch/XMLHttpRequest bindings are masked to
 // undefined, mirroring the TS sandboxWrapper. The returned object is exported.
 func RunSandbox(ctx context.Context, code string, state map[string]any) (any, error) {
-	rt, stop := newRuntime(ctx)
-	defer stop()
-	_ = rt.Set("state", state)
-	script := `(function(state, window, global, globalThis, fetch, XMLHttpRequest) {
+	return runPooled(ctx, func(rt *goja.Runtime) (any, error) {
+		_ = rt.Set("state", state)
+		script := `(function(state, window, global, globalThis, fetch, XMLHttpRequest) {
 "use strict";
 ` + code + `
 })(state, undefined, undefined, undefined, undefined, undefined)`
-	v, err := rt.RunString(script)
-	if err != nil {
-		return nil, err
-	}
-	return v.Export(), nil
+		v, err := rt.RunString(script)
+		if err != nil {
+			return nil, err
+		}
+		return v.Export(), nil
+	})
 }
 
 // String mirrors JS String(x): objects serialize as "[object Object]", null as
