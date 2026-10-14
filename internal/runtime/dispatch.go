@@ -373,21 +373,22 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	// @author hermes-review
 	//
 	// Resolved: this seeds attempt 0 for a brand-new run, which was always
-	// correct on its own. The gap was that Resume re-read rt.rerunIndexOf
-	// instead of calling nextRerunIndex again, so every forced recovery
-	// reused attempt 0's audit trail. Resume now calls nextRerunIndex and
-	// persists the advanced value into rt.rerunIdx on each resume, so
-	// LatestRerunIndex advances past 0 and each retry gets its own trail,
-	// honoring the FactoryOptions.RerunIndex contract end to end.
+	// correct on its own. The gap was that Resume re-read the old RAM
+	// rerunIdx map instead of calling nextRerunIndex again, so every forced
+	// recovery reused attempt 0's audit trail. Resume now calls
+	// nextRerunIndex on each resume, so LatestRerunIndex advances past 0
+	// and each retry gets its own trail, honoring the
+	// FactoryOptions.RerunIndex contract end to end. S.2 deleted the RAM
+	// map entirely — nextRerunIndex derives from the log, the only place
+	// the index lives.
 	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
 
 	// Per-run bookkeeping registration. Eviction policy: see the resolved
 	// #review-20260910-004 note attached to purgeExpiredRuns — terminal
-	// runs' stores/rerunIdx are reclaimed by the janitor after the grace
+	// runs' stores are reclaimed by the janitor after the grace
 	// horizon; runMetas/outcomes history is bounded by Options.RunHistoryTTL.
 	rt.mu.Lock()
 	rt.stores[runID] = st
-	rt.rerunIdx[runID] = rerunIndex
 	rt.runMetas[runID] = &timeline.RunTimelineMeta{
 		RunID:      runID,
 		PipelineID: def.ID,

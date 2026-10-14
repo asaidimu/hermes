@@ -216,7 +216,10 @@ type WorkflowRuntime struct {
 	paused        map[string]*pausedRun            // runID → paused run waiting for an event
 	pausedByEvent map[string]map[string]*pausedRun // eventType → runID → paused run (P4.6 dispatch index)
 	runMetas      map[string]*timeline.RunTimelineMeta
-	rerunIdx      map[string]int // runID → current rerunIndex (0 = first attempt)
+
+	// (S.2) The former rt.rerunIdx map is deleted: the rerun index is
+	// derived from the action log's LatestRerunIndex (nextRerunIndex),
+	// which also survives janitor eviction instead of diverging from it.
 
 	// runHistoryTTL drives the terminal-history janitor (see
 	// Options.RunHistoryTTL). janitorStop cancels its ticker loop;
@@ -329,7 +332,6 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		paused:        make(map[string]*pausedRun),
 		pausedByEvent: make(map[string]map[string]*pausedRun),
 		runMetas:      make(map[string]*timeline.RunTimelineMeta),
-		rerunIdx:      make(map[string]int),
 		runHistoryTTL: opts.RunHistoryTTL,
 	}
 	rt.startHistoryJanitor()

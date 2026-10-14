@@ -108,12 +108,9 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 
 	// Advance the rerun index for this attempt — see the resolved
 	// #review-20260910-006 note on executePipeline's rerunIndex seed above
-	// for why this must be recomputed here rather than re-read via
-	// rerunIndexOf.
+	// for why this must be recomputed here rather than reused. S.2: the
+	// index derives from the log (nextRerunIndex) — no RAM copy.
 	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
-	rt.mu.Lock()
-	rt.rerunIdx[runID] = rerunIndex
-	rt.mu.Unlock()
 
 	runCtx, rebuiltStoreUsed := rt.resumeRunContext(context.Background(), runID, pdef, st, bus, ckpt, rebuild, rerunIndex)
 
@@ -144,7 +141,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	if rt.actionLog != nil {
 		rt.actionLog.Append(context.Background(), actionlog.Entry{
 			RunID:      runID,
-			RerunIndex: rt.rerunIndexOf(runID),
+			RerunIndex: rerunIndex,
 			PipelineID: paused.pipelineID,
 			Kind:       actionlog.KindResumed,
 			Type:       "pipeline:resumed",

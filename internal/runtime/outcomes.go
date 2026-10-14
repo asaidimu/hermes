@@ -48,26 +48,94 @@ func (rt *WorkflowRuntime) ListRuns(ctx context.Context) ([]timeline.RunTimeline
 	return list, nil
 }
 
-// GetRunMeta returns metadata for a single run.
+// GetRunMeta returns metadata for a single run. On a runMetas cache miss
+// (tier-2 eviction, or a run recorded only in a shared log) the meta is
+// reconciled from the action log — the log is authoritative, the RAM map
+// is a write-through cache (S.2).
 func (rt *WorkflowRuntime) GetRunMeta(ctx context.Context, runID string) (*timeline.RunTimelineMeta, error) {
 	// P4.6: same split as ListRuns — copy under the lock, query outside.
 	rt.mu.Lock()
 	meta, ok := rt.runMetas[runID]
-	if !ok {
+	if ok {
+		cp := *meta
 		rt.mu.Unlock()
-		return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
-	}
-	cp := *meta
-	rt.mu.Unlock()
 
-	if rt.actionLog != nil {
-		if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
-			if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
-				cp.EventCount = int64(n)
+		if rt.actionLog != nil {
+			if idx, err := rt.actionLog.LatestRerunIndex(ctx, runID); err == nil && idx >= 0 {
+				if n, err := rt.actionLog.Count(ctx, runID, idx); err == nil {
+					cp.EventCount = int64(n)
+				}
 			}
 		}
+		return &cp, nil
 	}
-	return &cp, nil
+	rt.mu.Unlock()
+
+	if reconciled, ok := rt.reconcileRunMeta(ctx, runID); ok {
+		return reconciled, nil
+	}
+	return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
+}
+
+// reconcileRunMeta rebuilds a run's meta from the action log after a
+// runMetas cache miss (S.2: one run-status fact is recorded once — the
+// log; runMetas/outcomes are derived caches). The latest attempt's first
+// entry supplies pipeline id and start time; the LAST entry supplies
+// status: KindPipelineCompleted/KindPipelineFailed are terminal with an
+// EndTime, KindCheckpoint means paused, anything else is a run still
+// recording (in-flight or recovered-in-flight). The reconciled meta is
+// written back into the cache. Reports false for runs with no log facts
+// at all (or no log) — those are genuinely unknown.
+func (rt *WorkflowRuntime) reconcileRunMeta(ctx context.Context, runID string) (*timeline.RunTimelineMeta, bool) {
+	if rt.actionLog == nil {
+		return nil, false
+	}
+	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
+	if err != nil || idx < 0 {
+		return nil, false
+	}
+	entries, err := rt.actionLog.All(ctx, runID, idx)
+	if err != nil || len(entries) == 0 {
+		return nil, false
+	}
+	first, last := entries[0], entries[len(entries)-1]
+
+	meta := &timeline.RunTimelineMeta{
+		RunID:      runID,
+		PipelineID: first.PipelineID,
+		StartTime:  first.Timestamp.UnixMilli(),
+		EventCount: int64(len(entries)),
+	}
+	// Root-pipeline entries may carry an empty PipelineID (pre-#015
+	// entries); fall back to the last entry's, then leave the id empty
+	// rather than inventing one.
+	if meta.PipelineID == "" {
+		meta.PipelineID = last.PipelineID
+	}
+	switch last.Kind {
+	case actionlog.KindPipelineCompleted:
+		end := last.Timestamp.UnixMilli()
+		meta.Status, meta.EndTime = timeline.StatusComplete, &end
+	case actionlog.KindPipelineFailed:
+		end := last.Timestamp.UnixMilli()
+		meta.Status, meta.EndTime = timeline.StatusFailed, &end
+	case actionlog.KindCheckpoint:
+		meta.Status = timeline.StatusPaused
+	default:
+		meta.Status = timeline.StatusRecording
+	}
+
+	rt.mu.Lock()
+	// Double-check under the lock: a concurrent dispatch may have
+	// inserted the live meta while the log was being read; the live
+	// record (with fresh status writes) wins.
+	if existing, ok := rt.runMetas[runID]; ok {
+		rt.mu.Unlock()
+		return existing, true
+	}
+	rt.runMetas[runID] = meta
+	rt.mu.Unlock()
+	return meta, true
 }
 
 // GetEvents returns the run's action log entries for its latest attempt,
@@ -155,12 +223,47 @@ func (rt *WorkflowRuntime) nextRerunIndex(ctx context.Context, runID string) int
 	return idx + 1
 }
 
-// rerunIndexOf returns the current rerun index tracked for a run.
-func (rt *WorkflowRuntime) rerunIndexOf(runID string) int {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	return rt.rerunIdx[runID]
-}
+// ---------------------------------------------------------------------------
+// Lifecycle facts: where each is recorded (S.2 dual-write audit)
+// ---------------------------------------------------------------------------
+
+// Every run-status fact is recorded ONCE authoritatively — the action
+// log — with RAM structures as derived caches. Per-fact disposition
+// (audited across the 15 lifecycle write sites; S.2):
+//
+//   pipeline:start      emit "pipeline:start" (context.go startPipeline)
+//                       + KindPipelineStarted   → log authoritative
+//   stage:start/done    emit + KindStageStarted/KindStageCompleted → log
+//   stage:failure       emit + KindStageFailed → log
+//   step:start/retry    emit + KindStepStarted/KindStepRetry → log
+//   step:success        emit "step:success" + KindStepCompleted → log
+//                       (S.1 deleted the duplicate KindEffectCompleted)
+//   step:failure        emit + KindStepFailed → log
+//   pipeline:success    emit + KindPipelineCompleted → log; ALSO the only
+//                       fact that seeds outcomes (RunResult) and
+//                       setRunStatus — both are caches of this+the log
+//   pipeline:failure    emit + KindPipelineFailed (failStage and
+//                       abortedResult) → log
+//   routed              LOG ONLY (routing_interp.go, KindRouted) — no
+//                       subscriber; the Replayer and timeline read it
+//   checkpoint          LOG ONLY (KindCheckpoint) — the durable resume
+//                       address; recovery's single resume source
+//   pipeline:resumed    LOG ONLY (KindResumed, pauseresume.go) — emitted
+//                       implicitly via downstream step events
+//   subpipeline fork/join  LOG ONLY (KindSubpipelineForked/Joined)
+//   run status          setRunStatus (below): write-through RAM cache of
+//                       the terminal/paused fact the log already holds;
+//                       reconciled from the log on cache miss
+//                       (reconcileRunMeta) and at startup (S.3)
+//   outcome             finishRun → rt.outcomes: RAM-only RunResult
+//                       convenience (carries FinalState); the durable
+//                       terminal fact is the log's KindPipeline*
+//   timeline            pure projection of the log (verified in S.1)
+//
+// Rule of thumb: emit = tell subscribers now; log = make it true
+// forever. Facts needed to recover a run are log-only; facts needed to
+// notify are emit-only; facts needed for both are dual-written with the
+// log authoritative.
 
 // ---------------------------------------------------------------------------
 // Workflow registry
@@ -205,21 +308,22 @@ func terminalStatus(status string) bool {
 	return status == "succeeded" || status == "failed" || status == "aborted"
 }
 
-// defaultStoreGrace is the eviction horizon for terminal runs' state stores
-// and rerun indexes when Options.RunHistoryTTL is not set.
+// defaultStoreGrace is the eviction horizon for terminal runs' state
+// stores when Options.RunHistoryTTL is not set.
 const defaultStoreGrace = 10 * time.Minute
 
 // @note #review-20260910-004 issue P2 resolved status=resolved priority=P2 tags=#review,#memory-leak : Per-run bookkeeping maps were never evicted
 // @author hermes-review
 //
-// Resolved with a janitor-based eviction policy. rt.stores, rt.outcomes,
-// rt.runMetas and rt.rerunIdx previously only ever gained entries (only
+// Resolved with a janitor-based eviction policy. rt.stores, rt.outcomes
+// and rt.runMetas previously only ever gained entries (only
 // rt.active/rt.paused were pruned), so a long-lived host accumulated one
 // full state map per run forever — a genuine leak, not just metadata
-// growth. Two tiers now:
+// growth. Two tiers now (rt.rerunIdx was deleted in S.2 — the rerun
+// index derives from the log's LatestRerunIndex and cannot diverge):
 //
-//  1. STATE STORES + rerun indexes (the leak proper) are always evicted once
-//     a run is terminal and its grace horizon has passed — RunHistoryTTL when
+//  1. STATE STORES (the leak proper) are always evicted once a run is
+//     terminal and its grace horizon has passed — RunHistoryTTL when
 //     set, else a 10-minute default (defaultStoreGrace). The grace preserves
 //     the documented post-completion read pattern (rt.Store(runID)
 //     immediately after a run finishes, and the #review-20260910-002
@@ -228,9 +332,11 @@ const defaultStoreGrace = 10 * time.Minute
 //     action log. An immediate purge at the terminal write was tried first
 //     and rejected: it nils rt.Store(runID) the moment a run completes,
 //     breaking hosts that read the run's document afterwards.
-//  2. AUDIT HISTORY (runMetas for ListRuns, outcomes for GetRunOutcome) is
-//     evicted only when the host opts in with Options.RunHistoryTTL; the
-//     default keeps it forever, matching the pre-fix audit behavior.
+//  2. AUDIT HISTORY (runMetas for ListRuns/GetRunMeta, outcomes for
+//     GetRunOutcome) is evicted only when the host opts in with
+//     Options.RunHistoryTTL; the default keeps it forever, matching the
+//     pre-fix audit behavior. After a tier-2 eviction GetRunMeta
+//     reconciles the meta back from the log (reconcileRunMeta, S.2).
 //
 // Paused and in-flight runs are never touched. Shutdown stops the janitor.
 func (rt *WorkflowRuntime) startHistoryJanitor() {
@@ -260,9 +366,10 @@ func (rt *WorkflowRuntime) startHistoryJanitor() {
 }
 
 // purgeExpiredRuns drops in-memory bookkeeping for terminal runs whose
-// EndTime is older than the applicable horizon: stores + rerun indexes after
-// the store grace (RunHistoryTTL or the 10-minute default), and audit
+// EndTime is older than the applicable horizon: state stores after the
+// store grace (RunHistoryTTL or the 10-minute default), and audit
 // history (runMetas/outcomes) after RunHistoryTTL when the host set one.
+// The rerun index needs no eviction — it derives from the log (S.2).
 func (rt *WorkflowRuntime) purgeExpiredRuns() {
 	now := time.Now()
 	rt.mu.Lock()
@@ -283,7 +390,6 @@ func (rt *WorkflowRuntime) purgeExpiredRuns() {
 		}
 		if now.Sub(ended) >= storeHorizon {
 			delete(rt.stores, runID)
-			delete(rt.rerunIdx, runID)
 		}
 
 		// Tier 2: audit history, only with an explicit TTL.

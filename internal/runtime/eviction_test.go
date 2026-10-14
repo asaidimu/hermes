@@ -41,13 +41,14 @@ func evictionWorkflow() *pipeline.Workflow {
 }
 
 // TestTerminalRunBookkeepingEvictedByJanitor covers the resolved
-// #review-20260910-004: per-run bookkeeping (stores, rerunIdx) was never
+// #review-20260910-004: per-run bookkeeping (stores) was never
 // evicted, leaking one full state map per run forever. A terminal run's
 // store must survive an immediate post-completion read (the documented
 // rt.Store(runID) pattern and the #review-20260910-002 canonical-store
 // contract) but be gone once the grace horizon passes, while the outcome
 // stays readable. Audit history (runMetas/outcomes) is only purged when an
-// explicit RunHistoryTTL is configured.
+// explicit RunHistoryTTL is configured. (S.2: the former rt.rerunIdx map
+// is deleted — the index derives from the log, see derived_status_test.go.)
 func TestTerminalRunBookkeepingEvictedByJanitor(t *testing.T) {
 	ms := NewManualEventSource()
 	rt := NewWorkflowRuntime(Options{
@@ -89,11 +90,9 @@ func TestTerminalRunBookkeepingEvictedByJanitor(t *testing.T) {
 
 	rt.mu.Lock()
 	_, storeLeft := rt.stores[res.RunID]
-	_, rerunLeft := rt.rerunIdx[res.RunID]
 	metaLeft := rt.runMetas[res.RunID]
 	rt.mu.Unlock()
 	require.False(t, storeLeft, "store must be evicted after the grace horizon")
-	require.False(t, rerunLeft, "rerun index must be evicted after the grace horizon")
 	require.NotNil(t, metaLeft, "audit history (runMetas) must be kept when no RunHistoryTTL is set")
 
 	// The outcome remains readable after eviction: RunResult carries the
