@@ -29,8 +29,8 @@ The project is deliberately **polyglot**. Every built-in node kind lives in its 
 ### Key Features
 - **Routing State Machine**: Stages evaluate routing instructions — `Advance`, `Terminate`, `Jump`, `JumpTo`, `Pause` — driven by document queries and step outcomes.
 - **Atomic Stage Commits**: Concurrent steps produce isolated mutations that are merged and committed atomically to the Anansi-backed document store at stage boundaries.
-- **Checkpoint Pause & Resume**: Suspend workflows at stage boundaries with serialized resume addresses; the runtime tracks paused runs and resumes them from the event-sourced action log (the Replayer rebuilds state; the checkpoint in the run state is the fallback).
-- **Time-Travel Timeline**: Sequence-indexed event recording with periodic snapshots, playable forward/backward and consumable directly by the frontend timeline scrubber.
+- **Checkpoint Pause & Resume + Restart Durability**: Suspend workflows at stage boundaries with serialized resume addresses; the runtime re-arms paused runs from the event-sourced action log across restarts (the Replayer rebuilds state; the checkpoint in the run state is the logged fallback). See [docs/RECOVERY.md](docs/RECOVERY.md).
+- **Time-Travel Timeline**: Sequence-indexed event recording projected onto the frontend timeline wire shape, consumable directly by the frontend timeline scrubber (the log is the store; snapshot-based playback is an aspirational SPEC design, not shipped).
 - **Subpipeline Fork/Join**: Stages can fan out into concurrent child pipelines whose results are aggregated by a pipelines router.
 - **Event-Driven Runtime**: A bus-driven orchestrator dispatches external events to registered workflows, supports per-workflow concurrency modes (`transient`, `serialized`, `exclusive`, `loop`), and resumes paused runs on matching events via a pre-buffering watch service.
 - **Scheduling**: Pluggable cron scheduler (`"30 * * * *"`, `"@every 5m"`, `"@daily"`) plus one-shot delays, backed by an in-memory implementation.
@@ -43,7 +43,7 @@ The project is deliberately **polyglot**. Every built-in node kind lives in its 
 ## Installation & Setup
 
 ### Prerequisites
-- **Go >= 1.27** (the module targets `go 1.27rc1`; CI uses `1.27.0-rc.1`)
+- **Go >= 1.27** (the module targets `go 1.27.0`; CI tracks the `1.27.x` toolchain)
 - **Bun >= 1.2** — only required when building/publishing the JS package (`bun.lock` present)
 - Optional: Node.js >= 18 for consuming the published npm artifacts
 
@@ -76,6 +76,16 @@ No environment variables are required — the runtime defaults to in-memory stor
 | Gemini API key | Passed per-node via the node `config.apiKey` field |
 
 > Programs that build workflows must register all node kinds via a blank import of `pkg/nodes` (see [Troubleshooting](#troubleshooting--faq)).
+
+#### Operational limits (durability)
+
+Durability is a property of the action log you configure — see [docs/RECOVERY.md](docs/RECOVERY.md) for the full contract:
+
+| Action log | Restart durability |
+| :--- | :--- |
+| none (`Options.ActionLog` unset) | none — no rebuild, no restart recovery, no reconciled run history (fire-and-forget mode) |
+| `actionlog.NewMemoryActionLog()` | process lifetime — pauses survive a runtime swap, not a process restart |
+| `actionlog.AnansiStore` (sqlite-backed) | full — pauses, run meta, and history survive process restarts via the startup rebuild (`Recover`) |
 
 ### Verification
 ```bash
@@ -226,9 +236,8 @@ func main() {
 | `pipeline.RoutingInstruction` | `Advance()`, `Terminate()`, `Jump(id)`, `JumpTo(addr)`, `Pause(id, timeout)` |
 | `store.Store` / `NewMemoryStore` | Document persistence with `Read`/`Update`/`ExportJSON` |
 | `events.ScopedEventBus` | Hierarchical pipeline → stage → step event fan-out (`PipelineEvent`) |
-| `actionlog.Store` | Unified append-only log keyed by `(runID, rerunIndex)`; source of truth for recovery and history |
+| `actionlog.Store` | Unified append-only log keyed by `(runID, rerunIndex)`; the authoritative record — recovery, history, and run-status facts derive from it. Implement `RunEnumerator` for restart durability |
 | `timeline.TimelineEvent` | Frontend wire projection derived from log entries |
-| `registry.PipelineRegistry` | Thread-safe run tracking with pause-expiration timers |
 | `compiler.Compile(nodes, edges)` | Graph → compiled workflow (trigger-bound pipelines + resources) |
 
 ### Common Use Cases
@@ -270,12 +279,12 @@ func main() {
 - **Document Store (`pkg/store`)**: Wraps Anansi `*document.Document` behind a transactional interface; the in-memory implementation pools documents for low-allocation steady-state performance.
 - **Event System (`pkg/events`)**: `ScopedEventBus` with ancestor-aware `EventPath`s (`pipeline → stage → step`) so every emitted `PipelineEvent` carries full execution ancestry; supports child-to-parent bubbling.
 - **Compiler (`pkg/compiler`)**: Turns a flat `{nodes, edges}` graph into a compiled workflow — trigger-bound pipelines, container scoping (`parentId` nesting), edge roles (`flow`, `dependency`, `placeholder`), and run-scoped resource services.
-- **Runtime (`pkg/runtime`)**: Bus-driven orchestrator. Dispatches trigger events, spawns per-run stores, enforces per-workflow concurrency modes, records the unified action log, tracks outcomes, parks/resumes paused runs (single- or multi-event waits, any/all semantics), and integrates the scheduler.
+- **Runtime (`internal/runtime`, public entry `pkg/runtime`)**: Bus-driven orchestrator. Dispatches trigger events, spawns per-run stores, enforces per-workflow concurrency modes, records the unified action log, tracks outcomes, parks/resumes paused runs (single- or multi-event waits, any/all semantics), re-arms them from the log at startup (`Recover`), and integrates the scheduler. Implementation is internal (plan R.5) — the public surface is type aliases and constructors in `pkg/runtime`.
 - **Node Kit & Catalog (`pkg/nodekit`, `pkg/nodes/*`): Shared registration types (`NodeDefinition`, `HandleSpec`, runners/routers/resource hooks). Each kind's package registers itself via `init()`; the `pkg/nodes` aggregator pulls them all in. Every kind also declares a TypeScript twin consumed by the npm build.
-- **Observability Log (`pkg/actionlog`)**: Append-only log keyed by `(runID, rerunIndex)` recording every step/stage/lifecycle event with state deltas. Source of truth for crash recovery (via `pkg/replay`) and run history; `pkg/timeline` holds only the frontend wire projection.
-- **Registry (`pkg/registry`)**: Passive, thread-safe tracking of active runs. It holds no recovery responsibility — pause/resume belongs to the runtime and the action log.
+- **Observability Log (`pkg/actionlog`)**: Append-only log keyed by `(runID, rerunIndex)` recording every step/stage/lifecycle event with state deltas. The AUTHORITATIVE record: crash recovery (`pkg/replay`), run history, and run status all derive from it; `pkg/timeline` holds only the frontend wire projection.
+- **Registry (`pkg/registry`)**: Passive, thread-safe tracking of active runs (`RunRegistry`). It holds no recovery responsibility — the runtime's paused-run registry and the action log own pause/resume (the former two-tier resumption machinery was deleted, plan D.1).
 - **Scheduler (`pkg/scheduler`)**: Pluggable cron/delay interface with an in-memory reference implementation suitable for single-process deployments.
-- **Watch Service (`pkg/watch`, `pkg/runtime/watchservice.go`)**: Registers event watchers on behalf of `pause` nodes, buffers events arriving before the pause settles, and resolves waits by payload conditions.
+- **Watch Service (`pkg/watch`, `internal/runtime/watchservice.go`)**: Registers event watchers on behalf of `pause` nodes, buffers events arriving before the pause settles, and resolves waits by payload conditions.
 - **Expression Sandbox (`pkg/expr`)**: goja-based JavaScript evaluation used by the `code` node and expression handling.
 - **JS Package (`src/`, `scripts/build.ts`)**: Canonical wire types (`WorkflowNode`, `WorkflowEdge`, `PipelineEvent`, `RunOutcome`…), serialization helpers (`buildHandlesJS`, `buildRegistryJSON`), and the aggregated exports `NODE_DEFS`, `HANDLES`, `CATALOG`.
 
@@ -343,7 +352,7 @@ When adding a node kind, include both `<kind>.go` and `<kind>.ts` in its package
   **A**: Each node kind carries paired implementations, and a dedicated handle-parity test asserts the Go and TS handle specs agree, preventing drift.
 
 - **Q**: Does pausing survive process restarts?  
-  **A**: Yes — checkpoints record the resume address (`EntryAddress`) in document metadata; resumption prefers the live registry cache and falls back to cold-storage document reload.
+  **A**: Yes — when the action log implements `actionlog.RunEnumerator` (both shipped backends do; see the durability table above). At construction the runtime scans the log (`Recover`): terminal runs are recorded and never resurrected; paused runs are re-armed from the log's checkpoint entry (waits, timeout, cron) once their workflow re-registers; in-flight runs are reported as interrupted, not auto-continued. State is rebuilt lazily on `Resume` by the Replayer. Details and contributor rules: [docs/RECOVERY.md](docs/RECOVERY.md).
 
 ---
 

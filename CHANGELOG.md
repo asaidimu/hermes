@@ -1,12 +1,108 @@
-# Unreleased — 20261003 refactor
+# Unreleased — 20261003 refactor (branch `refactor/20261003-audits`)
 
-### Fixed
+Demolition + foundation rebuild + remediation of the 20261003 audits
+(architecture, hot-path, over-abstraction), per
+`todo/20261003-refactor-plan.md` v3. Pre-production delete policy: the
+library has no production consumers, so removed symbols are deleted
+outright — no deprecation scaffolding. This section is the record of what
+vanished and why; the `tests/deletion_audit_test.go` gate enforces that
+nothing returns silently and that zero `// Deprecated:` stubs exist.
+
+## Added
+
+- **Restart durability (S.3)**: `NewWorkflowRuntime` now runs `Recover`
+  when the action log implements `actionlog.RunEnumerator` — terminal
+  runs are recorded and never resurrect; paused runs are re-armed from
+  the log's `checkpoint` entry (waits, wait mode, timeout, received
+  events, cron) when their workflow re-registers; in-flight runs are
+  reported as interrupted, never auto-continued. State rebuilds lazily
+  on `Resume` through the Replayer. Acceptance-tested end to end
+  (`tests/restart_durability_test.go`).
+- `actionlog.RunEnumerator` (`Runs`) — the optional log capability that
+  opts a backend into restart recovery; implemented by `MemoryActionLog`
+  and `AnansiStore`.
+- `docs/RECOVERY.md` — the durable contract: the single recovery
+  component, the log kinds that matter, the `RunEnumerator` backend
+  contract, operational limits, and contributor rules.
+- `internal/runtime` boundary (plan R.5) with an in-tree architecture map
+  (`internal/runtime/doc.go`), enforced by `tests/layering_test.go`;
+  `pkg/runtime` is now a thin public entry of type aliases and
+  constructors.
+- Characterization suite + golden replay vectors + bench baseline
+  (plan Phase 0) — replay semantics and resume ordering are pinned by
+  tests before and after every change.
+
+## Changed
+
+- **Action log storage layout (P4.1)**: per-entry rows keyed
+  `(runID, rerunIndex, seq)` with O(1) tail-append and sharded seq
+  counters, replacing the whole-document rewrite per append
+  (O(entries²) bytes per run). **Old readers cannot read new logs** —
+  the legacy single-document format and its reader are deleted
+  (pre-production, no migration dual-read).
+- **Canonical seq-fold replay (S.1)**: the Go Replayer now folds EVERY
+  effectful output in sequence order (matching the TS `src/replay.ts`
+  reference), replacing the first-effect-per-step semantics. Golden
+  vectors re-encoded in the same commit.
+- **Run status derives from the log (S.2)**: the log is the
+  authoritative record of run-status facts; `runMetas`/`outcomes` are
+  write-through caches. `GetRunMeta` reconciles from the log on cache
+  miss (tier-2 eviction and shared-log runs stay queryable). The
+  per-fact emit-vs-log disposition table lives in
+  `internal/runtime/outcomes.go`.
+- **Runtime lock behavior (C2/C4/P4.6/P4.7)**: locks never span user
+  code — `Register` validates secrets and runs host callbacks outside
+  `rt.mu`; the Replayer and cross-store copies run outside store locks;
+  log I/O and store flushes run outside the runtime/data locks; `rt.mu`
+  is an `RWMutex` with `Emit` lock-free via a copy-on-write handler map.
+- **Recovery is ONE component (R.4)**: `internal/runtime/recovery.go`
+  decides every recovery path; capability is decided by data (log
+  entries), degradation is logged, checkpoints fold inside the same
+  component.
+
+## Performance
+
+All measured with benchstat before/after each commit (the phase-0
+baseline lives at `todo/20261003-bench-baseline.txt`):
+
+- **Action log append** (P4.1): 7.3ms/5.9ms/22ms → ~190µs at
+  10/100/1000-entry runs (36–110×, the O(n²) is gone).
+- **State-delta computation** (P4.2): only computed when a log consumes
+  it; mutators declare touched keys — 1MB-state stage 2278.7µs → 26.8µs
+  (−98.8%).
+- **Node config** (P4.3): schema compile + static coercion hoisted to
+  build time — static 956.6ns → 164.1ns (−82.9%).
+- **Expression evaluation** (P4.4): pooled goja runtimes, memoized
+  validation, parse-once switch cases — `EvalValue` −72.7%, `EvalBody`
+  −77.2%.
+- **Single-step stages** (P4.5): run inline — −40.7% single-step,
+  geomean −22.2%.
+- **Dispatch & queries** (P4.6): `pausedByEvent` dispatch index; log
+  queries out of the runtime lock; read-projections under `RLock`.
+- **Store persistence** (P4.7): `Sync` deep-snapshots under the data
+  lock, writes serialized per run outside it.
+- **Replay indexing** (P4.8): one-pass log index — 1000-entry replay
+  −8.3%, 100×10 attempts −31.3%.
+- **Copy-once final state + lock-free emit** (P4.9): payload+result
+  share one snapshot; `Emit` reads an atomic handler map (−22…−43%).
+- **Chained re-pause depth-10** (C5): −10.0% (p=0.002) while fixing the
+  ordering.
+
+## Fixed
 
 - **C2 (runtime)**: `Register` no longer holds `rt.mu` across host callbacks — secrets validation, cron scheduling, and `EventSource.OnRegister` run outside the critical section (a host whose `OnRegister` emits synchronously on the runtime bus previously self-deadlocked). The `OnRegister` unsubscribe func is retained and invoked on `Deregister`; failed registrations roll back idempotently under a fresh lock. `Deregister`/`Shutdown` now tear down workflow-scoped resource handles (the audit's leaked-DB-pools row).
- (branch refactor/20261003-audits)
-
-Pre-production delete policy: the library has no production consumers, so
-removed symbols are deleted outright. This `Removed` section is the record.
+- **C1 (replay)**: step actions run outside the store read lock during
+  the rebuild walk.
+- **C3 (runtime)**: a terminal outcome cancels the cron auto-resume the
+  pause armed (H9 leak — every pause-with-cron run that completed leaked
+  a permanent self-re-arming timer); watch timers are per-registration.
+- **C4 (pipeline)**: store locks are released before cross-store state
+  copies and checkpoint parses (snapshot-then-mutate; the old body held
+  two store locks nested — safe only by accident of call order).
+- **C5 (runtime)**: resume dispatch is serialized and every cron arm is
+  gated on the CURRENT pause (chained re-pause ordering — the historical
+  f1e5630 revert class); Register no longer wipes per-type event queues
+  on re-registration (buffered-during-segment events were lost).
 
 ## Removed
 
@@ -46,6 +142,11 @@ Kept (dispositions against the OA audit's medium-impact list): the compiler help
 - `pipeline.PipelineDefinition.Schema` and `pipeline.PipelineFactory`'s schema field/parameter — written, never read; the compiler never set the definition field. Node config schemas live in node definitions where they are consumed.
 - `pipeline.Stage.Order` — assigned by the compiler/nodekit, asserted by one test, read by nothing at run time (slice position is the real order). `compiler.WorkflowView` now emits the slice index under its existing `"order"` key so the view shape is unchanged.
 - `registry.PipelineRegistry.MarkPaused` / `FastPathResume` and the `ActiveRun` pause-expiration timer machinery (`timer`, `onExpiration`, `ExpiresAt`, `PausedAt`, `RegistryOptions`) — nothing called them (the runtime tracks paused runs itself); the README's "two-tier resumption" claim was false and has been removed.
+
+- `actionlog.KindEffectCompleted` / `KindEffectFailed` and the duplicate write on effectful step success (S.1) — the entries re-wrote `KindStepCompleted`/`KindStepFailed` deltas byte-identically and were consumed by neither the Replayer's step fold nor the timeline. Deleted TOGETHER with the fold re-key (one coupled commit, golden vectors swapped) so no replay data is lost.
+- The legacy single-document action-log reader (S.1/P4.1) — the per-entry row layout is the only layout; no production logs exist to migrate (Trap #3: no dual-read).
+- `runtime`'s RAM `rerunIdx` map (S.2) — duplicated `actionlog.LatestRerunIndex` and diverged after janitor eviction; the rerun index derives from the log and now survives eviction by construction.
+- `replay`'s first-effect-per-step fold branch (S.1) — replaced by the canonical seq-order fold shared with the TS reference implementation.
 
 ## [1.2.1](https://github.com/asaidimu/hermes/compare/v1.2.0...v1.2.1) (2026-09-18)
 

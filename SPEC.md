@@ -35,22 +35,22 @@ To ensure the existing frontend / UI visual canvas, timeline slider, and node de
 type TimelineEventSource string
 
 const (
-	SourcePipeline  TimelineEventSource = "pipeline"
-	SourceStore     TimelineEventSource = "store"
-	SourceContainer TimelineEventSource = "container"
-	SourceLogger    TimelineEventSource = "logger"
+        SourcePipeline  TimelineEventSource = "pipeline"
+        SourceStore     TimelineEventSource = "store"
+        SourceContainer TimelineEventSource = "container"
+        SourceLogger    TimelineEventSource = "logger"
 )
 
 // TimelineEvent matches the exact JSON schema expected by the frontend timeline scrubber.
 type TimelineEvent struct {
-	RunID     string                 `json:"runId"`
-	Seq       int64                  `json:"seq"`
-	Timestamp int64                  `json:"timestamp"` // Epoch Milliseconds
-	Source    TimelineEventSource    `json:"source"`
-	Type      string                 `json:"type"`
-	Payload   map[string]any         `json:"payload"`
-	Delta     map[string]any         `json:"delta,omitempty"`
-	Snapshot  map[string]any         `json:"snapshot,omitempty"`
+        RunID     string                 `json:"runId"`
+        Seq       int64                  `json:"seq"`
+        Timestamp int64                  `json:"timestamp"` // Epoch Milliseconds
+        Source    TimelineEventSource    `json:"source"`
+        Type      string                 `json:"type"`
+        Payload   map[string]any         `json:"payload"`
+        Delta     map[string]any         `json:"delta,omitempty"`
+        Snapshot  map[string]any         `json:"snapshot,omitempty"`
 }
 ```
 
@@ -60,23 +60,23 @@ type TimelineEvent struct {
 type RunTimelineStatus string
 
 const (
-	StatusRecording RunTimelineStatus = "recording"
-	StatusComplete  RunTimelineStatus = "complete"
-	StatusFailed    RunTimelineStatus = "failed"
-	StatusPaused    RunTimelineStatus = "paused"
+        StatusRecording RunTimelineStatus = "recording"
+        StatusComplete  RunTimelineStatus = "complete"
+        StatusFailed    RunTimelineStatus = "failed"
+        StatusPaused    RunTimelineStatus = "paused"
 )
 
 // RunTimelineMeta matches the response of GET /runs/:runId
 type RunTimelineMeta struct {
-	RunID            string            `json:"runId"`
-	PipelineID       string            `json:"pipelineId"`
-	StartTime        int64             `json:"startTime"`          // Epoch Milliseconds
-	EndTime          *int64            `json:"endTime,omitempty"`   // Epoch Milliseconds
-	EventCount       int64             `json:"eventCount"`
-	Status           RunTimelineStatus `json:"status"`
-	SnapshotInterval int               `json:"snapshotInterval"`
-	SnapshotSeqs     []int64           `json:"snapshotSeqs"`
-	Metadata         map[string]any    `json:"metadata,omitempty"`
+        RunID            string            `json:"runId"`
+        PipelineID       string            `json:"pipelineId"`
+        StartTime        int64             `json:"startTime"`          // Epoch Milliseconds
+        EndTime          *int64            `json:"endTime,omitempty"`   // Epoch Milliseconds
+        EventCount       int64             `json:"eventCount"`
+        Status           RunTimelineStatus `json:"status"`
+        SnapshotInterval int               `json:"snapshotInterval"`
+        SnapshotSeqs     []int64           `json:"snapshotSeqs"`
+        Metadata         map[string]any    `json:"metadata,omitempty"`
 }
 ```
 
@@ -85,10 +85,10 @@ type RunTimelineMeta struct {
 ```go
 // RunOutcome matches the response of GET /runs/:runId/outcome
 type RunOutcome struct {
-	OK              bool     `json:"ok"`
-	Status          string   `json:"status"` // "success" | "failed" | "paused"
-	ExecutedNodeIDs []string `json:"executedNodeIds,omitempty"`
-	Error           *string  `json:"error,omitempty"`
+        OK              bool     `json:"ok"`
+        Status          string   `json:"status"` // "success" | "failed" | "paused"
+        ExecutedNodeIDs []string `json:"executedNodeIds,omitempty"`
+        Error           *string  `json:"error,omitempty"`
 }
 ```
 
@@ -122,12 +122,12 @@ Workflow state is encapsulated in Anansi's `*document.Document`. Steps read and 
 package pipeline
 
 import (
-	"context"
-	"time"
+        "context"
+        "time"
 
-	"github.com/asaidimu/go-anansi/v8/core/data"
-	"github.com/asaidimu/go-anansi/v8/core/document"
-	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
+        "github.com/asaidimu/go-anansi/v8/core/data"
+        "github.com/asaidimu/go-anansi/v8/core/document"
+        "github.com/asaidimu/go-anansi/v8/core/schema/definition"
 )
 
 // DocumentMutator applies atomic modifications to an Anansi Document.
@@ -135,12 +135,12 @@ type DocumentMutator func(doc *document.Document) error
 
 // Store manages the persistence and atomic transaction lifecycle of an Anansi Document.
 type Store interface {
-	Document() *document.Document
-	Read(fn func(doc *document.Document) error) error
-	Update(ctx context.Context, mutator DocumentMutator) error
-	Transaction(ctx context.Context, fn func(txDoc *document.Document) error) error
-	Ready(ctx context.Context) error
-	ExportJSON() (map[string]any, error)
+        Document() *document.Document
+        Read(fn func(doc *document.Document) error) error
+        Update(ctx context.Context, mutator DocumentMutator) error
+        Transaction(ctx context.Context, fn func(txDoc *document.Document) error) error
+        Ready(ctx context.Context) error
+        ExportJSON() (map[string]any, error)
 }
 ```
 
@@ -155,27 +155,27 @@ import "github.com/asaidimu/go-events/v2"
 
 // PathNode represents an ancestor in the hierarchical execution path.
 type PathNode struct {
-	Kind  string `json:"kind"`  // "pipeline" | "stage" | "step"
-	ID    string `json:"id"`
-	Label string `json:"label"`
+        Kind  string `json:"kind"`  // "pipeline" | "stage" | "step"
+        ID    string `json:"id"`
+        Label string `json:"label"`
 }
 
 type EventPath []PathNode
 
 // PipelineEvent is emitted across all stage/step boundaries.
 type PipelineEvent struct {
-	Type       string         `json:"type"`
-	RunID      string         `json:"runId"`
-	PipelineID string         `json:"pipelineId"`
-	Path       EventPath      `json:"path"`
-	Timestamp  int64          `json:"timestamp"` // Epoch ms
-	Duration   int64          `json:"duration,omitempty"` // ms
-	Payload    map[string]any `json:"payload,omitempty"`
+        Type       string         `json:"type"`
+        RunID      string         `json:"runId"`
+        PipelineID string         `json:"pipelineId"`
+        Path       EventPath      `json:"path"`
+        Timestamp  int64          `json:"timestamp"` // Epoch ms
+        Duration   int64          `json:"duration,omitempty"` // ms
+        Payload    map[string]any `json:"payload,omitempty"`
 }
 
 type ScopedEventBus interface {
-	Emit(ctx context.Context, eventType string, evt PipelineEvent)
-	Subscribe(eventType string, handler func(ctx context.Context, evt PipelineEvent) error) (unsubscribe func())
+        Emit(ctx context.Context, eventType string, evt PipelineEvent)
+        Subscribe(eventType string, handler func(ctx context.Context, evt PipelineEvent) error) (unsubscribe func())
 }
 ```
 
@@ -185,37 +185,37 @@ type ScopedEventBus interface {
 
 ```go
 type PipelineDefinition struct {
-	ID          string
-	Label       string
-	Schema      *definition.CompiledSchema
-	Stages      []Stage
+        ID          string
+        Label       string
+        Schema      *definition.CompiledSchema
+        Stages      []Stage
 }
 
 type Stage struct {
-	ID              string
-	Order           int
-	Label           string
-	Timeout         time.Duration
-	Steps           map[string]Step
-	Router          StepStageRouter
-	Pipelines       []PipelineDefinition
-	PipelinesRouter PipelineStageRouter
+        ID              string
+        Order           int
+        Label           string
+        Timeout         time.Duration
+        Steps           map[string]Step
+        Router          StepStageRouter
+        Pipelines       []PipelineDefinition
+        PipelinesRouter PipelineStageRouter
 }
 
 type Step struct {
-	ID      string
-	Label   string
-	Timeout time.Duration
-	Retries int
-	Action  func(ctx context.Context, pcxt PipelineContext, doc *document.Document) (DocumentMutator, error)
+        ID      string
+        Label   string
+        Timeout time.Duration
+        Retries int
+        Action  func(ctx context.Context, pcxt PipelineContext, doc *document.Document) (DocumentMutator, error)
 }
 
 type PipelineContext interface {
-	RunID() string
-	PipelineID() string
-	StageID() string
-	StepID() string
-	Logger() Logger
+        RunID() string
+        PipelineID() string
+        StageID() string
+        StepID() string
+        Logger() Logger
 }
 ```
 
@@ -225,19 +225,19 @@ type PipelineContext interface {
 
 ```go
 type RoutingInstruction interface {
-	isRoutingInstruction()
+        isRoutingInstruction()
 }
 
 type (
-	AdvanceInstruction   struct{}
-	TerminateInstruction struct{}
-	JumpInstruction      struct{ StageID string }
-	JumpToInstruction    struct{ Address EntryAddress }
-	PauseInstruction     struct {
-		StageID string
-		Timeout time.Duration
-		Persist bool
-	}
+        AdvanceInstruction   struct{}
+        TerminateInstruction struct{}
+        JumpInstruction      struct{ StageID string }
+        JumpToInstruction    struct{ Address EntryAddress }
+        PauseInstruction     struct {
+                StageID string
+                Timeout time.Duration
+                Persist bool
+        }
 )
 
 func Advance() RoutingInstruction                 { return AdvanceInstruction{} }
@@ -245,7 +245,7 @@ func Terminate() RoutingInstruction               { return TerminateInstruction{
 func Jump(stageID string) RoutingInstruction      { return JumpInstruction{StageID: stageID} }
 func JumpTo(addr EntryAddress) RoutingInstruction { return JumpToInstruction{Address: addr} }
 func Pause(stageID string, timeout time.Duration) RoutingInstruction {
-	return PauseInstruction{StageID: stageID, Timeout: timeout, Persist: true}
+        return PauseInstruction{StageID: stageID, Timeout: timeout, Persist: true}
 }
 ```
 
@@ -255,21 +255,21 @@ func Pause(stageID string, timeout time.Duration) RoutingInstruction {
 
 ```go
 type PipelineRunResult struct {
-	Status     string              `json:"status"` // "succeeded" | "paused" | "failed"
-	RunID      string              `json:"runId"`
-	FinalDoc   *document.Document  `json:"-"`
-	Checkpoint *PipelineCheckpoint `json:"checkpoint,omitempty"`
-	Error      error               `json:"error,omitempty"`
+        Status     string              `json:"status"` // "succeeded" | "paused" | "failed"
+        RunID      string              `json:"runId"`
+        FinalDoc   *document.Document  `json:"-"`
+        Checkpoint *PipelineCheckpoint `json:"checkpoint,omitempty"`
+        Error      error               `json:"error,omitempty"`
 }
 
 type RunContext interface {
-	ID() string
-	PipelineID() string
-	Store() Store
-	Run(ctx context.Context) (PipelineRunResult, error)
-	Abort(err error)
-	Write(mutator DocumentMutator)
-	On(event string, handler func(ctx context.Context, evt PipelineEvent) error) (unsubscribe func())
+        ID() string
+        PipelineID() string
+        Store() Store
+        Run(ctx context.Context) (PipelineRunResult, error)
+        Abort(err error)
+        Write(mutator DocumentMutator)
+        On(event string, handler func(ctx context.Context, evt PipelineEvent) error) (unsubscribe func())
 }
 ```
 
@@ -278,30 +278,58 @@ type RunContext interface {
 ## 8. Checkpoints & Resumption Parity
 
 ### 8.1 Checkpoint Envelope
-Checkpoints are stored in Anansi document metadata under `__pipeline_data__.checkpoints[pipelineID]`:
+Checkpoints are stored in run state under `__pipeline_data__.checkpoints[pipelineID]`, and — authoritatively — in the action log: every pause appends a `checkpoint` entry whose `output` carries the same serialized envelope (the log is what restart recovery reads; see `docs/RECOVERY.md`):
 
 ```go
 type EntryAddress struct {
-	Stage    string               `json:"stage"`
-	Step     string               `json:"step,omitempty"`
-	Pipeline *SubPipelineAddress  `json:"pipeline,omitempty"`
+        Stage    string               `json:"stage"`
+        Step     string               `json:"step,omitempty"`
+        Pipeline *SubPipelineAddress  `json:"pipeline,omitempty"`
 }
 
 type SubPipelineAddress struct {
-	Index int    `json:"index"`
-	Stage string `json:"stage"`
-	Step  string `json:"step,omitempty"`
+        Index int    `json:"index"`
+        Stage string `json:"stage"`
+        Step  string `json:"step,omitempty"`
 }
 
 type PipelineCheckpoint struct {
-	RunID              string       `json:"runId"`
-	PipelineID         string       `json:"pipelineId"`
-	ResumeAt           EntryAddress `json:"resumeAt"`
-	PausedAtStageID    string       `json:"pausedAtStageId"`
-	PausedAtStageLabel string       `json:"pausedAtStageLabel"`
-	PausedOn           string       `json:"pausedOn"` // ISO-8601
+        RunID              string       `json:"runId"`
+        PipelineID         string       `json:"pipelineId"`
+        ResumeAt           EntryAddress `json:"resumeAt"`
+        PausedAtStageID    string       `json:"pausedAtStageId"`
+        PausedAtStageLabel string       `json:"pausedAtStageLabel"`
+        PausedOn           string       `json:"pausedOn"`               // ISO-8601
+        WaitForEvent       string       `json:"waitForEvent,omitempty"` // single-event wait
+        WaitForEvents      []string     `json:"waitForEvents,omitempty"`
+        WaitMode           string       `json:"waitMode,omitempty"`     // "any" | "all"
+        Timeout            int64        `json:"timeout,omitempty"`      // ms, 0 = none
+        ReceivedEvents     []string     `json:"receivedEvents,omitempty"`
+        Cron               string       `json:"cron,omitempty"`         // auto-resume schedule
+        ResumeReason       string       `json:"resumeReason,omitempty"` // "event" | "timeout" | "cron"
 }
 ```
+
+### 8.2 Resumption truth (20261003 refactor)
+Exactly ONE component decides recovery — `internal/runtime/recovery.go`:
+
+- **Event-sourced rebuild** (primary): the Replayer (`pkg/replay`) folds
+  the run's logged effectful deltas and routing decisions in sequence
+  order and returns the rebuilt state plus the resume address. A run is
+  rebuildable iff the log holds entries for it — capability by data, not
+  type assertion.
+- **Checkpoint fallback** (degraded, logged): when the log has no
+  entries for the run, the checkpoint envelope in run state is the
+  recovery source. The degradation is always logged, never silent.
+- **Restart durability**: `NewWorkflowRuntime` runs `Recover`, which
+  classifies every run in the log (terminal / paused / in-flight) and
+  re-arms paused runs when their workflow re-registers. Terminal runs
+  never resurrect; in-flight runs are reported, not auto-continued.
+
+The former "resumption prefers the live registry cache and falls back to
+cold-storage document reload" design (two-tier resume) was deleted by
+plan D.1 — the audit found it duplicated recovery logic without
+delivering restart durability.
 
 ---
 
@@ -318,11 +346,11 @@ The `TimelineStore` implements chronological storage and snapshotting, matching 
 
 ```go
 type TimelineStore interface {
-	Append(ctx context.Context, event TimelineEvent) error
-	GetRunMeta(ctx context.Context, runID string) (*RunTimelineMeta, error)
-	ListRuns(ctx context.Context) ([]RunTimelineMeta, error)
-	GetEvents(ctx context.Context, runID string, fromSeq, toSeq int64) ([]TimelineEvent, error)
-	GetNearestSnapshot(ctx context.Context, runID string, seq int64) (*TimelineEvent, error)
+        Append(ctx context.Context, event TimelineEvent) error
+        GetRunMeta(ctx context.Context, runID string) (*RunTimelineMeta, error)
+        ListRuns(ctx context.Context) ([]RunTimelineMeta, error)
+        GetEvents(ctx context.Context, runID string, fromSeq, toSeq int64) ([]TimelineEvent, error)
+        GetNearestSnapshot(ctx context.Context, runID string, seq int64) (*TimelineEvent, error)
 }
 ```
 
