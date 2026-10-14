@@ -229,23 +229,7 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 			samePause := current != nil && current.checkpoint == result.Checkpoint
 			rt.mu.Unlock()
 			if samePause && result.Checkpoint.Cron != "" {
-				ckpt := result.Checkpoint
-				rt.scheduler.Schedule(runID, result.Checkpoint.Cron, func(ctx context.Context) {
-					// Only resume if the run is still paused on THIS wait —
-					// a superseded timer must be a no-op.
-					rt.mu.Lock()
-					paused, stillPaused := rt.paused[runID]
-					if stillPaused && paused.checkpoint != ckpt {
-						stillPaused = false
-					}
-					if stillPaused && paused.checkpoint != nil {
-						paused.checkpoint.ResumeReason = "cron"
-					}
-					rt.mu.Unlock()
-					if stillPaused {
-						rt.Resume(runID, nil)
-					}
-				})
+				rt.armCronAutoResume(runID, result.Checkpoint)
 			}
 		}
 		return

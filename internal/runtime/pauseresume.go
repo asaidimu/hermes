@@ -291,25 +291,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		rt.mu.Unlock()
 		if samePause {
 			if res.Checkpoint.Cron != "" {
-				ckpt := res.Checkpoint
-				if err := rt.scheduler.Schedule(runID, res.Checkpoint.Cron, func(ctx context.Context) {
-					// Only resume if the run is still paused on
-					// THIS wait — a superseded timer must be a no-op.
-					rt.mu.Lock()
-					p, stillPaused := rt.paused[runID]
-					if stillPaused && p.checkpoint != ckpt {
-						stillPaused = false
-					}
-					if stillPaused && p.checkpoint != nil {
-						p.checkpoint.ResumeReason = "cron"
-					}
-					rt.mu.Unlock()
-					if stillPaused {
-						rt.Resume(runID, nil)
-					}
-				}); err != nil {
-					rt.logger.Error("resume: failed to schedule cron auto-resume", "runId", runID, "error", err)
-				}
+				rt.armCronAutoResume(runID, res.Checkpoint)
 			} else {
 				// The previous pause may have armed a cron schedule; the new wait
 				// must not be resumed prematurely by that stale schedule.

@@ -77,29 +77,17 @@ func (rt *WorkflowRuntime) GetRunMeta(ctx context.Context, runID string) (*timel
 	return nil, core.NewSystemError(core.ErrCodeNotFound, "run not found: "+runID)
 }
 
-// reconcileRunMeta rebuilds a run's meta from the action log after a
-// runMetas cache miss (S.2: one run-status fact is recorded once — the
-// log; runMetas/outcomes are derived caches). The latest attempt's first
-// entry supplies pipeline id and start time; the LAST entry supplies
-// status: KindPipelineCompleted/KindPipelineFailed are terminal with an
-// EndTime, KindCheckpoint means paused, anything else is a run still
-// recording (in-flight or recovered-in-flight). The reconciled meta is
-// written back into the cache. Reports false for runs with no log facts
-// at all (or no log) — those are genuinely unknown.
-func (rt *WorkflowRuntime) reconcileRunMeta(ctx context.Context, runID string) (*timeline.RunTimelineMeta, bool) {
-	if rt.actionLog == nil {
-		return nil, false
-	}
-	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
-	if err != nil || idx < 0 {
-		return nil, false
-	}
-	entries, err := rt.actionLog.All(ctx, runID, idx)
-	if err != nil || len(entries) == 0 {
-		return nil, false
-	}
+// metaFromEntries synthesizes a run meta from the latest attempt's log
+// entries (S.2/S.3 shared shape). The first entry supplies pipeline id and
+// start time; the LAST entry supplies status:
+// KindPipelineCompleted/KindPipelineFailed are terminal with an EndTime,
+// anything else is a run still recording (in-flight or recovered) — the
+// caller refines non-terminal kinds (Recover maps KindCheckpoint to
+// paused, which the generic reconcile deliberately does not: a checkpoint
+// observed mid-run is a pause SOME pipeline is nested at, but a live run
+// keeps recording past it).
+func metaFromEntries(runID string, entries []actionlog.Entry) *timeline.RunTimelineMeta {
 	first, last := entries[0], entries[len(entries)-1]
-
 	meta := &timeline.RunTimelineMeta{
 		RunID:      runID,
 		PipelineID: first.PipelineID,
@@ -119,22 +107,43 @@ func (rt *WorkflowRuntime) reconcileRunMeta(ctx context.Context, runID string) (
 	case actionlog.KindPipelineFailed:
 		end := last.Timestamp.UnixMilli()
 		meta.Status, meta.EndTime = timeline.StatusFailed, &end
-	case actionlog.KindCheckpoint:
-		meta.Status = timeline.StatusPaused
 	default:
 		meta.Status = timeline.StatusRecording
 	}
+	return meta
+}
 
+// putRunMetaIfAbsent inserts a synthesized meta when the run is unknown,
+// returning the authoritative entry — a concurrent dispatch may have
+// inserted the live meta while the log was being read; the live record
+// (with fresh status writes) wins.
+func (rt *WorkflowRuntime) putRunMetaIfAbsent(meta *timeline.RunTimelineMeta) *timeline.RunTimelineMeta {
 	rt.mu.Lock()
-	// Double-check under the lock: a concurrent dispatch may have
-	// inserted the live meta while the log was being read; the live
-	// record (with fresh status writes) wins.
-	if existing, ok := rt.runMetas[runID]; ok {
-		rt.mu.Unlock()
-		return existing, true
+	defer rt.mu.Unlock()
+	if existing, ok := rt.runMetas[meta.RunID]; ok {
+		return existing
 	}
-	rt.runMetas[runID] = meta
-	rt.mu.Unlock()
+	rt.runMetas[meta.RunID] = meta
+	return meta
+}
+
+// reconcileRunMeta rebuilds a run's meta from the action log after a
+// runMetas cache miss (S.2: one run-status fact is recorded once — the
+// log; runMetas/outcomes are derived caches). Reports false for runs with
+// no log facts at all (or no log) — those are genuinely unknown.
+func (rt *WorkflowRuntime) reconcileRunMeta(ctx context.Context, runID string) (*timeline.RunTimelineMeta, bool) {
+	if rt.actionLog == nil {
+		return nil, false
+	}
+	idx, err := rt.actionLog.LatestRerunIndex(ctx, runID)
+	if err != nil || idx < 0 {
+		return nil, false
+	}
+	entries, err := rt.actionLog.All(ctx, runID, idx)
+	if err != nil || len(entries) == 0 {
+		return nil, false
+	}
+	meta := rt.putRunMetaIfAbsent(metaFromEntries(runID, entries))
 	return meta, true
 }
 

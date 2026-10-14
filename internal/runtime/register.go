@@ -132,6 +132,12 @@ func (rt *WorkflowRuntime) Register(wf *pipeline.Workflow, opts RegisterOptions)
 		rt.mu.Unlock()
 	}
 
+	// S.3: complete the paused-registry entries Recover staged for the
+	// pipelines this workflow defines. Runs paused in a previous process
+	// (found via the action log) re-arm here — the runtime cannot resume a
+	// pipeline it has no definition for.
+	rt.bindPendingPauses(record)
+
 	return nil
 }
 

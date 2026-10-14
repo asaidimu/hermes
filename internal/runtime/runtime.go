@@ -216,6 +216,10 @@ type WorkflowRuntime struct {
 	paused        map[string]*pausedRun            // runID → paused run waiting for an event
 	pausedByEvent map[string]map[string]*pausedRun // eventType → runID → paused run (P4.6 dispatch index)
 	runMetas      map[string]*timeline.RunTimelineMeta
+	// pendingPauses stages pauses Recover (S.3) found in the action log
+	// but cannot arm yet: the owning workflow has not been registered.
+	// bindPendingPauses consumes them at Register time.
+	pendingPauses map[string]*pendingPause
 
 	// (S.2) The former rt.rerunIdx map is deleted: the rerun index is
 	// derived from the action log's LatestRerunIndex (nextRerunIndex),
@@ -332,6 +336,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		paused:        make(map[string]*pausedRun),
 		pausedByEvent: make(map[string]map[string]*pausedRun),
 		runMetas:      make(map[string]*timeline.RunTimelineMeta),
+		pendingPauses: make(map[string]*pendingPause),
 		runHistoryTTL: opts.RunHistoryTTL,
 	}
 	rt.startHistoryJanitor()
@@ -395,6 +400,13 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		}
 		return nil
 	})
+	// S.3 (§A flagship fix): rebuild re-arm state from the action log.
+	// Runs found paused there are staged in rt.pendingPauses and armed
+	// when their workflow registers (bindPendingPauses); terminal runs
+	// are recorded and never resurrected; in-flight runs are logged.
+	// No-op without an action log or without the RunEnumerator
+	// capability (docs/RECOVERY.md).
+	rt.Recover(context.Background())
 	return rt
 }
 
