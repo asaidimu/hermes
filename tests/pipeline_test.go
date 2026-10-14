@@ -96,7 +96,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 		Label: "Jump Pipeline",
 		Stages: []pipeline.Stage{
 			{
-				ID:    "start",
+				ID: "start",
 				Steps: map[string]pipeline.Step{
 					"init": {
 						ID: "init",
@@ -110,7 +110,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 				},
 			},
 			{
-				ID:    "skipped",
+				ID: "skipped",
 				Steps: map[string]pipeline.Step{
 					"never": {
 						ID: "never",
@@ -121,7 +121,7 @@ func TestPipelineJumpRouting(t *testing.T) {
 				},
 			},
 			{
-				ID:    "finish",
+				ID: "finish",
 				Steps: map[string]pipeline.Step{
 					"done": {
 						ID: "done",

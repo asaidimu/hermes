@@ -1,8 +1,8 @@
 package nodekit
 
 import (
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
+	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 

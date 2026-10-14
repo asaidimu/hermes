@@ -83,9 +83,10 @@ type handlerMap map[string][]EventHandler
 type MemoryScopedBus struct {
 	parent     *MemoryScopedBus
 	path       EventPath
-        handlers   atomic.Pointer[handlerMap]
+	handlers   atomic.Pointer[handlerMap]
 	underlying gevents.SimpleEventBus[PipelineEvent]
-	logger     *zap.SugaredLogger}
+	logger     *zap.SugaredLogger
+}
 
 // NewMemoryScopedBus creates a root scoped bus with an optional backing go-events bus.
 func NewMemoryScopedBus(underlying ...gevents.SimpleEventBus[PipelineEvent]) *MemoryScopedBus {

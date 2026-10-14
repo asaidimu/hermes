@@ -553,7 +553,7 @@ func compileStages(
 			}
 			stages = append(stages, pipeline.Stage{
 				ID:        id,
-					Label:     referencedDef.Label,
+				Label:     referencedDef.Label,
 				Config:    stageCfg,
 				Pipelines: []pipeline.PipelineDefinition{*referencedDef},
 				PipelinesRouter: func(ctx context.Context, state map[string]any, results []pipeline.PipelineRunResult, st store.Store) (pipeline.RoutingInstruction, error) {

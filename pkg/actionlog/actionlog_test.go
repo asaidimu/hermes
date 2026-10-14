@@ -268,7 +268,6 @@ func TestMemoryActionLogMultipleRuns(t *testing.T) {
 	}
 }
 
-
 func TestMemoryActionLogLatestRerunIndex(t *testing.T) {
 	log := NewMemoryActionLog()
 	ctx := context.Background()

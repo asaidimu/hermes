@@ -251,4 +251,3 @@ func bindFromMap(raw map[string]any, schemaJSON json.RawMessage, target any) err
 	}
 	return nil
 }
-

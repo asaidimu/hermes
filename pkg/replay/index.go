@@ -83,11 +83,11 @@ func (rp *Replayer) allEntries(ctx context.Context, runID string) ([]actionlog.E
 // every stage — O(stages x entries) per replay.
 type logIndex struct {
 	byStep      map[string][]actionlog.Entry // stepID -> recorded outcomes, seq order (S.1)
-	routes      map[string]string          // stageID -> latest routed handle
-	checkpoints map[string]string          // stageID -> checkpoint ResumeAt stage
-	forked      map[string]bool            // stageID -> subpipeline forked here
-	ckptSeq     map[string]uint64          // stageID -> latest checkpoint seq
-	maxResumed  uint64                     // highest KindResumed seq in the slice
+	routes      map[string]string            // stageID -> latest routed handle
+	checkpoints map[string]string            // stageID -> checkpoint ResumeAt stage
+	forked      map[string]bool              // stageID -> subpipeline forked here
+	ckptSeq     map[string]uint64            // stageID -> latest checkpoint seq
+	maxResumed  uint64                       // highest KindResumed seq in the slice
 }
 
 // buildLogIndex makes one pass over the entries, computing every index

@@ -1,23 +1,23 @@
 package actionlog
 
 import (
-        "context"
-        "crypto/sha1"
-        "encoding/json"
-        "fmt"
-        "hash/fnv"
-        "strings"
-        "sync"
-        "time"
+	"context"
+	"crypto/sha1"
+	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"strings"
+	"sync"
+	"time"
 
-        "github.com/asaidimu/go-anansi/v8/core/data"
-        "github.com/asaidimu/go-anansi/v8/core/document"
-        "github.com/asaidimu/go-anansi/v8/core/persistence/base"
-        anansicollection "github.com/asaidimu/go-anansi/v8/core/persistence/collection"
-        "github.com/asaidimu/go-anansi/v8/core/query"
-        "github.com/asaidimu/go-anansi/v8/core/schema/definition"
-        "github.com/google/uuid"
-        "go.uber.org/zap"
+	"github.com/asaidimu/go-anansi/v8/core/data"
+	"github.com/asaidimu/go-anansi/v8/core/document"
+	"github.com/asaidimu/go-anansi/v8/core/persistence/base"
+	anansicollection "github.com/asaidimu/go-anansi/v8/core/persistence/collection"
+	"github.com/asaidimu/go-anansi/v8/core/query"
+	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
+	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // LogEntry is the persisted representation of ONE action log entry.
@@ -36,11 +36,11 @@ import (
 // identity (entryDocID) — the runID is data inside the document, never
 // baked into the Store instance's scope.
 type LogEntry struct {
-        document.DocumentModel
-        RunID      string `anansi:"runId"`
-        RerunIndex int    `anansi:"rerunIndex"`
-        Seq        uint64 `anansi:"seq"`
-        Data       string `anansi:"data"` // full Entry JSON
+	document.DocumentModel
+	RunID      string `anansi:"runId"`
+	RerunIndex int    `anansi:"rerunIndex"`
+	Seq        uint64 `anansi:"seq"`
+	Data       string `anansi:"data"` // full Entry JSON
 }
 
 // ensureDocumentFactory configures anansi's singleton document factory.
@@ -55,41 +55,41 @@ var ensureDocumentFactory sync.Once
 // holding one ModelCollection field with a single method — is collapsed
 // into this constructor.
 func NewAnansiStore(ctx context.Context, persist base.Persistence, collectionName string) (*AnansiStore, error) {
-        ensureDocumentFactory.Do(func() {
-                _ = data.ConfigureDocumentFactory(data.DocumentFactoryConfig{}, nil)
-        })
+	ensureDocumentFactory.Do(func() {
+		_ = data.ConfigureDocumentFactory(data.DocumentFactoryConfig{}, nil)
+	})
 
-        schemaBytes, err := data.ExtractDTOSchemaDirect(&LogEntry{})
-        if err != nil {
-                return nil, err
-        }
-        var sc definition.Schema
-        if err := json.Unmarshal(schemaBytes, &sc); err != nil {
-                return nil, err
-        }
-        sc.Name = collectionName
+	schemaBytes, err := data.ExtractDTOSchemaDirect(&LogEntry{})
+	if err != nil {
+		return nil, err
+	}
+	var sc definition.Schema
+	if err := json.Unmarshal(schemaBytes, &sc); err != nil {
+		return nil, err
+	}
+	sc.Name = collectionName
 
-        ok, err := persist.HasCollection(ctx, collectionName)
-        if err != nil {
-                return nil, err
-        }
-        if !ok {
-                if _, err := persist.CreateCollection(ctx, &sc); err != nil {
-                        return nil, err
-                }
-        }
+	ok, err := persist.HasCollection(ctx, collectionName)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		if _, err := persist.CreateCollection(ctx, &sc); err != nil {
+			return nil, err
+		}
+	}
 
-        coll, err := persist.Collection(ctx, collectionName)
-        if err != nil {
-                return nil, err
-        }
+	coll, err := persist.Collection(ctx, collectionName)
+	if err != nil {
+		return nil, err
+	}
 
-        models, err := anansicollection.NewModelCollection[*LogEntry](coll, zap.NewNop())
-        if err != nil {
-                return nil, err
-        }
+	models, err := anansicollection.NewModelCollection[*LogEntry](coll, zap.NewNop())
+	if err != nil {
+		return nil, err
+	}
 
-        return &AnansiStore{models: models}, nil
+	return &AnansiStore{models: models}, nil
 }
 
 // actionLogNamespace namespaces the deterministic log document IDs so they
@@ -101,11 +101,11 @@ var actionLogNamespace = uuid.NewSHA1(uuid.NameSpaceURL, []byte("github.com/asai
 // 48-bit timestamp field carries hash bits — not a creation time —
 // precisely because the ID must not depend on when it was minted.
 func uuid7Layout(sum [sha1.Size]byte) string {
-        var id uuid.UUID
-        copy(id[:], sum[:16])
-        id[6] = (id[6] & 0x0f) | 0x70
-        id[8] = (id[8] & 0x3f) | 0x80
-        return strings.ReplaceAll(id.String(), "-", "")
+	var id uuid.UUID
+	copy(id[:], sum[:16])
+	id[6] = (id[6] & 0x0f) | 0x70
+	id[8] = (id[8] & 0x3f) | 0x80
+	return strings.ReplaceAll(id.String(), "-", "")
 }
 
 // entryDocID derives the deterministic document ID for one log entry.
@@ -114,21 +114,21 @@ func uuid7Layout(sum [sha1.Size]byte) string {
 // (runID, rerunIndex, seq) maps to the same document in every process
 // and after every restart.
 func entryDocID(runID string, rerunIndex int, seq uint64) string {
-        name := actionLogNamespace.String() + ":entry:" + runID + ":" + fmt.Sprint(rerunIndex) + ":" + fmt.Sprint(seq)
-        return uuid7Layout(sha1.Sum([]byte(name)))
+	name := actionLogNamespace.String() + ":entry:" + runID + ":" + fmt.Sprint(rerunIndex) + ":" + fmt.Sprint(seq)
+	return uuid7Layout(sha1.Sum([]byte(name)))
 }
 
 // runKey identifies one run attempt inside the store's sharded state.
 type runKey struct {
-        runID      string
-        rerunIndex int
+	runID      string
+	rerunIndex int
 }
 
 // seqShard holds the lazily-initialized next-Seq counters for a stripe
 // of run keys.
 type seqShard struct {
-        mu    sync.Mutex
-        nexts map[runKey]uint64
+	mu    sync.Mutex
+	nexts map[runKey]uint64
 }
 
 // seqShardCount is the lock-striping width for seq assignment. Stripes
@@ -149,17 +149,17 @@ const seqShardCount = 256
 // lazily from the stored maximum on first touch, so numbering survives
 // process restarts; the persisted Seq field is authoritative on read.
 type AnansiStore struct {
-        models *anansicollection.ModelCollection[*LogEntry]
-        shards [seqShardCount]seqShard
+	models *anansicollection.ModelCollection[*LogEntry]
+	shards [seqShardCount]seqShard
 
-        // writeMu serializes the DB write itself. The INSERT is the only
-        // critical section — the expensive work (seq assignment, marshal)
-        // stays shard-local — and single-writer backends (sqlite) reject
-        // concurrent writes with transient lock errors, which would otherwise
-        // punch seq gaps into a run's log. One mutex around a cheap INSERT is
-        // the honest constraint; the O(n) array rewrite this replaced
-        // serialized far more.
-        writeMu sync.Mutex
+	// writeMu serializes the DB write itself. The INSERT is the only
+	// critical section — the expensive work (seq assignment, marshal)
+	// stays shard-local — and single-writer backends (sqlite) reject
+	// concurrent writes with transient lock errors, which would otherwise
+	// punch seq gaps into a run's log. One mutex around a cheap INSERT is
+	// the honest constraint; the O(n) array rewrite this replaced
+	// serialized far more.
+	writeMu sync.Mutex
 }
 
 var _ Store = (*AnansiStore)(nil)
@@ -167,105 +167,105 @@ var _ RunEnumerator = (*AnansiStore)(nil)
 
 // shardFor returns the seq-assignment shard for a run.
 func (s *AnansiStore) shardFor(runID string) *seqShard {
-        h := fnv.New32a()
-        _, _ = h.Write([]byte(runID))
-        return &s.shards[h.Sum32()%seqShardCount]
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(runID))
+	return &s.shards[h.Sum32()%seqShardCount]
 }
 
 // nextSeqLocked assigns the next Seq for a run attempt, initializing the
 // in-memory counter from the stored maximum on first touch. Callers hold
 // the shard mutex.
 func (s *AnansiStore) nextSeqLocked(ctx context.Context, key runKey) (uint64, error) {
-        shard := s.shardFor(key.runID)
-        if shard.nexts == nil {
-                shard.nexts = make(map[runKey]uint64)
-        }
-        if next, ok := shard.nexts[key]; ok {
-                return next, nil
-        }
+	shard := s.shardFor(key.runID)
+	if shard.nexts == nil {
+		shard.nexts = make(map[runKey]uint64)
+	}
+	if next, ok := shard.nexts[key]; ok {
+		return next, nil
+	}
 
-        // First touch this process: derive from the stored maximum so
-        // numbering is stable across restarts. Gaps are fine (they already
-        // were — see the historical note on failed marshals).
-        max, err := s.maxSeq(ctx, key.runID, key.rerunIndex)
-        if err != nil {
-                return 0, err
-        }
-        next := max + 1
-        shard.nexts[key] = next
-        return next, nil
+	// First touch this process: derive from the stored maximum so
+	// numbering is stable across restarts. Gaps are fine (they already
+	// were — see the historical note on failed marshals).
+	max, err := s.maxSeq(ctx, key.runID, key.rerunIndex)
+	if err != nil {
+		return 0, err
+	}
+	next := max + 1
+	shard.nexts[key] = next
+	return next, nil
 }
 
 // maxSeq queries the highest persisted Seq for a run attempt.
 func (s *AnansiStore) maxSeq(ctx context.Context, runID string, rerunIndex int) (uint64, error) {
-        q := query.NewQueryBuilder().
-                Where("runId").Eq(runID).
-                Where("rerunIndex").Eq(rerunIndex).
-                OrderByDesc("seq").
-                Limit(1).
-                Build()
-        docs, err := s.models.Read(ctx, &q)
-        if err != nil {
-                return 0, err
-        }
-        if len(docs) == 0 {
-                return 0, nil
-        }
-        return docs[0].Seq, nil
+	q := query.NewQueryBuilder().
+		Where("runId").Eq(runID).
+		Where("rerunIndex").Eq(rerunIndex).
+		OrderByDesc("seq").
+		Limit(1).
+		Build()
+	docs, err := s.models.Read(ctx, &q)
+	if err != nil {
+		return 0, err
+	}
+	if len(docs) == 0 {
+		return 0, nil
+	}
+	return docs[0].Seq, nil
 }
 
 func (s *AnansiStore) Append(ctx context.Context, entry Entry) (uint64, error) {
-        // Identity must come from the entry, not the store: an entry without
-        // a RunID has nowhere to land. Fail loudly instead of silently
-        // merging it into a foreign run's log (see the historical note below
-        // on the review that fixed this contract).
-        if entry.RunID == "" {
-                return 0, fmt.Errorf("action log entry rejected: RunID is empty — set RunID (and RerunIndex) on the entry before Append")
-        }
-        if entry.RerunIndex < 0 {
-                return 0, fmt.Errorf("action log entry rejected: RerunIndex %d is negative for run %s", entry.RerunIndex, entry.RunID)
-        }
+	// Identity must come from the entry, not the store: an entry without
+	// a RunID has nowhere to land. Fail loudly instead of silently
+	// merging it into a foreign run's log (see the historical note below
+	// on the review that fixed this contract).
+	if entry.RunID == "" {
+		return 0, fmt.Errorf("action log entry rejected: RunID is empty — set RunID (and RerunIndex) on the entry before Append")
+	}
+	if entry.RerunIndex < 0 {
+		return 0, fmt.Errorf("action log entry rejected: RerunIndex %d is negative for run %s", entry.RerunIndex, entry.RunID)
+	}
 
-        if entry.Timestamp.IsZero() {
-                entry.Timestamp = time.Now().UTC()
-        }
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now().UTC()
+	}
 
-        // Seq assignment under the run's shard lock. The DB write happens
-        // OUTSIDE the shard mutex (no I/O inside critical sections) — a
-        // failed write leaves a seq gap, which is harmless because readers
-        // order by the persisted Seq, not by row order.
-        key := runKey{runID: entry.RunID, rerunIndex: entry.RerunIndex}
-        shard := s.shardFor(entry.RunID)
-        shard.mu.Lock()
-        seq, err := s.nextSeqLocked(ctx, key)
-        if err != nil {
-                shard.mu.Unlock()
-                return 0, err
-        }
-        shard.nexts[key] = seq + 1
-        shard.mu.Unlock()
+	// Seq assignment under the run's shard lock. The DB write happens
+	// OUTSIDE the shard mutex (no I/O inside critical sections) — a
+	// failed write leaves a seq gap, which is harmless because readers
+	// order by the persisted Seq, not by row order.
+	key := runKey{runID: entry.RunID, rerunIndex: entry.RerunIndex}
+	shard := s.shardFor(entry.RunID)
+	shard.mu.Lock()
+	seq, err := s.nextSeqLocked(ctx, key)
+	if err != nil {
+		shard.mu.Unlock()
+		return 0, err
+	}
+	shard.nexts[key] = seq + 1
+	shard.mu.Unlock()
 
-        entry.Seq = seq
-        dataBytes, err := json.Marshal(entry)
-        if err != nil {
-                return 0, err
-        }
+	entry.Seq = seq
+	dataBytes, err := json.Marshal(entry)
+	if err != nil {
+		return 0, err
+	}
 
-        model := document.New(&LogEntry{
-                RunID:      entry.RunID,
-                RerunIndex: entry.RerunIndex,
-                Seq:        entry.Seq,
-                Data:       string(dataBytes),
-        })
-        model.ID = entryDocID(entry.RunID, entry.RerunIndex, entry.Seq)
-        s.writeMu.Lock()
-        _, err = s.models.Create(ctx, model)
-        s.writeMu.Unlock()
-        if err != nil {
-                return 0, err
-        }
+	model := document.New(&LogEntry{
+		RunID:      entry.RunID,
+		RerunIndex: entry.RerunIndex,
+		Seq:        entry.Seq,
+		Data:       string(dataBytes),
+	})
+	model.ID = entryDocID(entry.RunID, entry.RerunIndex, entry.Seq)
+	s.writeMu.Lock()
+	_, err = s.models.Create(ctx, model)
+	s.writeMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
 
-        return entry.Seq, nil
+	return entry.Seq, nil
 }
 
 // Historical note (kept for the record, #review-20260910-014): the store
@@ -277,79 +277,79 @@ func (s *AnansiStore) Append(ctx context.Context, entry Entry) (uint64, error) {
 // also flagged is gone with the per-entry row layout (plan P4.1).
 
 func (s *AnansiStore) All(ctx context.Context, runID string, rerunIndex int) ([]Entry, error) {
-        q := query.NewQueryBuilder().
-                Where("runId").Eq(runID).
-                Where("rerunIndex").Eq(rerunIndex).
-                OrderByAsc("seq").
-                Build()
-        docs, err := s.models.Read(ctx, &q)
-        if err != nil {
-                return nil, err
-        }
-        entries := make([]Entry, 0, len(docs))
-        for _, d := range docs {
-                var e Entry
-                if err := json.Unmarshal([]byte(d.Data), &e); err != nil {
-                        return nil, err
-                }
-                entries = append(entries, e)
-        }
-        return entries, nil
+	q := query.NewQueryBuilder().
+		Where("runId").Eq(runID).
+		Where("rerunIndex").Eq(rerunIndex).
+		OrderByAsc("seq").
+		Build()
+	docs, err := s.models.Read(ctx, &q)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(docs))
+	for _, d := range docs {
+		var e Entry
+		if err := json.Unmarshal([]byte(d.Data), &e); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
 }
 
 func (s *AnansiStore) ByStepID(ctx context.Context, runID string, rerunIndex int, stepID string) ([]Entry, error) {
-        entries, err := s.All(ctx, runID, rerunIndex)
-        if err != nil {
-                return nil, err
-        }
-        var result []Entry
-        for _, e := range entries {
-                if e.StepID == stepID {
-                        result = append(result, e)
-                }
-        }
-        return result, nil
+	entries, err := s.All(ctx, runID, rerunIndex)
+	if err != nil {
+		return nil, err
+	}
+	var result []Entry
+	for _, e := range entries {
+		if e.StepID == stepID {
+			result = append(result, e)
+		}
+	}
+	return result, nil
 }
 
 func (s *AnansiStore) LastByStageID(ctx context.Context, runID string, rerunIndex int, stageID string) (*Entry, error) {
-        entries, err := s.All(ctx, runID, rerunIndex)
-        if err != nil {
-                return nil, err
-        }
-        for i := len(entries) - 1; i >= 0; i-- {
-                if entries[i].StageID == stageID && entries[i].Kind == KindRouted {
-                        e := entries[i]
-                        return &e, nil
-                }
-        }
-        return nil, nil
+	entries, err := s.All(ctx, runID, rerunIndex)
+	if err != nil {
+		return nil, err
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].StageID == stageID && entries[i].Kind == KindRouted {
+			e := entries[i]
+			return &e, nil
+		}
+	}
+	return nil, nil
 }
 
 func (s *AnansiStore) Count(ctx context.Context, runID string, rerunIndex int) (uint64, error) {
-        entries, err := s.All(ctx, runID, rerunIndex)
-        if err != nil {
-                return 0, err
-        }
-        return uint64(len(entries)), nil
+	entries, err := s.All(ctx, runID, rerunIndex)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(len(entries)), nil
 }
 
 func (s *AnansiStore) LatestRerunIndex(ctx context.Context, runID string) (int, error) {
-        q := query.NewQueryBuilder().Where("runId").Eq(runID).Build()
-        docs, err := s.models.Read(ctx, &q)
-        if err != nil {
-                return -1, err
-        }
-        max := -1
-        seen := make(map[int]bool)
-        for _, d := range docs {
-                if !seen[d.RerunIndex] {
-                        seen[d.RerunIndex] = true
-                        if d.RerunIndex > max {
-                                max = d.RerunIndex
-                        }
-                }
-        }
-        return max, nil
+	q := query.NewQueryBuilder().Where("runId").Eq(runID).Build()
+	docs, err := s.models.Read(ctx, &q)
+	if err != nil {
+		return -1, err
+	}
+	max := -1
+	seen := make(map[int]bool)
+	for _, d := range docs {
+		if !seen[d.RerunIndex] {
+			seen[d.RerunIndex] = true
+			if d.RerunIndex > max {
+				max = d.RerunIndex
+			}
+		}
+	}
+	return max, nil
 }
 
 // Runs enumerates every run attempt persisted in the collection
@@ -357,18 +357,18 @@ func (s *AnansiStore) LatestRerunIndex(ctx context.Context, runID string) (int, 
 // to find runs whose recovery must be completed after a restart; it is
 // a cold-path scan, not a hot-path read.
 func (s *AnansiStore) Runs(ctx context.Context) ([]RunRef, error) {
-        docs, err := s.models.Read(ctx, &query.Query{})
-        if err != nil {
-                return nil, err
-        }
-        seen := make(map[runKey]bool)
-        var refs []RunRef
-        for _, d := range docs {
-                key := runKey{runID: d.RunID, rerunIndex: d.RerunIndex}
-                if !seen[key] {
-                        seen[key] = true
-                        refs = append(refs, RunRef{RunID: d.RunID, RerunIndex: d.RerunIndex})
-                }
-        }
-        return refs, nil
+	docs, err := s.models.Read(ctx, &query.Query{})
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[runKey]bool)
+	var refs []RunRef
+	for _, d := range docs {
+		key := runKey{runID: d.RunID, rerunIndex: d.RerunIndex}
+		if !seen[key] {
+			seen[key] = true
+			refs = append(refs, RunRef{RunID: d.RunID, RerunIndex: d.RerunIndex})
+		}
+	}
+	return refs, nil
 }
