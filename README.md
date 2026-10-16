@@ -71,6 +71,10 @@ No environment variables are required — the runtime defaults to in-memory stor
 | Concern | Mechanism |
 | :--- | :--- |
 | Event bus / store factory / action log | `runtime.Options{Bus, StoreFactory, ActionLog}` |
+| Retention (v2.1) | `runtime.Options{StoreGrace, RunHistoryTTL, MaxLogAge}` — terminal store eviction, audit history, durable-log pruning (prune + usage need the backend capability) |
+| Budgets & gates (v2.1) | `runtime.Options{MaxStateBytes, MaxActiveRuns, EventTTL}` — spawn-time state budget, global segment gate, buffered-event expiry |
+| Introspection (v2.1) | `rt.Health(ctx)` — one snapshot: live counters, retention posture, drift policy, log usage; `rt.StorageUsage(ctx)` |
+| Drift policy (v2.1) | `runtime.Options.DefinitionPolicy` — `"warn"` (default) tags `RunMeta.DefinitionDrift`; `"require-same"` refuses drifted resumes with `DEFINITION_DRIFT` |
 | Cron scheduling | `runtime.Options.Scheduler` (defaults to `scheduler.InMemoryScheduler`) |
 | External trigger wiring | `runtime.Options.EventSource` (defaults to a manual source) |
 | Gemini API key | Passed per-node via the node `config.apiKey` field |

@@ -1,3 +1,64 @@
+# v2.1.0 — hardening (branch `refactor/20261003-audits`, plan `todo/20261004-v2.1-hardening-plan.md`)
+
+Additive-only hardening borrowed from a review of a parallel edge-framework
+design (its concerns, not its interface-per-concern form). No deleted
+symbols, no wire changes (`PipelineCheckpoint` untouched) — hence v2.1.0,
+not v3. Every feature rides the log-as-truth architecture as a concrete
+type or an optional capability (`RunEnumerator` pattern).
+
+## Added
+
+- **Definition drift detection (H1)**: `pipeline.Fingerprint` /
+  `WorkflowFingerprint` — structural fingerprints over the declarative
+  surface the replay walk consumes (labels and Go closures excluded, the
+  caveat documented in RECOVERY.md). Stamped on `pipeline_started` and
+  `checkpoint` entries (`actionlog.Entry.DefHash`) and on run metas.
+  `Options.DefinitionPolicy`: `"warn"` (default) tags
+  `timeline.RunTimelineMeta.DefinitionDrift`; `"require-same"` refuses
+  with the new `core.ErrCodeDefinitionDrift` — a refused pause is never
+  lost (same-process entries are restored; restart pauses stay staged for
+  a matching later `Register`).
+- **Fold snapshots (H2)**: `actionlog.FoldSnapshot` +
+  `FoldSnapshotStore` capability (memory + anansi side collection).
+  Pause-time export of the run state, anchored to the checkpoint seq +
+  fingerprint; rebuild fast path with a fail-closed gate (stale seq,
+  drifted hash, corrupt state → the full walk, byte-identical). Measured:
+  paused-run rebuild 180µs→14.9µs at 100 entries, 2.05ms→126µs at 1000
+  (12–16×); the walk path itself is unchanged. `Options.
+  DisableFoldSnapshots` is the escape hatch and the A/B test switch.
+- **Retention contract (H3)**: `Options.StoreGrace` (explicit tier-1
+  terminal-store horizon), `Options.MaxLogAge` + `actionlog.LogPruner`
+  (whole-run pruning of terminal runs past the horizon — paused/in-flight
+  runs never pruned; memory log deliberately lacks the capability),
+  `actionlog.UsageReporter` + `rt.StorageUsage(ctx)` (typed errors, never
+  a silent zero).
+- **Health introspection (H4)**: `rt.Health(ctx) RuntimeHealth` — live
+  counters (active/paused/pending-pauses/caches/stores), posture (uptime,
+  janitor, retention knobs, drift policy, snapshot flag), and the log
+  usage when the backend reports it. One concrete struct, no interface.
+- **Budgets and gates (H5)**: `Options.MaxStateBytes` (spawn-boundary
+  budget — typed `VALIDATION_ERROR` rejection; pause-time WARN at the
+  durability boundary), `Options.MaxActiveRuns` (global segment gate,
+  typed `CONFLICT` overflow; refused resumes restore the paused entry),
+  `Options.EventTTL` (buffered watch events expire at drain time).
+- **Typed validation errors (H6)**: `nodekit.ValidationError{Code, Path,
+  Message, Cause}` + sentinels `INVALID_CONFIG_SCHEMA`,
+  `CONFIG_INTERPOLATION_FAILED`, `INVALID_CONFIG`, `UNKNOWN_NODE_KIND`
+  at the build/registration boundary; messages render the pre-existing
+  text, causes stay `Unwrap`-able, `nodekit.AsValidationError` walks
+  wrapped chains.
+
+## Fixed
+
+- `watchservice.Register`'s C5 queue re-parenting now carries the event
+  receipt stamps introduced with `EventTTL` (the first version broke the
+  `len(enqueuedAt) == len(queue)` invariant and bounds-panicked under
+  race — caught by the chained re-pause suite).
+- Test hardening: the chained-re-pause cron test asserted the cron arm
+  immediately after the paused-registry write (a scheduling race the
+  snapshot write widened into a real flake); it now polls. Repause
+  completion waits widened 5s→15s for -race runs under full-suite load.
+
 # Unreleased — 20261003 refactor (branch `refactor/20261003-audits`)
 
 Demolition + foundation rebuild + remediation of the 20261003 audits

@@ -81,11 +81,76 @@ durability. The contract:
 
 Backends shipped:
 
-| Backend | Enumeration | Durability horizon |
-| :--- | :--- | :--- |
-| `MemoryActionLog` | yes (`RunEnumerator`) | process lifetime — pauses survive a runtime swap, not a process restart |
-| `AnansiStore` | yes (`RunEnumerator`) | restart durability — pauses and run history survive process restarts |
-| no log configured (`nil`) | — | NONE: runs are unrecoverable, `Resume` has nothing to rebuild from, and restart recovery is disabled by design |
+| Backend | Enumeration | Snapshots | Usage / prune | Durability horizon |
+| :--- | :--- | :--- | :--- | :--- |
+| `MemoryActionLog` | yes (`RunEnumerator`) | yes (`FoldSnapshotStore`) | usage yes; prune NO (nothing durable to reclaim — dropping entries would erase the audit trail for zero benefit) | process lifetime — pauses survive a runtime swap, not a process restart |
+| `AnansiStore` | yes (`RunEnumerator`) | yes (`FoldSnapshotStore`, side collection `<name>_fold_snapshots`) | usage + prune yes (`UsageReporter`, `LogPruner`) | restart durability — pauses and run history survive process restarts |
+| no log configured (`nil`) | — | — | — | NONE: runs are unrecoverable, `Resume` has nothing to rebuild from, and restart recovery is disabled by design |
+
+## Definition drift: the fingerprint contract (v2.1 H1)
+
+Every run is recorded under a **workflow-level structural fingerprint**
+(`pipeline.WorkflowFingerprint`: trigger ids + each pipeline's
+`pipeline.Fingerprint` — stage order, stage/step identities, timeouts,
+retries, effect classes, config, nested subpipeline definitions). The
+runtime stamps it on `pipeline_started` and `checkpoint` entries
+(`Entry.DefHash`) and on the run meta. On `Resume` and on the S.3
+restart re-arm, the recorded hash is compared against the workflow NOW
+registered; `Options.DefinitionPolicy` decides what a mismatch means:
+
+- `"warn"` (default) — proceed, log a Warn, tag `RunTimelineMeta.
+  DefinitionDrift`. The pause is never silently lost; the drift is
+  visible in `ListRuns`/`GetRunMeta`.
+- `"require-same"` — refuse with the typed
+  `core.ErrCodeDefinitionDrift` error. A same-process pause stays
+  resumable (the entry is restored) and a restart pause stays staged in
+  `pendingPauses`; registering the matching workflow re-claims it. A
+  refusal is a guard, not a deletion.
+
+**What the fingerprint cannot see** (do not oversell it): Go closure
+behavior — `Step.Action`, `Stage.Router`, `PipelinesRouter`,
+`DynamicPipelines`. For compiled workflows node behavior derives from
+Config + the frozen node catalog, so real canvas edits land in Config
+and ARE detected. A hand-built workflow whose closures change behavior
+while keeping identical structure is UNDETECTED by design — hosts
+needing code-level guarantees must version their workflow ids.
+Hashless entries (logs written before v2.1) always pass — the check
+never fires on legacy logs.
+
+## Fold snapshots: the pause-time rebuild cache (v2.1 H2)
+
+At every pause, the runtime exports the run's state and saves it beside
+the log (`FoldSnapshotStore` capability, keyed `(runID, rerunIndex)`,
+anchored to the checkpoint entry's `Seq` + the workflow fingerprint).
+A paused-run rebuild may then SKIP the seq-fold walk and seed from the
+snapshot — paused-run rebuilds are otherwise linear in history length
+(~1.9µs/recorded delta; measured 12–16× on the 100/1000-entry shapes).
+
+The read-side gate is **fail-closed toward the walk**. The snapshot is
+used ONLY when every condition holds at Rebuild-call time:
+
+1. a snapshot exists for the latest attempt,
+2. the attempt's last entry is the `checkpoint` AT the snapshot's `Seq`
+   (nothing appended after the pause),
+3. the recorded fingerprint matches the registered workflow (H1 composes),
+4. the state parses.
+
+Any miss, corruption, drift, or doubt → the full walk, byte-identical to
+pre-H2 semantics. Snapshots are a **derived cache, never a second source
+of truth**: deleting every one of them changes latency, nothing else.
+They never surface through `All`/`Count`/`Runs`, and
+`Options.DisableFoldSnapshots` turns the mechanism off entirely.
+
+## Retention and storage usage (v2.1 H3)
+
+- `Options.StoreGrace` overrides the tier-1 eviction horizon (default
+  10 minutes) for terminal runs' state stores.
+- `Options.MaxLogAge` + the `LogPruner` capability: the janitor deletes
+  WHOLE runs whose latest attempt ended terminally past the horizon.
+  Paused and in-flight runs are never pruned — the log is their resume
+  payload. Pruned runs' fold snapshots go with them.
+- `UsageReporter` capability → `rt.StorageUsage(ctx)`; typed error (never
+  a silent zero) when the backend cannot report.
 
 ## Operational limits
 
