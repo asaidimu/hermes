@@ -20,6 +20,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// FoldSnapshotDoc is the persisted representation of ONE fold snapshot
+// (v2.1 H2.1): one document per run attempt, keyed deterministically by
+// (runId, rerunIndex) — the latest pause overwrites via Replace.
+type FoldSnapshotDoc struct {
+	document.DocumentModel
+	RunID      string `anansi:"runId"`
+	RerunIndex int    `anansi:"rerunIndex"`
+	Data       string `anansi:"data"` // full FoldSnapshot JSON
+}
+
 // LogEntry is the persisted representation of ONE action log entry.
 // One document per entry, keyed by (runId, rerunIndex, seq) — the
 // append is a single INSERT (O(1) tail write), and All is an ordered
@@ -59,7 +69,27 @@ func NewAnansiStore(ctx context.Context, persist base.Persistence, collectionNam
 		_ = data.ConfigureDocumentFactory(data.DocumentFactoryConfig{}, nil)
 	})
 
-	schemaBytes, err := data.ExtractDTOSchemaDirect(&LogEntry{})
+	models, err := ensureCollection[*LogEntry](ctx, persist, collectionName, &LogEntry{})
+	if err != nil {
+		return nil, err
+	}
+
+	// v2.1 H2.1: the fold-snapshot side collection, created alongside the
+	// entries. Separate collection — snapshots must never appear in
+	// All/Count/Runs (they are a derived cache, invisible to the fold).
+	snapModels, err := ensureCollection[*FoldSnapshotDoc](ctx, persist, collectionName+"_fold_snapshots", &FoldSnapshotDoc{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &AnansiStore{models: models, snapshots: snapModels}, nil
+}
+
+// ensureCollection extracts the DTO schema, creates the collection when
+// missing, and returns its typed model collection. Shared by the entries
+// collection and the fold-snapshot side collection (H2.1).
+func ensureCollection[P anansicollection.ModelIdentity](ctx context.Context, persist base.Persistence, name string, dto P) (*anansicollection.ModelCollection[P], error) {
+	schemaBytes, err := data.ExtractDTOSchemaDirect(dto)
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +97,9 @@ func NewAnansiStore(ctx context.Context, persist base.Persistence, collectionNam
 	if err := json.Unmarshal(schemaBytes, &sc); err != nil {
 		return nil, err
 	}
-	sc.Name = collectionName
+	sc.Name = name
 
-	ok, err := persist.HasCollection(ctx, collectionName)
+	ok, err := persist.HasCollection(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -79,17 +109,11 @@ func NewAnansiStore(ctx context.Context, persist base.Persistence, collectionNam
 		}
 	}
 
-	coll, err := persist.Collection(ctx, collectionName)
+	coll, err := persist.Collection(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-
-	models, err := anansicollection.NewModelCollection[*LogEntry](coll, zap.NewNop())
-	if err != nil {
-		return nil, err
-	}
-
-	return &AnansiStore{models: models}, nil
+	return anansicollection.NewModelCollection[P](coll, zap.NewNop())
 }
 
 // actionLogNamespace namespaces the deterministic log document IDs so they
@@ -106,6 +130,67 @@ func uuid7Layout(sum [sha1.Size]byte) string {
 	id[6] = (id[6] & 0x0f) | 0x70
 	id[8] = (id[8] & 0x3f) | 0x80
 	return strings.ReplaceAll(id.String(), "-", "")
+}
+
+// snapshotDocID derives the deterministic document ID for one fold
+// snapshot. One per (runID, rerunIndex): the latest pause replaces it.
+func snapshotDocID(runID string, rerunIndex int) string {
+	name := actionLogNamespace.String() + ":snapshot:" + runID + ":" + fmt.Sprint(rerunIndex)
+	return uuid7Layout(sha1.Sum([]byte(name)))
+}
+
+// SaveFoldSnapshot upserts the attempt's snapshot (H2.1). Best-effort by
+// contract — the runtime logs save failures and the walk covers the miss —
+// but errors are still returned honestly for tests and loud hosts.
+func (s *AnansiStore) SaveFoldSnapshot(ctx context.Context, snap FoldSnapshot) error {
+	if snap.RunID == "" {
+		return fmt.Errorf("fold snapshot rejected: RunID is empty")
+	}
+	dataBytes, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	id := snapshotDocID(snap.RunID, snap.RerunIndex)
+	doc := &FoldSnapshotDoc{
+		RunID:      snap.RunID,
+		RerunIndex: snap.RerunIndex,
+		Data:       string(dataBytes),
+	}
+
+	// Upsert via delete-then-create on the deterministic ID. (FindByID
+	// panics on missing records in the current anansi version — the read
+	// path below avoids it too.) writeMu serializes the pair so two
+	// concurrent saves cannot interleave delete/create for one attempt.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_ = s.snapshots.DeleteByID(ctx, id) // not-found is fine
+	model := document.New(doc)
+	model.ID = id
+	_, err = s.snapshots.Create(ctx, model)
+	return err
+}
+
+// LoadFoldSnapshot returns the attempt's snapshot, or (nil, nil) when none
+// is persisted — absent is a normal state (fresh attempt, snapshots
+// disabled, pruned), never an error.
+func (s *AnansiStore) LoadFoldSnapshot(ctx context.Context, runID string, rerunIndex int) (*FoldSnapshot, error) {
+	id := snapshotDocID(runID, rerunIndex)
+	q := query.NewQueryBuilder().
+		Where(data.DocumentIDField).Eq(id).
+		Limit(1).
+		Build()
+	docs, err := s.snapshots.Read(ctx, &q)
+	if err != nil {
+		return nil, err
+	}
+	if len(docs) == 0 {
+		return nil, nil // absent: normal
+	}
+	var snap FoldSnapshot
+	if err := json.Unmarshal([]byte(docs[0].Data), &snap); err != nil {
+		return nil, err // corrupt: reported, the caller falls back to the walk
+	}
+	return &snap, nil
 }
 
 // entryDocID derives the deterministic document ID for one log entry.
@@ -150,7 +235,9 @@ const seqShardCount = 256
 // process restarts; the persisted Seq field is authoritative on read.
 type AnansiStore struct {
 	models *anansicollection.ModelCollection[*LogEntry]
-	shards [seqShardCount]seqShard
+	// snapshots (v2.1 H2.1): the FoldSnapshotStore side collection.
+	snapshots *anansicollection.ModelCollection[*FoldSnapshotDoc]
+	shards    [seqShardCount]seqShard
 
 	// writeMu serializes the DB write itself. The INSERT is the only
 	// critical section — the expensive work (seq assignment, marshal)
@@ -164,6 +251,7 @@ type AnansiStore struct {
 
 var _ Store = (*AnansiStore)(nil)
 var _ RunEnumerator = (*AnansiStore)(nil)
+var _ FoldSnapshotStore = (*AnansiStore)(nil)
 
 // shardFor returns the seq-assignment shard for a run.
 func (s *AnansiStore) shardFor(runID string) *seqShard {

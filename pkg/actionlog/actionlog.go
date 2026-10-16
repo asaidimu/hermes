@@ -17,6 +17,7 @@ package actionlog
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -149,6 +150,34 @@ type RunEnumerator interface {
 	Runs(ctx context.Context) ([]RunRef, error)
 }
 
+// FoldSnapshot (v2.1 H2) is a DERIVED CACHE of one run attempt's folded
+// state at the moment its latest pause was recorded — never a second
+// source of truth. The runtime writes it at pause time; a later rebuild
+// may seed from it INSTEAD of walking entries 1..Seq, but only when the
+// read-side gate proves it fresh (the attempt's last entry is the very
+// checkpoint at snap.Seq, under the same definition fingerprint). It is
+// safe to delete any snapshot at any time: the walk always reproduces it.
+type FoldSnapshot struct {
+	RunID      string `json:"runId"`
+	RerunIndex int    `json:"rerunIndex"`
+	// Seq is the action-log sequence number of the KindCheckpoint entry
+	// this snapshot corresponds to — the freshness gate anchors on it.
+	Seq     uint64          `json:"seq"`
+	DefHash string          `json:"defHash"`
+	State   json.RawMessage `json:"state"`
+}
+
+// FoldSnapshotStore is an optional Store capability (RunEnumerator
+// pattern): persisting fold snapshots beside the entries. Keyed
+// (runID, rerunIndex) — one snapshot per attempt, the latest pause wins.
+// Implementations must tolerate arbitrary overwrite order and must NEVER
+// surface snapshots through All/Count/Runs: they are a side cache,
+// invisible to the fold, the timeline, and the wire.
+type FoldSnapshotStore interface {
+	SaveFoldSnapshot(ctx context.Context, snap FoldSnapshot) error
+	LoadFoldSnapshot(ctx context.Context, runID string, rerunIndex int) (*FoldSnapshot, error)
+}
+
 // MemoryActionLog is an in-memory Store implementation for testing and
 // development. Not durable — data is lost on process exit. Callers that
 // need persistence should provide a Store backed by a database.
@@ -156,6 +185,10 @@ type MemoryActionLog struct {
 	mu      sync.Mutex
 	entries map[string]map[int][]Entry // runID -> rerunIndex -> entries
 	seqs    map[string]map[int]uint64  // runID -> rerunIndex -> next seq
+	// snapshots (v2.1 H2.1): the FoldSnapshotStore side cache. Lost with
+	// the process exactly like the entries themselves — a memory log has
+	// no durability to accelerate.
+	snapshots map[memSnapshotKey]*FoldSnapshot
 }
 
 // NewMemoryActionLog creates a new in-memory action log.
@@ -260,4 +293,40 @@ func (m *MemoryActionLog) Runs(_ context.Context) ([]RunRef, error) {
 		}
 	}
 	return refs, nil
+}
+
+// --- FoldSnapshotStore capability (v2.1 H2.1) -------------------------------
+
+type memSnapshotKey struct {
+	runID      string
+	rerunIndex int
+}
+
+// SaveFoldSnapshot stores/overwrites the attempt's snapshot (latest pause
+// wins).
+func (m *MemoryActionLog) SaveFoldSnapshot(_ context.Context, snap FoldSnapshot) error {
+	if snap.RunID == "" {
+		return fmt.Errorf("fold snapshot rejected: RunID is empty")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.snapshots == nil {
+		m.snapshots = make(map[memSnapshotKey]*FoldSnapshot)
+	}
+	cp := snap
+	m.snapshots[memSnapshotKey{snap.RunID, snap.RerunIndex}] = &cp
+	return nil
+}
+
+// LoadFoldSnapshot returns the attempt's snapshot, or (nil, nil) when none
+// exists — absent is a normal state, not an error.
+func (m *MemoryActionLog) LoadFoldSnapshot(_ context.Context, runID string, rerunIndex int) (*FoldSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	snap := m.snapshots[memSnapshotKey{runID, rerunIndex}]
+	if snap == nil {
+		return nil, nil
+	}
+	cp := *snap
+	return &cp, nil
 }
