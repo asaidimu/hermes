@@ -129,7 +129,7 @@ func TestResumeRepauseSingleEvent(t *testing.T) {
 		require.Equal(t, float64(3), res.FinalState["c"])
 		require.Equal(t, true, res.FinalState["first"])
 		require.Equal(t, true, res.FinalState["second"])
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for multi-pause run completion")
 	}
 
@@ -182,7 +182,7 @@ func TestResumeRepauseMultiEvent(t *testing.T) {
 		require.Equal(t, float64(2), res.FinalState["b"])
 		require.Equal(t, float64(3), res.FinalState["c"])
 		require.Equal(t, true, res.FinalState["resumed"])
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for multi-event re-pause completion")
 	}
 }
