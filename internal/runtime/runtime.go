@@ -133,6 +133,11 @@ type Options struct {
 	//
 	// Hashless entries (logs written before DefHash existed) always pass.
 	DefinitionPolicy string
+	// DisableFoldSnapshots (v2.1 H2.2) turns the pause-time fold-snapshot
+	// cache off: every paused-run rebuild walks the full log, exactly as
+	// before H2. Escape hatch for hosts and the A/B switch for the parity
+	// tests and benchmarks.
+	DisableFoldSnapshots bool
 }
 
 // Mode mirrors the TS WorkflowExecutionMode. It controls per-workflow run
@@ -245,6 +250,8 @@ type WorkflowRuntime struct {
 	// gating; see checkDefinitionDrift). startedAt anchors Health().
 	definitionPolicy string
 	startedAt        time.Time
+	// disableFoldSnapshots mirrors Options.DisableFoldSnapshots (H2.2).
+	disableFoldSnapshots bool
 
 	// runHistoryTTL drives the terminal-history janitor (see
 	// Options.RunHistoryTTL). janitorStop cancels its ticker loop;
@@ -347,24 +354,25 @@ func (g *executionGate) tryAcquire() (bool, func()) {
 // AbortRun. When Options.EventSource is nil, a ManualEventSource is used.
 func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	rt := &WorkflowRuntime{
-		logger:        opts.Logger,
-		env:           opts.Env,
-		secretGet:     opts.SecretGet,
-		secretHas:     opts.SecretHas,
-		storeFactory:  opts.StoreFactory,
-		actionLog:     opts.ActionLog,
-		workflows:     make(map[string]*workflowRecord),
-		index:         make(map[string][]*routeEntry),
-		subs:          make(map[string]*busRef),
-		outcomes:      make(map[string]RunResult),
-		active:        make(map[string]*pipeline.RunContextImpl),
-		stores:        make(map[string]store.Store),
-		paused:        make(map[string]*pausedRun),
-		pausedByEvent: make(map[string]map[string]*pausedRun),
-		runMetas:      make(map[string]*timeline.RunTimelineMeta),
-		pendingPauses: make(map[string]*pendingPause),
-		runHistoryTTL: opts.RunHistoryTTL,
-		startedAt:     time.Now(),
+		logger:               opts.Logger,
+		env:                  opts.Env,
+		secretGet:            opts.SecretGet,
+		secretHas:            opts.SecretHas,
+		storeFactory:         opts.StoreFactory,
+		actionLog:            opts.ActionLog,
+		workflows:            make(map[string]*workflowRecord),
+		index:                make(map[string][]*routeEntry),
+		subs:                 make(map[string]*busRef),
+		outcomes:             make(map[string]RunResult),
+		active:               make(map[string]*pipeline.RunContextImpl),
+		stores:               make(map[string]store.Store),
+		paused:               make(map[string]*pausedRun),
+		pausedByEvent:        make(map[string]map[string]*pausedRun),
+		runMetas:             make(map[string]*timeline.RunTimelineMeta),
+		pendingPauses:        make(map[string]*pendingPause),
+		runHistoryTTL:        opts.RunHistoryTTL,
+		startedAt:            time.Now(),
+		disableFoldSnapshots: opts.DisableFoldSnapshots,
 	}
 	rt.startHistoryJanitor()
 	// rt.actionLog nil = logging disabled (R.3 deleted NopLog).

@@ -285,6 +285,10 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		rt.pauseIndexPutLocked(repaused)
 		rt.mu.Unlock()
 
+		// H2.2: persist the fold snapshot at the re-pause (before buffered
+		// delivery — same C5 ordering as the spawn path).
+		rt.writeFoldSnapshot(runID, st, repaused.defHash)
+
 		// Deliver any event that arrived while the resumed segment was
 		// executing, then re-arm (or drop) the cron auto-resume.
 		if bufferedEvent := rt.watchService.OnRunPaused(runID); bufferedEvent != nil {

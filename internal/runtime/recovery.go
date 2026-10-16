@@ -69,7 +69,19 @@ func (rt *WorkflowRuntime) rebuildCapability(ctx context.Context, runID string, 
 		}
 		return nil, false
 	}
-	return replay.NewReplayer(rt.actionLog, definitionResolver).Rebuild
+	walk := replay.NewReplayer(rt.actionLog, definitionResolver).Rebuild
+
+	// v2.1 H2.2: the fold-snapshot fast path, wrapped AROUND the walk.
+	// The gate (foldsnapshot.go) is fail-closed: any doubt → the walk,
+	// byte-identical to pre-H2 semantics. The fingerprint is the
+	// workflow-level one (H1.2) — the walk consumes every definition the
+	// resolver can reach, so drift in ANY of them voids the cache.
+	if snapStore, ok := rt.actionLog.(actionlog.FoldSnapshotStore); ok {
+		if fast := rt.foldSnapshotRebuild(snapStore, runID, latest, pipeline.WorkflowFingerprint(record.workflow), walk); fast != nil {
+			return fast
+		}
+	}
+	return walk
 }
 
 // resumeRunContext produces the run context a resume executes on. When

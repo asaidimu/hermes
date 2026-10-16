@@ -212,6 +212,11 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 			}
 			rt.mu.Unlock()
 
+			// H2.2: persist the fold snapshot at the pause (before buffered
+			// delivery — a chained re-pause's own bookkeeping overwrites with
+			// the newer snapshot). Best-effort; the walk covers any miss.
+			rt.writeFoldSnapshot(runID, newPaused.store, newPaused.defHash)
+
 			// Notify WatchService that run is now paused
 			if bufferedEvent := rt.watchService.OnRunPaused(runID); bufferedEvent != nil {
 				// Buffered event found - resume immediately (synchronous,
