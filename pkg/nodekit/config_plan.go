@@ -2,7 +2,6 @@ package nodekit
 
 import (
 	"github.com/asaidimu/go-anansi/v8/core/schema/definition"
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
@@ -34,7 +33,7 @@ func newNodeConfigPlan(def NodeDefinition, raw map[string]any) *nodeConfigPlan {
 	p := &nodeConfigPlan{def: def, raw: raw}
 	rs, err := CompileConfigSchema(def.ConfigSchema)
 	if err != nil {
-		p.schemaErr = core.NewSystemError(core.ErrCodeExecutionFailed, "node "+def.Kind+" has an invalid config schema").WithCause(err)
+		p.schemaErr = valErrWrap(ValErrInvalidConfigSchema, def.Kind, "node "+def.Kind+" has an invalid config schema", err)
 		return p
 	}
 	p.rs = rs

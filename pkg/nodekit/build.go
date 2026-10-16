@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
@@ -17,7 +16,7 @@ import (
 func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources, results map[string]any) (map[string]any, error) {
 	rs, schemaErr := CompileConfigSchema(def.ConfigSchema)
 	if schemaErr != nil {
-		return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "node "+def.Kind+" has an invalid config schema").WithCause(schemaErr)
+		return nil, valErrWrap(ValErrInvalidConfigSchema, def.Kind, "node "+def.Kind+" has an invalid config schema", schemaErr)
 	}
 	interpolated, err := Interpolate(raw, InterpolationContext{
 		State:     state,
@@ -25,7 +24,7 @@ func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources,
 		Results:   results,
 	})
 	if err != nil {
-		return nil, core.NewSystemError(core.ErrCodeExecutionFailed, "config interpolation failed").WithCause(err)
+		return nil, valErrWrap(ValErrConfigInterpolation, def.Kind, "config interpolation failed", err)
 	}
 	// @note #review-20260822-035 issue P1 resolved status=resolved priority=P1 tags=#review,#bug : Discarded comma-ok on type assertion
 	//
@@ -40,7 +39,7 @@ func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources,
 	if interpolated == nil {
 		cfg = map[string]any{}
 	} else if !ok {
-		return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
+		return nil, valErr(ValErrInvalidConfig, def.Kind,
 			fmt.Sprintf("node %s: interpolated config is %T, expected a map", def.Kind, interpolated))
 	}
 	return CoerceConfig(cfg, rs), nil
@@ -50,7 +49,7 @@ func prepareNodeConfig(def NodeDefinition, raw map[string]any, state, resources,
 // "trigger" kind has a buildTrigger implementation (mirrors utils registry).
 func BuildTrigger(nodeID string, def NodeDefinition, config map[string]any) (*pipeline.WorkflowTrigger, error) {
 	if def.Kind != "trigger" {
-		return nil, core.NewSystemError(core.ErrCodeExecutionFailed,
+		return nil, valErr(ValErrUnknownNodeKind, nodeID,
 			fmt.Sprintf("Trigger node %s of kind %q has no buildTrigger implementation", nodeID, def.Kind))
 	}
 	event := "__manual__"

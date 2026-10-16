@@ -150,7 +150,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.Run = func(ctx context.Context, nCtx NodeRunContext) (store.Mutator, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return nil, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return nil, valErrWrap(ValErrInvalidConfig, nCtx.NodeID, "config bind failed for node "+nCtx.NodeID, err)
 			}
 			return typedRun(ctx, typedContext(nCtx, &cfg))
 		}
@@ -162,7 +162,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.Router = func(ctx context.Context, nCtx NodeRunContext) (string, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return "", fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return "", valErrWrap(ValErrInvalidConfig, nCtx.NodeID, "config bind failed for node "+nCtx.NodeID, err)
 			}
 			return typedRouter(ctx, typedContext(nCtx, &cfg))
 		}
@@ -174,7 +174,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.RouterFunc = func(ctx context.Context, nCtx NodeRunContext) (pipeline.RoutingInstruction, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return pipeline.RoutingInstruction{}, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return pipeline.RoutingInstruction{}, valErrWrap(ValErrInvalidConfig, nCtx.NodeID, "config bind failed for node "+nCtx.NodeID, err)
 			}
 			return typedRouterFunc(ctx, typedContext(nCtx, &cfg))
 		}
@@ -186,7 +186,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.PipelinesRouterFunc = func(ctx context.Context, nCtx NodeRunContext, results []pipeline.PipelineRunResult) (pipeline.RoutingInstruction, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return pipeline.RoutingInstruction{}, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return pipeline.RoutingInstruction{}, valErrWrap(ValErrInvalidConfig, nCtx.NodeID, "config bind failed for node "+nCtx.NodeID, err)
 			}
 			return typedPRF(ctx, typedContext(nCtx, &cfg), results)
 		}
@@ -198,7 +198,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.ResourceInit = func(ctx context.Context, nCtx NodeRunContext) (any, error) {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return nil, fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return nil, valErrWrap(ValErrInvalidConfig, nCtx.NodeID, "config bind failed for node "+nCtx.NodeID, err)
 			}
 			return typedInit(ctx, typedContext(nCtx, &cfg))
 		}
@@ -210,7 +210,7 @@ func Define[C any](def TypedDefinition[C]) NodeDefinition {
 		d.ResourceEnd = func(ctx context.Context, nCtx NodeRunContext, handle any) error {
 			var cfg C
 			if err := bindFromMap(nCtx.Config, schemaJSON, &cfg); err != nil {
-				return fmt.Errorf("config bind failed for node %s: %w", nCtx.NodeID, err)
+				return valErrWrap(ValErrInvalidConfig, nCtx.NodeID, "config bind failed for node "+nCtx.NodeID, err)
 			}
 			return typedEnd(ctx, typedContext(nCtx, &cfg), handle)
 		}
@@ -247,7 +247,7 @@ func bindFromMap(raw map[string]any, schemaJSON json.RawMessage, target any) err
 	}
 	doc := document.NewRecordView(raw)
 	if err := doc.BindToTag(target, "config"); err != nil {
-		return fmt.Errorf("bind failed: %w", err)
+		return valErrWrap(ValErrInvalidConfig, "", "bind failed", err)
 	}
 	return nil
 }

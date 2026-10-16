@@ -156,7 +156,7 @@ func (d *NodeDefinition) ValidateConfig(raw map[string]any) error {
 	if len(d.ConfigSchema) > 0 {
 		issues, valid := d.validator.Validate(raw)
 		if !valid && len(issues) > 0 {
-			return fmt.Errorf("config validation failed: %s", issues[0].Message)
+			return valErr(ValErrInvalidConfig, d.Kind, "config validation failed: "+issues[0].Message)
 		}
 	}
 	if d.validateCustom != nil {
@@ -174,11 +174,11 @@ func (d *NodeDefinition) ensureValidator() error {
 	}
 	schema, err := definition.FromJSON(d.ConfigSchema)
 	if err != nil {
-		return fmt.Errorf("failed to parse config schema for %q: %w", d.Kind, err)
+		return valErrWrap(ValErrInvalidConfigSchema, d.Kind, fmt.Sprintf("failed to parse config schema for %q", d.Kind), err)
 	}
 	validator, err := definition.NewDocumentValidator(schema, meta.MetaSchemaPredicates)
 	if err != nil {
-		return fmt.Errorf("failed to create validator for %q: %w", d.Kind, err)
+		return valErrWrap(ValErrInvalidConfigSchema, d.Kind, fmt.Sprintf("failed to create validator for %q", d.Kind), err)
 	}
 	d.validator = validator
 	return nil
