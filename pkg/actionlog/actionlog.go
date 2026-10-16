@@ -178,6 +178,33 @@ type FoldSnapshotStore interface {
 	LoadFoldSnapshot(ctx context.Context, runID string, rerunIndex int) (*FoldSnapshot, error)
 }
 
+// LogUsage (v2.1 H3) is the storage footprint of an action log backend.
+type LogUsage struct {
+	Runs    int64 `json:"runs"`
+	Entries int64 `json:"entries"`
+	// Bytes is the backend's own serialized footprint (entry payloads for
+	// memory, row bytes for sqlite). Approximate by design — diagnostics,
+	// not billing.
+	Bytes int64 `json:"bytes"`
+}
+
+// UsageReporter is an optional Store capability: reporting the log's
+// storage footprint. Cold-path diagnostics — implementations may scan.
+type UsageReporter interface {
+	StorageUsage(ctx context.Context) (LogUsage, error)
+}
+
+// LogPruner is an optional Store capability (v2.1 H3): deleting WHOLE runs
+// whose latest attempt ended terminally before the cutoff. Paused and
+// in-flight runs are never pruned — their log IS their resume payload.
+// MemoryActionLog deliberately does not implement it: an in-memory log has
+// no durable footprint to reclaim, and dropping entries would silently
+// erase the audit trail for zero memory benefit (the runtime holds the
+// entries anyway). The fold snapshots of pruned runs go with them.
+type LogPruner interface {
+	PruneRuns(ctx context.Context, olderThan time.Time) (int, error)
+}
+
 // MemoryActionLog is an in-memory Store implementation for testing and
 // development. Not durable — data is lost on process exit. Callers that
 // need persistence should provide a Store backed by a database.
@@ -329,4 +356,26 @@ func (m *MemoryActionLog) LoadFoldSnapshot(_ context.Context, runID string, reru
 	}
 	cp := *snap
 	return &cp, nil
+}
+
+// StorageUsage reports the in-memory footprint (UsageReporter capability).
+// Cold path: it marshals every entry to size it honestly.
+func (m *MemoryActionLog) StorageUsage(_ context.Context) (LogUsage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	usage := LogUsage{}
+	seen := map[string]bool{}
+	for runID, attempts := range m.entries {
+		seen[runID] = true
+		for _, entries := range attempts {
+			for _, e := range entries {
+				usage.Entries++
+				if b, err := json.Marshal(e); err == nil {
+					usage.Bytes += int64(len(b))
+				}
+			}
+		}
+	}
+	usage.Runs = int64(len(seen))
+	return usage, nil
 }

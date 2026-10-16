@@ -138,6 +138,21 @@ type Options struct {
 	// before H2. Escape hatch for hosts and the A/B switch for the parity
 	// tests and benchmarks.
 	DisableFoldSnapshots bool
+	// StoreGrace (v2.1 H3) overrides the tier-1 eviction horizon for
+	// terminal runs' state stores (the janitor's "how long may a host read
+	// a finished run's document"). Zero keeps the 10-minute default; a set
+	// value wins over RunHistoryTTL for THIS tier only — audit history
+	// (runMetas/outcomes) still follows RunHistoryTTL exactly as documented
+	// on that field.
+	StoreGrace time.Duration
+	// MaxLogAge (v2.1 H3): when set AND the action log implements the
+	// LogPruner capability, the janitor deletes WHOLE runs whose latest
+	// attempt ended terminally (completed/failed) longer ago than this
+	// horizon. Paused and in-flight runs are never pruned — the log is
+	// their resume payload. Zero (default) disables pruning: the durable
+	// log then grows unboundedly, which remains the honest default for an
+	// audit trail. Backends without the capability ignore the setting.
+	MaxLogAge time.Duration
 }
 
 // Mode mirrors the TS WorkflowExecutionMode. It controls per-workflow run
@@ -252,6 +267,10 @@ type WorkflowRuntime struct {
 	startedAt        time.Time
 	// disableFoldSnapshots mirrors Options.DisableFoldSnapshots (H2.2).
 	disableFoldSnapshots bool
+	// storeGrace / maxLogAge mirror Options.StoreGrace / Options.MaxLogAge
+	// (H3 retention contract).
+	storeGrace time.Duration
+	maxLogAge  time.Duration
 
 	// runHistoryTTL drives the terminal-history janitor (see
 	// Options.RunHistoryTTL). janitorStop cancels its ticker loop;
@@ -373,6 +392,8 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		runHistoryTTL:        opts.RunHistoryTTL,
 		startedAt:            time.Now(),
 		disableFoldSnapshots: opts.DisableFoldSnapshots,
+		storeGrace:           opts.StoreGrace,
+		maxLogAge:            opts.MaxLogAge,
 	}
 	rt.startHistoryJanitor()
 	// rt.actionLog nil = logging disabled (R.3 deleted NopLog).

@@ -378,6 +378,9 @@ func (rt *WorkflowRuntime) startHistoryJanitor() {
 				return
 			case <-ticker.C:
 				rt.purgeExpiredRuns()
+				// H3: whole-run log pruning for backends with the
+				// LogPruner capability, when the host opted in.
+				rt.pruneLogIfConfigured()
 			}
 		}
 	}()
@@ -406,6 +409,11 @@ func (rt *WorkflowRuntime) purgeExpiredRuns() {
 		if rt.runHistoryTTL > 0 {
 			storeHorizon = rt.runHistoryTTL
 		}
+		// H3: an explicit Options.StoreGrace wins for THIS tier only;
+		// audit history (tier 2) still follows RunHistoryTTL.
+		if rt.storeGrace > 0 {
+			storeHorizon = rt.storeGrace
+		}
 		if now.Sub(ended) >= storeHorizon {
 			delete(rt.stores, runID)
 		}
@@ -416,6 +424,42 @@ func (rt *WorkflowRuntime) purgeExpiredRuns() {
 			delete(rt.outcomes, runID)
 		}
 	}
+}
+
+// pruneLogIfConfigured (v2.1 H3): when Options.MaxLogAge is set and the
+// action log implements LogPruner, delete terminal runs older than the
+// horizon. Called from the janitor tick — never on a hot path.
+func (rt *WorkflowRuntime) pruneLogIfConfigured() {
+	if rt.maxLogAge <= 0 || rt.actionLog == nil {
+		return
+	}
+	pruner, ok := rt.actionLog.(actionlog.LogPruner)
+	if !ok {
+		return
+	}
+	n, err := pruner.PruneRuns(context.Background(), time.Now().Add(-rt.maxLogAge))
+	if err != nil {
+		rt.logger.Warn("retention: action-log prune failed", "error", err)
+		return
+	}
+	if n > 0 {
+		rt.logger.Info("retention: pruned terminal runs from the action log", "runs", n, "maxLogAge", rt.maxLogAge)
+	}
+}
+
+// StorageUsage (v2.1 H3) reports the action log's durable footprint via
+// the UsageReporter capability. Typed error when no log is configured or
+// the backend lacks the capability — never a silent zero.
+func (rt *WorkflowRuntime) StorageUsage(ctx context.Context) (actionlog.LogUsage, error) {
+	if rt.actionLog == nil {
+		return actionlog.LogUsage{}, core.NewSystemError(core.ErrCodeNotFound, "no action log configured")
+	}
+	reporter, ok := rt.actionLog.(actionlog.UsageReporter)
+	if !ok {
+		return actionlog.LogUsage{}, core.NewSystemError(core.ErrCodeInvalidCommand,
+			"action log backend does not implement UsageReporter")
+	}
+	return reporter.StorageUsage(ctx)
 }
 
 func (rt *WorkflowRuntime) callOnComplete(record *workflowRecord, result RunResult) {

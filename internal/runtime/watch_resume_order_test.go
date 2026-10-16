@@ -179,10 +179,17 @@ func TestChainedRepauseArmsOnlyCurrentWaitCron(t *testing.T) {
 	runID := <-prepared
 
 	// The run pauses on wait1 and spawnRun arms c1 (plain first pause —
-	// no buffered event, gate must pass).
+	// no buffered event, gate must pass). NB: the cron arm happens AFTER
+	// the paused-registry write awaitPaused observes (fold-snapshot save
+	// and buffered delivery sit between them), so the arm is polled for —
+	// asserting immediately after awaitPaused was a scheduling race the
+	// H2.2 snapshot write widened into a real flake.
 	awaitPaused(t, rt, 1)
+	require.Eventually(t, func() bool {
+		seq, _ := fake.snapshot()
+		return len(seq) == 1 && seq[0] == "S:"+c1
+	}, 5*time.Second, 5*time.Millisecond, "first pause must arm exactly c1")
 	seq, live := fake.snapshot()
-	require.Equal(t, []string{"S:" + c1}, seq, "first pause must arm exactly c1")
 	require.Equal(t, c1, live[runID], "c1 must be the live auto-resume schedule")
 
 	// Helper: release each gate after emitting "chain" mid-segment so the

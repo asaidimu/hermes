@@ -252,6 +252,8 @@ type AnansiStore struct {
 var _ Store = (*AnansiStore)(nil)
 var _ RunEnumerator = (*AnansiStore)(nil)
 var _ FoldSnapshotStore = (*AnansiStore)(nil)
+var _ UsageReporter = (*AnansiStore)(nil)
+var _ LogPruner = (*AnansiStore)(nil)
 
 // shardFor returns the seq-assignment shard for a run.
 func (s *AnansiStore) shardFor(runID string) *seqShard {
@@ -438,6 +440,77 @@ func (s *AnansiStore) LatestRerunIndex(ctx context.Context, runID string) (int, 
 		}
 	}
 	return max, nil
+}
+
+// StorageUsage reports the durable footprint (UsageReporter capability,
+// v2.1 H3): distinct run ids, entry rows, and serialized row bytes. A full
+// scan — diagnostics, not a hot-path read.
+func (s *AnansiStore) StorageUsage(ctx context.Context) (LogUsage, error) {
+	docs, err := s.models.Read(ctx, &query.Query{})
+	if err != nil {
+		return LogUsage{}, err
+	}
+	usage := LogUsage{}
+	seen := map[string]bool{}
+	for _, d := range docs {
+		seen[d.RunID] = true
+		usage.Entries++
+		usage.Bytes += int64(len(d.Data))
+	}
+	usage.Runs = int64(len(seen))
+	return usage, nil
+}
+
+// PruneRuns deletes whole runs whose latest attempt ended TERMINALLY
+// (KindPipelineCompleted/KindPipelineFailed) with a timestamp before the
+// cutoff (LogPruner capability, v2.1 H3). Paused and in-flight runs are
+// never touched — the log is their resume payload. The pruned runs' fold
+// snapshots go with them (the walk could reproduce them, but the entries
+// they were derived from are gone — keeping them would be a lie).
+// Cold path: one full scan to classify, then per-run deletes.
+func (s *AnansiStore) PruneRuns(ctx context.Context, olderThan time.Time) (int, error) {
+	docs, err := s.models.Read(ctx, &query.Query{})
+	if err != nil {
+		return 0, err
+	}
+	// Latest attempt + last entry per run.
+	type lastInfo struct {
+		rerunIndex int
+		seq        uint64
+		kind       EntryKind
+		timestamp  time.Time
+	}
+	last := map[string]lastInfo{}
+	for _, d := range docs {
+		var e Entry
+		if err := json.Unmarshal([]byte(d.Data), &e); err != nil {
+			return 0, err
+		}
+		cur, ok := last[e.RunID]
+		if !ok || e.RerunIndex > cur.rerunIndex || (e.RerunIndex == cur.rerunIndex && e.Seq > cur.seq) {
+			last[e.RunID] = lastInfo{rerunIndex: e.RerunIndex, seq: e.Seq, kind: e.Kind, timestamp: e.Timestamp}
+		}
+	}
+
+	pruned := 0
+	for runID, info := range last {
+		terminal := info.kind == KindPipelineCompleted || info.kind == KindPipelineFailed
+		if !terminal || !info.timestamp.Before(olderThan) {
+			continue
+		}
+		filter := query.NewQueryBuilder().Where("runId").Eq(runID).Build().Filters
+		if _, err := s.models.DeleteMany(ctx, filter, false); err != nil {
+			return pruned, err
+		}
+		if err := s.snapshots.DeleteByID(ctx, snapshotDocID(runID, info.rerunIndex)); err != nil {
+			// Snapshot absence is fine; report real errors only via the
+			// next create/save — a failed delete here means the row is
+			// already gone.
+			_ = err
+		}
+		pruned++
+	}
+	return pruned, nil
 }
 
 // Runs enumerates every run attempt persisted in the collection
