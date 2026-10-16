@@ -20,6 +20,10 @@ const (
 	ErrCodeConflict        = "CONFLICT"
 	ErrCodeAbort           = "ABORTED"
 	ErrCodeInternal        = "INTERNAL_ERROR"
+	// ErrCodeDefinitionDrift (v2.1 H1.2): a resume/re-arm refused because the
+	// registered workflow's structural fingerprint no longer matches the one
+	// the run was recorded under (Options.DefinitionPolicy "require-same").
+	ErrCodeDefinitionDrift = "DEFINITION_DRIFT"
 )
 
 // Standard Predefined Errors

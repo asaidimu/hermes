@@ -48,6 +48,32 @@ func Fingerprint(def *PipelineDefinition) string {
 
 const fingerprintNilSentinel = "nil"
 
+// WorkflowFingerprint hashes a whole workflow: the trigger id each pipeline
+// is keyed under (sorted, so map order cannot matter) plus each pipeline's
+// own Fingerprint. This is the hash stamped on KindPipelineStarted and
+// KindCheckpoint action-log entries: a run's replay consumes the ROOT
+// definition AND every subpipeline definition the resolver can reach, so
+// drift in ANY of them drifts the workflow — a per-pipeline hash alone
+// would let an edited child replay silently against old deltas.
+func WorkflowFingerprint(wf *Workflow) string {
+	if wf == nil {
+		return ""
+	}
+	h := fnv.New128a()
+	ids := make([]string, 0, len(wf.Pipelines))
+	for id := range wf.Pipelines {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		def := wf.Pipelines[id]
+		fpStr(h, "wfentry")
+		fpStr(h, id)
+		fingerprintDefInto(h, &def)
+	}
+	return hex(h)
+}
+
 func hex(h interface{ Sum([]byte) []byte }) string {
 	const digits = "0123456789abcdef"
 	sum := h.Sum(nil)

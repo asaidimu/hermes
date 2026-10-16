@@ -43,6 +43,13 @@ type FactoryOptions struct {
 	// SecretLookup resolves credentials by key at execution time. Attached to
 	// every run context this factory prepares; values never persist to state.
 	SecretLookup func(key string) (any, bool)
+	// WorkflowHash (v2.1 H1.2) is the workflow-level structural fingerprint
+	// (pipeline.WorkflowFingerprint) of the workflow this run executes under.
+	// The run context stamps it on KindPipelineStarted and KindCheckpoint
+	// action-log entries so a later resume/restart can detect definition
+	// drift. Empty = not stamped (hashless entries; every consumer treats
+	// that as "check skipped").
+	WorkflowHash string
 }
 
 // RebuildFunc performs event-sourced recovery: it receives the run's root
@@ -97,6 +104,7 @@ func (f *PipelineFactory) Prepare(runID string, st store.Store, bus ...*events.M
 	}
 
 	rc := NewRunContext(runID, f.definition, st, b, f.options.Logger)
+	rc.wfHash = f.options.WorkflowHash
 	rc.actionLog = f.options.ActionLog
 	rc.rerunIndex = f.options.RerunIndex
 	if f.options.ResourceResolver != nil {
@@ -124,6 +132,7 @@ func (f *PipelineFactory) PrepareWithEntry(runID string, st store.Store, bus *ev
 	}
 
 	rc := NewRunContext(runID, f.definition, st, bus, f.options.Logger, entry)
+	rc.wfHash = f.options.WorkflowHash
 	rc.actionLog = f.options.ActionLog
 	rc.rerunIndex = f.options.RerunIndex
 	if f.options.ResourceResolver != nil {

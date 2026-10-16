@@ -94,6 +94,15 @@ func metaFromEntries(runID string, entries []actionlog.Entry) *timeline.RunTimel
 		StartTime:  first.Timestamp.UnixMilli(),
 		EventCount: int64(len(entries)),
 	}
+	// H1.2: the workflow fingerprint rides on KindPipelineStarted and
+	// KindCheckpoint entries; take the first stamped one (recovered runs may
+	// predate stamping on their first entry).
+	for i := range entries {
+		if entries[i].DefHash != "" {
+			meta.DefHash = entries[i].DefHash
+			break
+		}
+	}
 	// Root-pipeline entries may carry an empty PipelineID (pre-#015
 	// entries); fall back to the last entry's, then leave the id empty
 	// rather than inventing one.

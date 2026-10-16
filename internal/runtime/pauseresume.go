@@ -10,6 +10,7 @@ import (
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
+	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/store"
 )
 
@@ -38,6 +39,31 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 			OK:     false,
 			Status: "failed",
 			Error:  core.NewSystemError(core.ErrCodeNotFound, "workflow "+paused.workflowID+" no longer registered"),
+		}
+	}
+
+	// H1.2: the workflow may have been re-registered (Deregister+Register)
+	// with edits while this run sat paused. Under "require-same" the resume
+	// is refused BEFORE any state mutation or log write — replaying the
+	// pause against a drifted definition would reconstruct wrong state.
+	// The refusal is NON-destructive: the paused entry (and its dispatch
+	// index registration) is restored, so registering the matching workflow
+	// makes the same pause resumable again — a guard, not a deletion.
+	if err := rt.checkDefinitionDrift(runID, paused.defHash, record, "resume"); err != nil {
+		rt.mu.Lock()
+		if _, stillGone := rt.paused[runID]; !stillGone {
+			rt.paused[runID] = paused
+			rt.pauseIndexPutLocked(paused)
+		}
+		rt.mu.Unlock()
+		return RunResult{
+			RunID:      runID,
+			WorkflowID: paused.workflowID,
+			TriggerID:  paused.triggerID,
+			PipelineID: paused.pipelineID,
+			OK:         false,
+			Status:     "failed",
+			Error:      err,
 		}
 	}
 
@@ -112,7 +138,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	// index derives from the log (nextRerunIndex) — no RAM copy.
 	rerunIndex := rt.nextRerunIndex(context.Background(), runID)
 
-	runCtx, rebuiltStoreUsed := rt.resumeRunContext(context.Background(), runID, pdef, st, bus, ckpt, rebuild, rerunIndex)
+	runCtx, rebuiltStoreUsed := rt.resumeRunContext(context.Background(), runID, pdef, st, bus, ckpt, rebuild, rerunIndex, pipeline.WorkflowFingerprint(record.workflow))
 
 	// @note #review-20260910-002 issue P1 resolved status=resolved priority=P1 tags=#review,#replay,#state : Replayer-path resume executes on a rebuilt store but reports and re-pauses with the stale original
 	// @author hermes-review
@@ -248,6 +274,7 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 			workflowID:    paused.workflowID,
 			triggerID:     paused.triggerID,
 			pipelineID:    paused.pipelineID,
+			defHash:       pipeline.WorkflowFingerprint(record.workflow),
 			waitForEvent:  res.WaitForEvent,
 			waitForEvents: res.WaitForEvents,
 			waitMode:      res.WaitMode,

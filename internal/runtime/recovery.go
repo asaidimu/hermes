@@ -28,6 +28,7 @@ import (
 	"sort"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
+	"github.com/asaidimu/hermes/pkg/core"
 	"github.com/asaidimu/hermes/pkg/events"
 	"github.com/asaidimu/hermes/pkg/pipeline"
 	"github.com/asaidimu/hermes/pkg/replay"
@@ -85,6 +86,7 @@ func (rt *WorkflowRuntime) resumeRunContext(
 	ckpt *pipeline.PipelineCheckpoint,
 	rebuild pipeline.RebuildFunc,
 	rerunIndex int,
+	wfHash string,
 ) (*pipeline.RunContextImpl, bool) {
 	factory := pipeline.NewFactory(pdef, pipeline.FactoryOptions{
 		Logger:       rt.logger,
@@ -93,6 +95,7 @@ func (rt *WorkflowRuntime) resumeRunContext(
 		RerunIndex:   rerunIndex,
 		RunEnv:       rt.env,
 		SecretLookup: rt.secretLookup(),
+		WorkflowHash: wfHash,
 	})
 
 	if rebuild != nil {
@@ -128,6 +131,61 @@ type pendingPause struct {
 	runID      string
 	pipelineID string
 	ckpt       *pipeline.PipelineCheckpoint
+	// defHash (H1.2): the workflow fingerprint stamped on the pause's
+	// checkpoint entry; checked against the workflow at bind time.
+	defHash string
+}
+
+// checkDefinitionDrift (v2.1 H1.2) compares the workflow fingerprint a run
+// was recorded under with the workflow NOW registered. Policy comes from
+// Options.DefinitionPolicy ("warn" default, "require-same"):
+//
+//   - warn: logs a Warn and tags the run meta DefinitionDrift — the run
+//     proceeds, but the drift is visible in ListRuns/GetRunMeta.
+//   - require-same: returns the typed core.ErrCodeDefinitionDrift error and
+//     still tags the meta — the caller refuses the resume / skips the re-arm.
+//
+// Hashless runs ("" recorded, or no registered workflow hash) always pass:
+// the check never fires on logs written before fingerprints existed, and a
+// missing current hash means there is nothing to compare against.
+func (rt *WorkflowRuntime) checkDefinitionDrift(runID, recordedWfHash string, record *workflowRecord, where string) error {
+	if recordedWfHash == "" || record == nil || record.workflow == nil {
+		return nil
+	}
+	current := pipeline.WorkflowFingerprint(record.workflow)
+	if current == "" || current == recordedWfHash {
+		return nil
+	}
+	rt.tagRunMetaDrift(runID, recordedWfHash)
+	if rt.definitionPolicy == "require-same" {
+		return core.NewSystemError(core.ErrCodeDefinitionDrift,
+			where+" refused: workflow definition drifted since run was recorded (recorded "+shortHash(recordedWfHash)+", registered "+shortHash(current)+")")
+	}
+	rt.logger.Warn(where+": workflow definition drifted since run was recorded; proceeding per warn policy",
+		"runId", runID, "recordedHash", shortHash(recordedWfHash), "currentHash", shortHash(current))
+	return nil
+}
+
+// tagRunMetaDrift marks a run's meta as definition-drifted (H1.2). The meta
+// may be absent (tier-2 eviction, or a run this runtime never recorded) —
+// tagging is best-effort; the log entries carry the authoritative hash.
+func (rt *WorkflowRuntime) tagRunMetaDrift(runID, recordedWfHash string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if meta, ok := rt.runMetas[runID]; ok {
+		meta.DefinitionDrift = true
+		if meta.DefHash == "" {
+			meta.DefHash = recordedWfHash
+		}
+	}
+}
+
+// shortHash renders a fingerprint for logs: first 8 hex chars.
+func shortHash(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	return h
 }
 
 // Recover rebuilds the runtime's re-arm state from the action log (S.3).
@@ -222,7 +280,7 @@ func (rt *WorkflowRuntime) Recover(ctx context.Context) {
 			meta.Status = timeline.StatusPaused
 			var ckpt pipeline.PipelineCheckpoint
 			if len(last.Output) > 0 && json.Unmarshal(last.Output, &ckpt) == nil && ckpt.PipelineID != "" {
-				pending = append(pending, &pendingPause{runID: runID, pipelineID: ckpt.PipelineID, ckpt: &ckpt})
+				pending = append(pending, &pendingPause{runID: runID, pipelineID: ckpt.PipelineID, ckpt: &ckpt, defHash: last.DefHash})
 			} else {
 				rt.logger.Warn("recover: checkpoint entry has no parseable checkpoint; paused run cannot be re-armed",
 					"runId", runID, "pipelineId", last.PipelineID)
@@ -265,15 +323,47 @@ func (rt *WorkflowRuntime) bindPendingPauses(record *workflowRecord) {
 	if record == nil || record.workflow == nil {
 		return
 	}
+	// v2.1 H1.2: matching, drift-checking, and consuming are three phases —
+	// the drift check tags run metas (rt.mu) and MUST NOT run while this
+	// function holds rt.mu (non-reentrant; the first version deadlocked on
+	// exactly that). Matching stays under the lock; the check runs outside;
+	// consumption re-acquires briefly.
 	rt.mu.Lock()
-	var bound []*pendingPause
-	for runID, p := range rt.pendingPauses {
+	var matched []*pendingPause
+	for _, p := range rt.pendingPauses {
 		if workflowDefinesPipeline(record.workflow, p.pipelineID) {
-			bound = append(bound, p)
-			delete(rt.pendingPauses, runID)
+			matched = append(matched, p)
 		}
 	}
 	rt.mu.Unlock()
+
+	var bound []*pendingPause
+	for _, p := range matched {
+		// H1.2: the restart path's drift gate. The workflow registering now
+		// may not be the one the run paused under. On refusal the pending
+		// entry STAYS staged — a later Register of the matching workflow
+		// re-claims it; the pause is never consumed and never lost (the log
+		// remains authoritative; a restart re-stages it regardless).
+		if err := rt.checkDefinitionDrift(p.runID, p.defHash, record, "restart re-arm"); err != nil {
+			rt.logger.Error("recover: paused run NOT re-armed — definition drift (Options.DefinitionPolicy=require-same)",
+				"runId", p.runID, "pipelineId", p.pipelineID, "error", err)
+			continue
+		}
+		bound = append(bound, p)
+	}
+
+	if len(bound) > 0 {
+		rt.mu.Lock()
+		for _, p := range bound {
+			// Consume only if still staged — a concurrent Register may have
+			// bound the same pause already (rearmPausedRun's exists-guard
+			// makes double-arming safe either way).
+			if _, staged := rt.pendingPauses[p.runID]; staged {
+				delete(rt.pendingPauses, p.runID)
+			}
+		}
+		rt.mu.Unlock()
+	}
 
 	for _, p := range bound {
 		rt.rearmPausedRun(record, p.runID, p.pipelineID, p.ckpt)

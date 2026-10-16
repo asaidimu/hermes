@@ -117,6 +117,22 @@ type Options struct {
 	// The durable record is unaffected: the action log remains the source
 	// of truth for recovery and history.
 	RunHistoryTTL time.Duration
+	// DefinitionPolicy (v2.1 H1.2) governs what happens when a resume or
+	// restart re-arm finds the registered workflow's structural
+	// fingerprint (pipeline.WorkflowFingerprint) different from the one
+	// the run was recorded under (stamped on its log entries):
+	//
+	//   "" / "warn" (default) — proceed, but log a Warn and tag the run
+	//     meta DefinitionDrift=true. The pause is never silently lost;
+	//     the drift is always visible in ListRuns.
+	//   "require-same" — refuse: Resume returns a failed RunResult and a
+	//     recovered pause stays un-armed, with a typed
+	//     core.ErrCodeDefinitionDrift error. Replaying against a drifted
+	//     definition would reconstruct WRONG state; a refused resume is
+	//     recoverable, silently wrong state is not.
+	//
+	// Hashless entries (logs written before DefHash existed) always pass.
+	DefinitionPolicy string
 }
 
 // Mode mirrors the TS WorkflowExecutionMode. It controls per-workflow run
@@ -225,6 +241,11 @@ type WorkflowRuntime struct {
 	// derived from the action log's LatestRerunIndex (nextRerunIndex),
 	// which also survives janitor eviction instead of diverging from it.
 
+	// definitionPolicy mirrors Options.DefinitionPolicy (H1.2 drift
+	// gating; see checkDefinitionDrift). startedAt anchors Health().
+	definitionPolicy string
+	startedAt        time.Time
+
 	// runHistoryTTL drives the terminal-history janitor (see
 	// Options.RunHistoryTTL). janitorStop cancels its ticker loop;
 	// janitorStopOnce makes Shutdown idempotent against double-close.
@@ -236,10 +257,15 @@ type WorkflowRuntime struct {
 
 // pausedRun tracks a pipeline that is paused waiting for specific event(s).
 type pausedRun struct {
-	runID         string
-	workflowID    string
-	triggerID     string
-	pipelineID    string
+	runID      string
+	workflowID string
+	triggerID  string
+	pipelineID string
+	// defHash (H1.2): the workflow fingerprint the pause was recorded
+	// under; Resume re-checks it against the currently registered
+	// workflow (a workflow may be re-registered with edits while runs
+	// are paused).
+	defHash       string
 	waitForEvent  string   // single event (backward compat)
 	waitForEvents []string // multiple events
 	waitMode      string   // "any" or "all"
@@ -338,6 +364,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		runMetas:      make(map[string]*timeline.RunTimelineMeta),
 		pendingPauses: make(map[string]*pendingPause),
 		runHistoryTTL: opts.RunHistoryTTL,
+		startedAt:     time.Now(),
 	}
 	rt.startHistoryJanitor()
 	// rt.actionLog nil = logging disabled (R.3 deleted NopLog).
@@ -353,6 +380,18 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	}
 	if rt.logger == nil {
 		rt.logger = zap.NewNop().Sugar()
+	}
+	// v2.1 H1.2: normalize the drift policy now that the logger exists.
+	// Unknown values fail CLOSED toward the safe default (warn) with a
+	// loud log — never silently change semantics.
+	switch opts.DefinitionPolicy {
+	case "", "warn":
+		rt.definitionPolicy = "warn"
+	case "require-same":
+		rt.definitionPolicy = "require-same"
+	default:
+		rt.definitionPolicy = "warn"
+		rt.logger.Warnf("unknown Options.DefinitionPolicy %q — using \"warn\"", opts.DefinitionPolicy)
 	}
 	rt.bus = opts.Bus
 	if rt.bus == nil {

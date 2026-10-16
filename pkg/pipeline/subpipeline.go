@@ -45,6 +45,7 @@ func ExecuteSubPipelines(
 	secretLookup func(key string) (any, bool),
 	actLog actionlog.Store,
 	rerunIndex int,
+	wfHash string,
 ) ([]PipelineRunResult, error) {
 	if len(stage.Pipelines) == 0 {
 		return nil, nil
@@ -141,6 +142,7 @@ func ExecuteSubPipelines(
 				ActionLog:        actLog,
 				RerunIndex:       rerunIndex,
 				ResourceResolver: resolver,
+				WorkflowHash:     wfHash,
 			})
 
 			var childRunContext *RunContextImpl

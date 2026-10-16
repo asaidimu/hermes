@@ -53,6 +53,12 @@ type RunContextImpl struct {
 	// into initialized handles. The runtime (pkg/runtime) injects it per run so
 	// steps and child pipelines can resolve resource dependencies.
 	resourceResolver func(key string) (any, bool)
+
+	// wfHash (v2.1 H1.2): the workflow-level structural fingerprint this run
+	// executes under, stamped onto identity entries by appendLog and inherited
+	// by subpipeline children so their checkpoints carry the same workflow
+	// identity. Empty = unstamped.
+	wfHash string
 }
 
 func NewRunContext(
@@ -334,7 +340,7 @@ func (r *RunContextImpl) Run(ctx context.Context) (PipelineRunResult, error) {
 			})
 
 			subResults, subErr := ExecuteSubPipelines(
-				runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentSubAddr, r.resourceResolver, r.runEnv, r.secretLookup, r.actionLog, r.rerunIndex,
+				runCtx, r.runID, r.definition.ID, stage, pipePath, r.store, r.eventBus, r.logger, currentSubAddr, r.resourceResolver, r.runEnv, r.secretLookup, r.actionLog, r.rerunIndex, r.wfHash,
 			)
 			currentSubAddr = nil // reset subpipeline address after first run
 
@@ -736,6 +742,13 @@ func (r *RunContextImpl) appendLog(ctx context.Context, entry actionlog.Entry) {
 	entry.RunID = r.runID
 	entry.RerunIndex = r.rerunIndex
 	entry.PipelineID = r.definition.ID
+	// v2.1 H1.2: stamp the workflow fingerprint on the two identity kinds
+	// the drift checks read — attempt start and pause. Other kinds stay
+	// unstamped (bytes on every entry buy nothing).
+	if entry.DefHash == "" && r.wfHash != "" &&
+		(entry.Kind == actionlog.KindPipelineStarted || entry.Kind == actionlog.KindCheckpoint) {
+		entry.DefHash = r.wfHash
+	}
 	r.actionLog.Append(ctx, entry)
 }
 

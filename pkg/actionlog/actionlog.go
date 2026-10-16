@@ -84,6 +84,13 @@ type Entry struct {
 	Duration   int64           `json:"duration,omitempty"` // ms
 	Attempt    int             `json:"attempt,omitempty"`  // retry attempt number
 	Timestamp  time.Time       `json:"timestamp"`
+	// DefHash (v2.1 H1.2): the workflow-level structural fingerprint
+	// (pipeline.WorkflowFingerprint) of the workflow this run executed
+	// under, stamped on KindPipelineStarted and KindCheckpoint entries by
+	// the runtime's factories. Additive field: logs written before it
+	// existed read as empty, and every consumer treats empty as "check
+	// skipped" — never as drift.
+	DefHash string `json:"defHash,omitempty"`
 }
 
 // Store is the persistence interface for action log entries. Implementations

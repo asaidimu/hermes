@@ -158,6 +158,10 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 
 	// Record the checkpoint in the action log so the Replayer can recover
 	// pause metadata (wait-for-event, timeout, cron) from the log alone.
+	// NB: this Append deliberately bypasses appendLog (it must land
+	// AFTER the state milestone above, with the checkpoint riding in
+	// Output) — so the v2.1 H1.2 workflow fingerprint is stamped here by
+	// hand, exactly as appendLog stamps the two identity kinds.
 	if r.actionLog != nil {
 		ckptJSON, _ := json.Marshal(ckpt)
 		r.actionLog.Append(ctx, actionlog.Entry{
@@ -168,6 +172,7 @@ func (r *RunContextImpl) handlePause(ctx context.Context, stage Stage, pauseInst
 			Type:       "pipeline:pause",
 			StageID:    stage.ID,
 			Output:     ckptJSON,
+			DefHash:    r.wfHash,
 		})
 	}
 

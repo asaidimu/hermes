@@ -53,6 +53,13 @@ type RunTimelineMeta struct {
 	SnapshotInterval int               `json:"snapshotInterval"`
 	SnapshotSeqs     []int64           `json:"snapshotSeqs"`
 	Metadata         map[string]any    `json:"metadata,omitempty"`
+	// DefHash (v2.1 H1.2): the workflow-level structural fingerprint the run
+	// was recorded under. DefinitionDrift is set when a resume/re-arm found
+	// the currently registered workflow fingerprinting differently — the run
+	// continued (warn policy) or was refused (require-same), but the meta
+	// always records that the definitions no longer match.
+	DefHash         string `json:"defHash,omitempty"`
+	DefinitionDrift bool   `json:"definitionDrift,omitempty"`
 }
 
 // EntryToTimelineEvent projects an action log entry onto the frontend wire

@@ -198,6 +198,7 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 				workflowID:    record.workflow.ID,
 				triggerID:     triggerID,
 				pipelineID:    result.PipelineID,
+				defHash:       pipeline.WorkflowFingerprint(record.workflow),
 				waitForEvent:  result.WaitForEvent,
 				waitForEvents: result.WaitForEvents,
 				waitMode:      result.WaitMode,
@@ -371,6 +372,7 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 	// #review-20260910-004 note attached to purgeExpiredRuns — terminal
 	// runs' stores are reclaimed by the janitor after the grace
 	// horizon; runMetas/outcomes history is bounded by Options.RunHistoryTTL.
+	wfHash := pipeline.WorkflowFingerprint(wf)
 	rt.mu.Lock()
 	rt.stores[runID] = st
 	rt.runMetas[runID] = &timeline.RunTimelineMeta{
@@ -378,6 +380,7 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 		PipelineID: def.ID,
 		StartTime:  time.Now().UnixMilli(),
 		Status:     timeline.StatusRecording,
+		DefHash:    wfHash,
 	}
 	rt.mu.Unlock()
 
@@ -397,6 +400,7 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 		RerunIndex:   rerunIndex,
 		RunEnv:       rt.env,
 		SecretLookup: rt.secretLookup(),
+		WorkflowHash: wfHash,
 	})
 	runCtx := factory.Prepare(runID, st, bus)
 
