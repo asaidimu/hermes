@@ -99,6 +99,14 @@ func (rt *WorkflowRuntime) writeFoldSnapshot(runID string, st store.Store, wfHas
 		return
 	}
 
+	// H5: the state budget's pause-time guard — a WARN at the durability
+	// boundary, not enforcement (enforcement is the spawn gate; per-update
+	// measurement would reintroduce the P4.2 hot-path cost).
+	if rt.maxStateBytes > 0 && int64(len(stateBytes)) > rt.maxStateBytes {
+		rt.logger.Warn("state budget exceeded at pause (Options.MaxStateBytes)",
+			"runId", runID, "bytes", len(stateBytes), "budget", rt.maxStateBytes)
+	}
+
 	snap := actionlog.FoldSnapshot{
 		RunID:      runID,
 		RerunIndex: latest,

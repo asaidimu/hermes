@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -336,6 +337,25 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 // ---------------------------------------------------------------------------
 
 func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID string, evt events.PipelineEvent) RunResult {
+	// H5: the GLOBAL segment gate. Acquired before anything is created — a
+	// rejected start mints no store, no run id, no meta. The slot covers
+	// the whole segment (Run to its terminal/pause boundary; a paused run
+	// releases it — bookkeeping, not CPU). Overflow mirrors the
+	// per-workflow gate: typed ErrCodeConflict drop.
+	ok, release := rt.acquireRunSegment()
+	if !ok {
+		rt.logger.Warn("run rejected by the global run gate (Options.MaxActiveRuns)",
+			"workflowId", record.workflow.ID, "triggerId", triggerID)
+		return RunResult{
+			WorkflowID: record.workflow.ID,
+			TriggerID:  triggerID,
+			Status:     "failed",
+			Error: core.NewSystemError(core.ErrCodeConflict,
+				"global run gate: Options.MaxActiveRuns concurrently executing segments reached"),
+		}
+	}
+	defer release()
+
 	wf := record.workflow
 	def := wf.Pipelines[triggerID]
 	if def.ID == "" {
@@ -444,6 +464,33 @@ func (rt *WorkflowRuntime) executePipeline(record *workflowRecord, triggerID str
 		return nil
 	}); err != nil {
 		rt.logger.Error("trigger: failed to seed run state", "runId", runID, "workflowId", wf.ID, "error", err)
+	}
+
+	// H5: the state budget at the spawn boundary. The initial state
+	// (payload + seeds) exceeding Options.MaxStateBytes fails the start
+	// before any user code runs; the minted store document is cleaned out
+	// of the runtime's bookkeeping (its durable row, if the backend
+	// persists one, is left for the host's retention).
+	if rt.maxStateBytes > 0 {
+		if exported, err := st.ExportJSON(); err == nil {
+			if b, err := json.Marshal(exported); err == nil && int64(len(b)) > rt.maxStateBytes {
+				rt.mu.Lock()
+				delete(rt.stores, runID)
+				delete(rt.runMetas, runID)
+				rt.mu.Unlock()
+				rt.logger.Error("spawn rejected: initial state exceeds Options.MaxStateBytes",
+					"runId", runID, "bytes", len(b), "budget", rt.maxStateBytes)
+				return RunResult{
+					RunID:      runID,
+					WorkflowID: wf.ID,
+					TriggerID:  triggerID,
+					PipelineID: def.ID,
+					Status:     "failed",
+					Error: core.NewSystemError(core.ErrCodeValidation,
+						fmt.Sprintf("initial state %d bytes exceeds Options.MaxStateBytes %d", len(b), rt.maxStateBytes)),
+				}
+			}
+		}
 	}
 
 	resolver, cleanup := rt.initResources(record, bus, runID, def.ID)

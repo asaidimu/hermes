@@ -67,6 +67,31 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		}
 	}
 
+	// H5: the global segment gate. A refused resume restores the paused
+	// entry (same non-destructive shape as the drift refusal above) — the
+	// pause stays resumable the moment a slot frees up.
+	if ok, release := rt.acquireRunSegment(); !ok {
+		rt.mu.Lock()
+		if _, stillGone := rt.paused[runID]; !stillGone {
+			rt.paused[runID] = paused
+			rt.pauseIndexPutLocked(paused)
+		}
+		rt.mu.Unlock()
+		rt.logger.Warn("resume rejected by the global run gate (Options.MaxActiveRuns)", "runId", runID)
+		return RunResult{
+			RunID:      runID,
+			WorkflowID: paused.workflowID,
+			TriggerID:  paused.triggerID,
+			PipelineID: paused.pipelineID,
+			OK:         false,
+			Status:     "failed",
+			Error: core.NewSystemError(core.ErrCodeConflict,
+				"global run gate: Options.MaxActiveRuns concurrently executing segments reached"),
+		}
+	} else {
+		defer release()
+	}
+
 	// Fold the resume event payload directly into state so each pause's
 	// data is accessible without overwriting previous payloads. M7 (plan
 	// P4.9): ONE Update writes every key — the loop issued one lock-

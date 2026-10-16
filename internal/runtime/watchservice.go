@@ -15,12 +15,19 @@ type watchRegistration struct {
 	runID      string
 	descriptor watch.WatchDescriptor
 	queue      []watch.WatchEvent
+	// enqueuedAt parallels queue (v2.1 H5 Options.EventTTL): receipt time
+	// of the queued event at the same index, so expired buffered events
+	// can be dropped at drain time.
+	enqueuedAt []time.Time
 	parked     bool
 	timer      *time.Timer
 }
 
 // WatchService manages watch registrations for all active runs.
 type WatchService struct {
+	// eventTTL (v2.1 H5): buffered events older than this are dropped at
+	// drain time. Zero = no expiry (the pre-H5 behavior).
+	eventTTL      time.Duration
 	mu            sync.Mutex
 	registrations map[string]map[string]*watchRegistration
 	byEventType   map[string]map[string]bool
@@ -35,7 +42,7 @@ type WatchService struct {
 }
 
 // NewWatchService creates a new WatchService.
-func NewWatchService(bus *events.MemoryScopedBus, resumeCallback func(runID string, patch map[string]any)) *WatchService {
+func NewWatchService(bus *events.MemoryScopedBus, resumeCallback func(runID string, patch map[string]any), eventTTL time.Duration) *WatchService {
 	return &WatchService{
 		registrations:  make(map[string]map[string]*watchRegistration),
 		byEventType:    make(map[string]map[string]bool),
@@ -43,6 +50,7 @@ func NewWatchService(bus *events.MemoryScopedBus, resumeCallback func(runID stri
 		delivered:      make(map[string]map[string]bool),
 		bus:            bus,
 		resumeCallback: resumeCallback,
+		eventTTL:       eventTTL,
 	}
 }
 
@@ -141,6 +149,10 @@ func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) error 
 		// them one resume at a time.
 		if old, ok := runMap[eventType]; ok && len(old.queue) > 0 {
 			reg.queue = append(reg.queue, old.queue...)
+			// H5 invariant: len(enqueuedAt) == len(queue) ALWAYS — the
+			// bounds panics otherwise at drain time. Re-parent the receipt
+			// stamps with the events they belong to.
+			reg.enqueuedAt = append(reg.enqueuedAt, old.enqueuedAt...)
 		}
 		runMap[eventType] = reg
 
@@ -156,6 +168,19 @@ func (s *WatchService) Register(runID string, desc watch.WatchDescriptor) error 
 	return nil
 }
 
+// drainExpiredLocked (v2.1 H5) pops events older than eventTTL off the
+// front of a registration's queue. Caller must hold s.mu.
+func (s *WatchService) drainExpiredLocked(reg *watchRegistration) {
+	if s.eventTTL <= 0 {
+		return
+	}
+	now := time.Now()
+	for len(reg.queue) > 0 && now.Sub(reg.enqueuedAt[0]) > s.eventTTL {
+		reg.queue = reg.queue[1:]
+		reg.enqueuedAt = reg.enqueuedAt[1:]
+	}
+}
+
 // OnRunPaused returns buffered event or nil if run should wait.
 func (s *WatchService) OnRunPaused(runID string) *watch.WatchEvent {
 	s.mu.Lock()
@@ -164,6 +189,9 @@ func (s *WatchService) OnRunPaused(runID string) *watch.WatchEvent {
 	runMap, ok := s.registrations[runID]
 	if !ok {
 		return nil
+	}
+	for _, reg := range runMap {
+		s.drainExpiredLocked(reg)
 	}
 
 	// Fresh parked cycle: drop any delivered-type tracking left over from a
@@ -199,6 +227,7 @@ func (s *WatchService) OnRunPaused(runID string) *watch.WatchEvent {
 		if len(reg.queue) > 0 {
 			event := &reg.queue[0]
 			reg.queue = reg.queue[1:]
+			reg.enqueuedAt = reg.enqueuedAt[1:]
 			return event
 		}
 	}
@@ -238,6 +267,9 @@ func (s *WatchService) PeekBufferedEvent(runID string) (*watch.WatchEvent, bool)
 	runMap, ok := s.registrations[runID]
 	if !ok {
 		return nil, false
+	}
+	for _, reg := range runMap {
+		s.drainExpiredLocked(reg)
 	}
 
 	for _, reg := range runMap {
@@ -313,6 +345,7 @@ func (s *WatchService) onEvent(eventType string, payload map[string]any) {
 			toResume = append(toResume, resumeEntry{runID: runID, event: resolved})
 		} else {
 			reg.queue = append(reg.queue, resolved)
+			reg.enqueuedAt = append(reg.enqueuedAt, time.Now())
 		}
 	}
 

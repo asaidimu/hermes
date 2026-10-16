@@ -153,6 +153,25 @@ type Options struct {
 	// log then grows unboundedly, which remains the honest default for an
 	// audit trail. Backends without the capability ignore the setting.
 	MaxLogAge time.Duration
+	// MaxStateBytes (v2.1 H5): a hard budget on a run's initial state
+	// (trigger payload + run linkage seeds), enforced at the spawn
+	// boundary — an oversized run start fails with a typed
+	// core.ErrCodeValidation error instead of polluting the store. Pause
+	// time carries a WARN with the serialized size when the budget is
+	// exceeded (foldsnapshot.go): enforcement at durability boundaries,
+	// NOT per mutation — per-update measurement would reintroduce the
+	// P4.2 hot-path cost. Zero (default) = no budget.
+	MaxStateBytes int64
+	// MaxActiveRuns (v2.1 H5): a GLOBAL gate on concurrently EXECUTING
+	// segments (spawn + resume; paused runs release their slot — they are
+	// bookkeeping, not CPU). Overflow fails the start with a typed
+	// core.ErrCodeConflict, mirroring the per-workflow gate's drop
+	// semantics. Zero (default) = unbounded.
+	MaxActiveRuns int
+	// EventTTL (v2.1 H5): buffered watch events older than this are
+	// dropped at drain time instead of resuming a wait with stale data.
+	// Zero (default) = no expiry.
+	EventTTL time.Duration
 }
 
 // Mode mirrors the TS WorkflowExecutionMode. It controls per-workflow run
@@ -271,6 +290,12 @@ type WorkflowRuntime struct {
 	// (H3 retention contract).
 	storeGrace time.Duration
 	maxLogAge  time.Duration
+	// maxStateBytes / maxActiveRuns / eventTTL mirror their Options (H5).
+	maxStateBytes int64
+	maxActiveRuns int
+	eventTTL      time.Duration
+	// runGate is the global segment semaphore (nil = unbounded).
+	runGate chan struct{}
 
 	// runHistoryTTL drives the terminal-history janitor (see
 	// Options.RunHistoryTTL). janitorStop cancels its ticker loop;
@@ -394,6 +419,10 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 		disableFoldSnapshots: opts.DisableFoldSnapshots,
 		storeGrace:           opts.StoreGrace,
 		maxLogAge:            opts.MaxLogAge,
+		maxStateBytes:        opts.MaxStateBytes,
+		maxActiveRuns:        opts.MaxActiveRuns,
+		eventTTL:             opts.EventTTL,
+		runGate:              newRunGate(opts.MaxActiveRuns),
 	}
 	rt.startHistoryJanitor()
 	// rt.actionLog nil = logging disabled (R.3 deleted NopLog).
@@ -461,7 +490,7 @@ func NewWorkflowRuntime(opts Options) *WorkflowRuntime {
 	// completed)" explicitly, rather than a bare goroutine hand-off.
 	rt.watchService = NewWatchService(rt.bus, func(runID string, patch map[string]any) {
 		rt.Resume(runID, patch)
-	})
+	}, opts.EventTTL)
 	rt.bus.Subscribe(AbortEvent, func(ctx context.Context, evt events.PipelineEvent) error {
 		if runID, ok := evt.Payload["run"].(string); ok && runID != "" {
 			rt.AbortRun(runID)
@@ -486,4 +515,27 @@ func (rt *WorkflowRuntime) Store(runID string) store.Store {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return rt.stores[runID]
+}
+
+// newRunGate builds the global segment semaphore (H5): nil when unbounded.
+func newRunGate(max int) chan struct{} {
+	if max <= 0 {
+		return nil
+	}
+	return make(chan struct{}, max)
+}
+
+// acquireRunSegment reserves a global execution slot (H5). Returns the
+// release func on success, or (false, nil) when MaxActiveRuns is exceeded —
+// mirroring the per-workflow gate's drop semantics.
+func (rt *WorkflowRuntime) acquireRunSegment() (bool, func()) {
+	if rt.runGate == nil {
+		return true, func() {}
+	}
+	select {
+	case rt.runGate <- struct{}{}:
+		return true, func() { <-rt.runGate }
+	default:
+		return false, nil
+	}
 }

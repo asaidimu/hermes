@@ -194,7 +194,7 @@ func TestWatchServiceMultiEventAll(t *testing.T) {
 	resumed := make(chan map[string]any, 1)
 	ws := NewWatchService(events.NewMemoryScopedBus(), func(runID string, patch map[string]any) {
 		resumed <- patch
-	})
+	}, 0)
 
 	err := ws.Register("run-1", watch.WatchDescriptor{
 		EventTypes: []string{"evt:a", "evt:b"},
