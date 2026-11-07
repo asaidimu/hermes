@@ -1,3 +1,43 @@
+# [1.3.0](https://github.com/asaidimu/hermes/compare/v1.2.1...v1.3.0) (2026-11-07)
+
+
+### Bug Fixes
+
+* **pipeline:** release store locks before cross-store copy and checkpoint parse ([f6816c1](https://github.com/asaidimu/hermes/commit/f6816c1acf930ba8df482d47812be6274579f232))
+* **replay:** run step actions outside the store read lock ([2271deb](https://github.com/asaidimu/hermes/commit/2271deb4c6a0f74023a1f85a89b35a27a593281d)), closes [#review-20260910-009](https://github.com/asaidimu/hermes/issues/review-20260910-009)
+* **runtime:** bound Register critical section; unsubscribe + resource teardown ([9d72b08](https://github.com/asaidimu/hermes/commit/9d72b087bbf0ad71b573769be68380aa3f11c626))
+* **runtime:** cancel cron auto-resume on terminal outcome; per-registration watch timers ([3b4ad17](https://github.com/asaidimu/hermes/commit/3b4ad177344ca600f2dde9e5bfb534b3f2be2e97))
+* **runtime:** serialize resume dispatch; cron arm gated on the current wait ([bf86d7a](https://github.com/asaidimu/hermes/commit/bf86d7a8bd4f457265c0a939261e1d06796e8097))
+
+
+### Features
+
+* **actionlog:** fold-snapshot store capability (memory + anansi) ([c2e50c1](https://github.com/asaidimu/hermes/commit/c2e50c114583b9fd5f2cfe192a6be80ffc0bc9fb))
+* **examples:** verified branching, recovery and external-event demos ([962acb6](https://github.com/asaidimu/hermes/commit/962acb6e7165839e240cad31ce1b76531d97f7ec))
+* **nodekit:** typed validation errors at the build boundary ([a454f11](https://github.com/asaidimu/hermes/commit/a454f11bef8582b7c436a8f84e30f47f547bc529))
+* **pipeline:** structural definition fingerprint ([b9b954b](https://github.com/asaidimu/hermes/commit/b9b954b2211483ae5ec01755705b2e650faec6e1))
+* **runtime:** add OnPause/OnResume lifecycle hooks and return paused results from Run ([8882bfe](https://github.com/asaidimu/hermes/commit/8882bfeb1d3404c7b089a8307eca136a8dbcf029))
+* **runtime:** definition drift detection with warn/require-same policy ([5bd0810](https://github.com/asaidimu/hermes/commit/5bd08103220ea31b70226059d3eae4a53c6da706))
+* **runtime:** Health() introspection snapshot ([7f81c8a](https://github.com/asaidimu/hermes/commit/7f81c8a70ecb169c7c4449f2d58c46e175e26778))
+* **runtime:** retention contract — store grace, log pruning, storage usage ([5d9aa49](https://github.com/asaidimu/hermes/commit/5d9aa4927534251a5d295f4d3557c62ceb2e6d95))
+* **runtime:** startup rebuild — restart durability from the action log ([b53e99d](https://github.com/asaidimu/hermes/commit/b53e99da4f267ff21f5beaff2194831cf59dcc53))
+* **runtime:** state budget, global run gate, buffered-event TTL ([8c12d22](https://github.com/asaidimu/hermes/commit/8c12d223060d8b3b8c5f6c05d63b88916eaaadc6))
+
+
+### Performance Improvements
+
+* **actionlog:** per-entry row storage; O(1) tail-append with sharded seq locks ([7e3b60d](https://github.com/asaidimu/hermes/commit/7e3b60d078be52a0f3edf5627e1b6a329c8da431)), closes [#3](https://github.com/asaidimu/hermes/issues/3)
+* copy-once final state; lock-free emit; single-Update state folds ([29b2ceb](https://github.com/asaidimu/hermes/commit/29b2ceb7ae63d97392a576773c1201938bdfaee1)), closes [#review-20260822-017](https://github.com/asaidimu/hermes/issues/review-20260822-017) [#review-20260822-006](https://github.com/asaidimu/hermes/issues/review-20260822-006) [#review-20260822-048](https://github.com/asaidimu/hermes/issues/review-20260822-048)
+* **expr:** pool goja runtimes; memoize validation; parse switch cases once ([b8a315e](https://github.com/asaidimu/hermes/commit/b8a315e22d47d04520cb2ddbed6eca018436011c))
+* **nodekit:** compile node config once at build time; static configs skip the attempt pipeline ([3cc065b](https://github.com/asaidimu/hermes/commit/3cc065b67ac7d8faa29c05748ab1fb6429619795))
+* **pipeline:** delta computed only when a log consumes it; mutators declare touched keys ([6093eda](https://github.com/asaidimu/hermes/commit/6093edaa3b3cd30e45cb6c91bd635c8d5d46a97f))
+* **pipeline:** inline single-step stages; hoist per-step setup out of the retry loop ([5bc2833](https://github.com/asaidimu/hermes/commit/5bc2833567e97c873db4613872f24c68c19a5aec))
+* **replay:** batch a step's recorded deltas into one store update ([b428ce2](https://github.com/asaidimu/hermes/commit/b428ce20acbd8c9c8fcbea47533ae1d118ae3901))
+* **replay:** one-pass log index; deterministic step order in the walk ([7a4d993](https://github.com/asaidimu/hermes/commit/7a4d99367467a0a6d67457b843df62540e13c161))
+* **replay:** pause-time fold snapshots with fail-closed parity gate ([0045fe8](https://github.com/asaidimu/hermes/commit/0045fe88515525635a300694d46894b487926471))
+* **runtime:** pausedByEvent dispatch index; log queries out of the runtime lock; RWMutex ([c28acbf](https://github.com/asaidimu/hermes/commit/c28acbf7b9775e39971b94ee365786196250c235))
+* **store:** Sync flushes outside the data lock; serialized per run ([3301df7](https://github.com/asaidimu/hermes/commit/3301df7543ae5571caa2cfd5f56cabea7d4b8c24))
+
 # v2.1.0 — hardening (branch `refactor/20261003-audits`, plan `todo/20261004-v2.1-hardening-plan.md`)
 
 Additive-only hardening borrowed from a review of a parallel edge-framework
