@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/asaidimu/hermes/pkg/actionlog"
 	"github.com/asaidimu/hermes/pkg/events"
@@ -134,12 +135,41 @@ func TestFoldSnapshotParitySimplePause(t *testing.T) {
 	rt.Bus().Emit(context.Background(), ManualEvent, events.PipelineEvent{Payload: map[string]any{}})
 	runID := <-prepared
 	awaitPaused(t, rt, 1)
+	awaitFoldSnapshot(t, rt, runID)
 
 	fast, walk, fastAddr, walkAddr := rebuildBoth(t, rt, runID)
 	requireParity(t, fast, walk)
 	require.Equal(t, walkAddr.Stage, fastAddr.Stage)
 	require.Equal(t, walkAddr.Step, fastAddr.Step)
 	require.Equal(t, "stage:wait", fastAddr.Stage, "both paths must address the pause stage")
+}
+
+// awaitFoldSnapshot waits for the pause-path writeFoldSnapshot to land for
+// the run's NEWEST checkpoint. awaitPaused only observes the paused-map
+// insert, which happens a few lines before the snapshot write, and a chained
+// re-pause can briefly leave the PREVIOUS pause's snapshot as the latest
+// non-nil one — so tests that then LOAD the snapshot must wait for the
+// fresh one (Seq == last log entry) or they flake.
+func awaitFoldSnapshot(t *testing.T, rt *WorkflowRuntime, runID string) *actionlog.FoldSnapshot {
+	t.Helper()
+	var snap *actionlog.FoldSnapshot
+	require.Eventually(t, func() bool {
+		latest, err := rt.actionLog.LatestRerunIndex(context.Background(), runID)
+		if err != nil || latest < 0 {
+			return false
+		}
+		entries, err := rt.actionLog.All(context.Background(), runID, latest)
+		if err != nil || len(entries) == 0 {
+			return false
+		}
+		s, err := rt.actionLog.(actionlog.FoldSnapshotStore).LoadFoldSnapshot(context.Background(), runID, latest)
+		if err != nil || s == nil || s.Seq != entries[len(entries)-1].Seq {
+			return false
+		}
+		snap = s
+		return true
+	}, 5*time.Second, 10*time.Millisecond, "expected fresh fold snapshot for run %s", runID)
+	return snap
 }
 
 // TestFoldSnapshotParityChainedRepause: pause → resume → re-pause. The
@@ -173,6 +203,7 @@ func TestFoldSnapshotParityChainedRepause(t *testing.T) {
 	awaitPaused(t, rt, 1)
 	ms.Emit("evt:1", map[string]any{"first": true})
 	awaitPaused(t, rt, 1)
+	awaitFoldSnapshot(t, rt, runID)
 
 	fast, walk, fastAddr, walkAddr := rebuildBoth(t, rt, runID)
 	requireParity(t, fast, walk)
@@ -220,6 +251,7 @@ func TestFoldSnapshotGateDegradesToWalk(t *testing.T) {
 			rt.Bus().Emit(context.Background(), ManualEvent, events.PipelineEvent{Payload: map[string]any{}})
 			runID := <-prepared
 			awaitPaused(t, rt, 1)
+			awaitFoldSnapshot(t, rt, runID)
 
 			// Damage the persisted snapshot (re-save with the mutation).
 			log := rt.actionLog
@@ -274,6 +306,7 @@ func TestFoldSnapshotParityAcrossRestart(t *testing.T) {
 	rt.Bus().Emit(context.Background(), ManualEvent, events.PipelineEvent{Payload: map[string]any{}})
 	runID := <-prepared
 	awaitPaused(t, rt, 1)
+	awaitFoldSnapshot(t, rt, runID)
 	rt.Shutdown(context.Background())
 
 	rtB := NewWorkflowRuntime(Options{ActionLog: log, Logger: zap.NewNop().Sugar()})
