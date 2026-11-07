@@ -99,5 +99,5 @@ The runtime's registration lifecycle callbacks are incomplete. `RegisterOptions`
 - `Resume` takes the **runID**, not the workflowID.
 - `OnPause`/`OnResume` are RAM notifications only — no new log facts (the log's
   checkpoint/KindResumed entries remain the authority; RECOVERY.md unchanged).
-- Beware a leftover `stash@{0}` ("WIP on main: cb844e2") in this repo: popping
-  it dirty-checks-out ~23 files. It was left untouched by this task.
+- The leftover `stash@{0}` ("WIP on main: cb844e2") was dropped during
+  post-merge cleanup; its stash commit was 90c89b34 if it is ever needed.
