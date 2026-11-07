@@ -471,6 +471,18 @@ func (rt *WorkflowRuntime) callOnComplete(record *workflowRecord, result RunResu
 	}
 }
 
+func (rt *WorkflowRuntime) callOnPause(record *workflowRecord, result RunResult) {
+	if record.opts.OnPause != nil {
+		record.opts.OnPause(result)
+	}
+}
+
+func (rt *WorkflowRuntime) callOnResume(record *workflowRecord, result RunResult) {
+	if record.opts.OnResume != nil {
+		record.opts.OnResume(result)
+	}
+}
+
 func (rt *WorkflowRuntime) finishRun(record *workflowRecord, result RunResult) RunResult {
 	rt.mu.Lock()
 	rt.outcomes[result.RunID] = result

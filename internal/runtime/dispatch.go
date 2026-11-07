@@ -218,6 +218,8 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 			// the newer snapshot). Best-effort; the walk covers any miss.
 			rt.writeFoldSnapshot(runID, newPaused.store, newPaused.defHash)
 
+			rt.callOnPause(record, result)
+
 			// Notify WatchService that run is now paused
 			if bufferedEvent := rt.watchService.OnRunPaused(runID); bufferedEvent != nil {
 				// Buffered event found - resume immediately (synchronous,
@@ -238,6 +240,8 @@ func (rt *WorkflowRuntime) spawnRun(record *workflowRecord, triggerID string, ev
 			if samePause && result.Checkpoint.Cron != "" {
 				rt.armCronAutoResume(runID, result.Checkpoint)
 			}
+		} else {
+			rt.callOnPause(record, result)
 		}
 		return
 	}
@@ -267,7 +271,9 @@ func (rt *WorkflowRuntime) Invoke(workflowID, triggerID string, evt events.Pipel
 		}
 	}
 	result := rt.executePipeline(record, triggerID, evt)
-	if result.Status != "paused" {
+	if result.Status == "paused" {
+		rt.callOnPause(record, result)
+	} else {
 		rt.callOnComplete(record, result)
 	}
 	return result
@@ -285,6 +291,9 @@ func (rt *WorkflowRuntime) AbortRun(runID string) {
 
 // Run compiles a workflow graph, registers it, emits the manual trigger event,
 // and awaits the run outcome. Used by the HTTP server adapter (Phase 7).
+// A paused run returns its paused result (RunID, wait, Checkpoint) and keeps
+// the workflow registered so rt.Resume(runID, payload) can continue it;
+// the caller owns Deregister after the resumed run reaches a terminal state.
 func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges []compiler.Edge, opts ...RunOptions) (RunResult, error) {
 	var opt RunOptions
 	if len(opts) > 0 {
@@ -301,15 +310,27 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 		Mode:      Mode{Type: "transient"},
 		OnPrepare: opt.OnPrepare,
 		OnComplete: func(res RunResult) {
-			done <- res
+			select {
+			case done <- res:
+			default:
+			}
 			if opt.OnComplete != nil {
 				opt.OnComplete(res)
 			}
 		},
+		OnPause: func(res RunResult) {
+			select {
+			case done <- res:
+			default:
+			}
+			if opt.OnPause != nil {
+				opt.OnPause(res)
+			}
+		},
+		OnResume: opt.OnResume,
 	}); err != nil {
 		return RunResult{}, err
 	}
-	defer rt.Deregister(wf.ID)
 
 	rt.bus.Emit(ctx, ManualEvent, events.PipelineEvent{Payload: map[string]any{}})
 
@@ -324,10 +345,15 @@ func (rt *WorkflowRuntime) Run(ctx context.Context, nodes []compiler.Node, edges
 	defer timer.Stop()
 	select {
 	case res := <-done:
+		if res.Status != "paused" {
+			rt.Deregister(wf.ID)
+		}
 		return res, nil
 	case <-ctx.Done():
+		rt.Deregister(wf.ID)
 		return RunResult{}, ctx.Err()
 	case <-timer.C:
+		rt.Deregister(wf.ID)
 		return RunResult{}, core.NewSystemError(core.ErrCodeTimeout, "workflow run timed out")
 	}
 }

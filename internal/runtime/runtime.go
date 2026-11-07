@@ -197,6 +197,8 @@ type RegisterOptions struct {
 	Mode       Mode
 	OnPrepare  func(*RunHandle) error
 	OnComplete func(RunResult)
+	OnPause    func(RunResult)
+	OnResume   func(RunResult)
 	OnCleanup  func()
 }
 
@@ -231,7 +233,7 @@ type RunResult struct {
 	WorkflowID    string
 	TriggerID     string
 	PipelineID    string
-	Status        string // "succeeded" | "failed" | "aborted" | "paused"
+	Status        string // "succeeded" | "failed" | "aborted" | "paused" | "resumed" (OnResume only)
 	Error         error
 	FinalState    map[string]any
 	WaitForEvent  string                       `json:"waitForEvent,omitempty"`  // single event (backward compat)
@@ -244,6 +246,8 @@ type RunResult struct {
 type RunOptions struct {
 	OnPrepare  func(*RunHandle) error
 	OnComplete func(RunResult)
+	OnPause    func(RunResult)
+	OnResume   func(RunResult)
 	Timeout    time.Duration
 	Registry   pipeline.PipelineRegistry
 }

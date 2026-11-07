@@ -215,6 +215,16 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	rt.active[runID] = runCtx
 	rt.mu.Unlock()
 
+	rt.callOnResume(record, RunResult{
+		OK:         true,
+		RunID:      runID,
+		WorkflowID: paused.workflowID,
+		TriggerID:  paused.triggerID,
+		PipelineID: paused.pipelineID,
+		Status:     "resumed",
+		Checkpoint: ckpt,
+	})
+
 	res, runErr := runCtx.Run(context.Background())
 
 	cleanup()
@@ -228,11 +238,15 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 	}
 
 	result := RunResult{
-		RunID:      runID,
-		WorkflowID: paused.workflowID,
-		TriggerID:  paused.triggerID,
-		PipelineID: paused.pipelineID,
-		FinalState: finalState,
+		RunID:         runID,
+		WorkflowID:    paused.workflowID,
+		TriggerID:     paused.triggerID,
+		PipelineID:    paused.pipelineID,
+		FinalState:    finalState,
+		WaitForEvent:  res.WaitForEvent,
+		WaitForEvents: res.WaitForEvents,
+		WaitMode:      res.WaitMode,
+		Checkpoint:    res.Checkpoint,
 	}
 	if runErr != nil {
 		result.OK = false
@@ -314,6 +328,8 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 		// delivery — same C5 ordering as the spawn path).
 		rt.writeFoldSnapshot(runID, st, repaused.defHash)
 
+		rt.callOnPause(record, result)
+
 		// Deliver any event that arrived while the resumed segment was
 		// executing, then re-arm (or drop) the cron auto-resume.
 		if bufferedEvent := rt.watchService.OnRunPaused(runID); bufferedEvent != nil {
@@ -354,6 +370,8 @@ func (rt *WorkflowRuntime) Resume(runID string, payload map[string]any) RunResul
 				rt.scheduler.Cancel(runID)
 			}
 		}
+	} else if result.Status == "paused" {
+		rt.callOnPause(record, result)
 	}
 
 	// Don't call OnComplete if the run paused again — the next resume event
